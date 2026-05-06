@@ -308,7 +308,14 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
          //! `pub(crate)` constructors, and the v0.2.2 conformance suite (W5 ψ-leakage gate,\n\
          //! W6 public-API snapshot) catch any deviation.\n\
          //!\n\
-         //! # HostTypes (target §4.1 W10)\n\
+         //! # Substitution axes (per the UOR-Framework wiki)\n\
+         //!\n\
+         //! The wiki names three substitution axes the application author selects\n\
+         //! against — `HostTypes`, `HostBounds`, `Hasher`. The foundation defines\n\
+         //! the trait surface; downstream substrates declare the bound the trait\n\
+         //! must satisfy; the application's crate selects the implementation.\n\
+         //!\n\
+         //! ## `HostTypes` (target §4.1 W10)\n\
          //!\n\
          //! Downstream chooses representations only for the three slots that genuinely\n\
          //! vary across host environments. Witt-level integers, booleans, IRIs, canonical\n\
@@ -330,6 +337,20 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
          //!     const EMPTY_HOST_STRING: &'static str = \"\";\n\
          //!     const EMPTY_WITNESS_BYTES: &'static [u8] = &[];\n\
          //! }}\n\
+         //! ```\n\
+         //!\n\
+         //! ## `HostBounds` (wiki ADR-018)\n\
+         //!\n\
+         //! Carries every capacity bound that varies along the principal data\n\
+         //! path: the fingerprint output width range, the trace event-count\n\
+         //! ceiling, the algebraic-level bit-width ceiling. Per ADR-018 the\n\
+         //! architecture admits no capacity bound outside `HostBounds`.\n\
+         //!\n\
+         //! ```no_run\n\
+         //! use uor_foundation::{{HostBounds, DefaultHostBounds}};\n\
+         //!\n\
+         //! type B = DefaultHostBounds;\n\
+         //! assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);\n\
          //! ```\n\
          //!\n\
          //!\n\
@@ -479,8 +500,8 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.line("    CalibrationError, Certificate, CertificateKind, Certified, CompileUnit, CompileUnitBuilder,");
     f.line("    ContentAddress, ContentFingerprint, Derivation, Grounded, GroundingCertificate, Hasher,");
     f.line("    LandauerBudget, MultiplicationCertificate, Nanos, PipelineFailure, ReplayError, ShapeViolation,");
-    f.line("    Term, TermArena, TermList, Trace, TraceEvent, UorTime, Validated, FINGERPRINT_MAX_BYTES,");
-    f.line("    FINGERPRINT_MIN_BYTES, TRACE_MAX_EVENTS, TRACE_REPLAY_FORMAT_VERSION,");
+    f.line("    Term, TermArena, TermList, Trace, TraceEvent, UorTime, Validated,");
+    f.line("    TRACE_REPLAY_FORMAT_VERSION,");
     f.line("};");
     f.blank();
     // Product/Coproduct Completion Amendment §2.5: public re-exports of the");
@@ -796,6 +817,111 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.line("}");
     f.blank();
 
+    // ADR-018 (wiki) — `HostBounds` substitution axis.
+    //
+    // The wiki (https://github.com/UOR-Foundation/UOR-Framework/wiki) names
+    // three substitution axes — `HostTypes`, `HostBounds`, `Hasher`. ADR-018
+    // mandates that every capacity bound that varies along the principal
+    // data path is carried by `HostBounds` as an associated constant, and
+    // that signatures parameterize through `HostBounds` rather than through
+    // free-standing constants.
+    //
+    // On stable Rust 1.83 (the workspace MSRV) the parameterization uses
+    // min-const-generics: capacity-bearing types — `Hasher`,
+    // `ContentFingerprint`, `Trace` — and capacity-bearing functions
+    // (`Derivation::replay`, `replay::certify_from_trace`,
+    // `unit_address_from_buffer`, the `__test_helpers::trace_*` ctors) all
+    // carry `<const FP_MAX: usize>` / `<const TR_MAX: usize>` parameters.
+    // Applications selecting a different `HostBounds` impl populate each
+    // parameter with `<MyBounds as HostBounds>::CONST` at instantiation sites.
+    // Type-level defaults (`Hasher<const FP_MAX: usize = 32>`, etc.) match
+    // `DefaultHostBounds` so callers using the canonical defaults never write
+    // turbofish. The wiki's example syntax `[u8; H::FINGERPRINT_MAX_BYTES]`
+    // requires nightly `generic_const_exprs`, which the stable workspace does
+    // not enable.
+    //
+    // `TRACE_REPLAY_FORMAT_VERSION` stays foundation-fixed: the wiki
+    // explicitly carves out wire-format identifiers from the `HostBounds`
+    // rule, since cross-implementation interop requires a single shared
+    // format identifier.
+    f.doc_comment("Substitution axis 2 of 3 (per the UOR-Framework wiki). Carries every");
+    f.doc_comment("capacity bound that varies along the principal data path: the fingerprint");
+    f.doc_comment("output width range, the trace event-count ceiling, and the algebraic-level");
+    f.doc_comment("bit-width ceiling. The application author selects an impl; the foundation");
+    f.doc_comment("(this trait) declares the contract.");
+    f.doc_comment("");
+    f.doc_comment("Per the wiki's ADR-018, the architecture admits no capacity bound outside");
+    f.doc_comment("`HostBounds`. Foundation's `Hasher`, `ContentFingerprint`, and `Trace` are");
+    f.doc_comment("const-generic over their capacity bounds; applications populate each");
+    f.doc_comment("type's const-generic with `<MyBounds as HostBounds>::CONST`. There are no");
+    f.doc_comment("free-standing capacity constants on the public surface — collapsing the");
+    f.doc_comment("substitution axis is exactly what ADR-018 rejects.");
+    f.doc_comment("");
+    f.doc_comment("# Example");
+    f.doc_comment("");
+    f.doc_comment("```");
+    f.doc_comment("use uor_foundation::{HostBounds, DefaultHostBounds};");
+    f.doc_comment("");
+    f.doc_comment("// Inherit the canonical defaults (16 / 32 / 256 / 64).");
+    f.doc_comment("type B = DefaultHostBounds;");
+    f.doc_comment("assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);");
+    f.doc_comment("");
+    f.doc_comment("// Or declare an application-specific capacity profile:");
+    f.doc_comment("struct BitcoinPow;");
+    f.doc_comment("impl HostBounds for BitcoinPow {");
+    f.doc_comment("    const FINGERPRINT_MIN_BYTES: usize = 32;");
+    f.doc_comment("    const FINGERPRINT_MAX_BYTES: usize = 32;");
+    f.doc_comment("    const TRACE_MAX_EVENTS: usize = 1024;");
+    f.doc_comment("    const WITT_LEVEL_MAX_BITS: u32 = 256;");
+    f.doc_comment("}");
+    f.doc_comment("```");
+    f.line("pub trait HostBounds {");
+    f.indented_doc_comment("Minimum content-fingerprint width in bytes that the application's");
+    f.indented_doc_comment("selected `Hasher` impl MUST produce. Derived from the application's");
+    f.indented_doc_comment("collision-probability target (16 bytes ≈ 2^-64 under the birthday");
+    f.indented_doc_comment("bound; raise to 32 to reach 2^-128).");
+    f.line("    const FINGERPRINT_MIN_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("Maximum content-fingerprint width in bytes — the inline buffer");
+    f.indented_doc_comment("capacity carried by every `ContentFingerprint`. The application's");
+    f.indented_doc_comment("selected `Hasher` MUST produce output no wider than this.");
+    f.line("    const FINGERPRINT_MAX_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("Maximum number of `TraceEvent` values a `Trace` may carry.");
+    f.indented_doc_comment("Bounds the inline event buffer and caps verification time.");
+    f.line("    const TRACE_MAX_EVENTS: usize;");
+    f.blank();
+    f.indented_doc_comment("Algebraic-level bit-width ceiling. Caps the Witt-level any value");
+    f.indented_doc_comment("along the principal data path may compute against. The");
+    f.indented_doc_comment("`DefaultHostBounds` value of 64 corresponds to `WittLevel::W64`.");
+    f.line("    const WITT_LEVEL_MAX_BITS: u32;");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Canonical default impl of [`HostBounds`]. Carries the values the default");
+    f.doc_comment("const-generic on `Hasher`, `ContentFingerprint`, and `Trace` resolves to.");
+    f.doc_comment("Use as `type B = uor_foundation::DefaultHostBounds;` to inherit; replace");
+    f.doc_comment("with a downstream marker struct when an application needs different");
+    f.doc_comment("capacity bounds (per ADR-018, this is the only sanctioned way to vary).");
+    f.line("#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]");
+    f.line("pub struct DefaultHostBounds;");
+    f.blank();
+    f.line("impl HostBounds for DefaultHostBounds {");
+    // 16 bytes = 128 bits — the v0.2.2 collision-probability target's
+    // birthday-bound minimum (2^-64).
+    f.line("    const FINGERPRINT_MIN_BYTES: usize = 16;");
+    // 32 bytes = 256 bits — accommodates BLAKE3, SHA-256, BLAKE2s, SHA3-256
+    // at the 256-bit security level (2^-128 collision probability).
+    f.line("    const FINGERPRINT_MAX_BYTES: usize = 32;");
+    // 256 events = enough for the v0.2.2 reduction-stage sequences without
+    // forcing alloc.
+    f.line("    const TRACE_MAX_EVENTS: usize = 256;");
+    // 64 bits — corresponds to `WittLevel::W64`, the largest Witt level
+    // the foundation's enum currently exposes.
+    f.line("    const WITT_LEVEL_MAX_BITS: u32 = 64;");
+    f.line("}");
+    f.blank();
+
     f.finish()
 }
 
@@ -959,7 +1085,7 @@ impl Hasher for Blake3Hasher {{
     fn initial() -> Self {{ /* ... */ }}
     fn fold_byte(self, b: u8) -> Self {{ /* ... */ }}
     fn fold_bytes(self, bytes: &[u8]) -> Self {{ /* ... */ }}
-    fn finalize(self) -> [u8; uor_foundation::FINGERPRINT_MAX_BYTES] {{ /* ... */ }}
+    fn finalize(self) -> [u8; 32] {{ /* `<DefaultHostBounds>::FINGERPRINT_MAX_BYTES` */ }}
 }}
 
 let grounded = run::<MyShape, _, Blake3Hasher>(validated_unit)?;

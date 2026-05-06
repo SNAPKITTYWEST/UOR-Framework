@@ -20,9 +20,12 @@ use uor_foundation::{
 };
 
 fn fp(byte: u8) -> ContentFingerprint {
-    let mut buf = [0u8; uor_foundation::FINGERPRINT_MAX_BYTES];
+    // 32 = `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES` (the
+    // default const-generic), 16 = active width carrying a 128-bit
+    // fingerprint per `<DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES`.
+    let mut buf = [0u8; 32];
     buf[0] = byte;
-    ContentFingerprint::from_buffer(buf, uor_foundation::FINGERPRINT_MIN_BYTES as u8)
+    ContentFingerprint::from_buffer(buf, 16u8)
 }
 
 fn sample_record(site_budget: u16, euler: i32) -> PartitionRecord<DefaultHostTypes> {

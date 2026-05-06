@@ -46,7 +46,13 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "JACOBIAN_MAX_SITES constant",
             "pub const JACOBIAN_MAX_SITES: usize = 8;",
         ),
-        ("TRACE_MAX_EVENTS constant", "pub const TRACE_MAX_EVENTS"),
+        // Trace event-count ceiling is carried by `HostBounds` per the wiki's
+        // ADR-018 — there is no free-standing `TRACE_MAX_EVENTS` constant; the
+        // canonical surface is `Trace<const TR_MAX: usize = 256>`.
+        (
+            "Trace const-generic carrier",
+            "pub struct Trace<const TR_MAX: usize",
+        ),
         // Sealed BaseMetric carriers.
         ("SigmaValue sealed type", "pub struct SigmaValue"),
         (
@@ -155,11 +161,12 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "Grounded::triad accessor",
             "pub const fn triad(&self) -> Triad<T>",
         ),
-        // Derivation::replay accessor (v0.2.2 T6.12: no longer const fn;
-        // seeds from `content_fingerprint` bytes at runtime).
+        // Derivation::replay accessor — parametric over `<const TR_MAX: usize>`
+        // per ADR-018; the trace event-count ceiling flows from the
+        // application's selected `HostBounds`.
         (
             "Derivation::replay accessor",
-            "pub fn replay(&self) -> Trace",
+            "pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX>",
         ),
     ];
 

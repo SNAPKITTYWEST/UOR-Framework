@@ -6032,31 +6032,12 @@ impl Default for ContentAddress {
     }
 }
 
-/// v0.2.2 T5: maximum content-fingerprint width carried inline on foundation types.
-/// Sized to accommodate the standard cryptographic hash outputs at the
-/// 256-bit security level: BLAKE3 (default), SHA-256, BLAKE2s, SHA3-256, etc.
-/// Substrates that need wider outputs (SHA-512, BLAKE2b-512) truncate to
-/// 32 bytes at finalize time, which preserves their full collision-resistance
-/// under the birthday bound (2^-128).
-/// A `Grounded` value occupies one inline buffer of this width plus a
-/// 1-byte active-width tag. The 32-byte cap keeps `Grounded` under the 256-byte
-/// phantom_tag budget pinned by the conformance suite.
-pub const FINGERPRINT_MAX_BYTES: usize = 32;
-
-/// v0.2.2 T5: minimum required content-fingerprint width for substrate hashers.
-/// **Derived, not chosen.** The v0.2.2 correctness target requires trace-replay
-/// collision probability ≤ 2^-64 in non-adversarial settings. Under the
-/// birthday bound, an `n`-bit hash reaches a 2^-(n/2) collision probability, so
-/// the minimum bit width satisfying 2^-64 is `n = 128`, i.e., 16 bytes.
-/// A future version of the foundation that targets a different collision
-/// probability raises this constant accordingly; the value reflects the
-/// correctness target, not a prescription.
-pub const FINGERPRINT_MIN_BYTES: usize = 16;
-
-/// v0.2.2 T5: canonical-byte-layout version. Increment when the layout
-/// changes (event ordering, trailing fields, primitive-op discriminant table,
-/// certificate-kind discriminant table). Pinned by the
-/// `rust/trace_byte_layout_pinned` conformance validator.
+/// Trace wire-format identifier. Per the wiki's ADR-018, wire-format
+/// identifiers are explicitly carved out of the `HostBounds` rule because
+/// cross-implementation interop requires a single shared format identifier.
+/// Increment when the layout changes (event ordering, trailing fields,
+/// primitive-op discriminant table, certificate-kind discriminant table).
+/// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
 pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
@@ -6082,10 +6063,11 @@ pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;
 /// (`Hasher`); downstream provides the concrete substrate AND chooses the
 /// output width within the foundation's correctness budget.
 /// # Required laws
-/// 1. **Width-in-budget**: `OUTPUT_BYTES` must be in `[FINGERPRINT_MIN_BYTES,
-///    FINGERPRINT_MAX_BYTES]`. Enforced at codegen time via a
-///    `const _: () = assert!(...)` block emitted inside every
-///    `pipeline::run::<T, _, H>` body.
+/// 1. **Width-in-budget**: `OUTPUT_BYTES` must be in
+///    `[<B as HostBounds>::FINGERPRINT_MIN_BYTES, FP_MAX]` where `FP_MAX`
+///    is the const-generic carrying `<B as HostBounds>::FINGERPRINT_MAX_BYTES`.
+///    Enforced at codegen time via a `const _: () = assert!(...)` block
+///    emitted inside every `pipeline::run::<T, _, H>` body.
 /// 2. **Determinism**: identical byte sequences produce bit-identical outputs
 ///    across program runs, builds, target architectures, and rustc versions.
 /// 3. **Sensitivity**: hashing two byte sequences that differ in any byte
@@ -6095,7 +6077,7 @@ pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;
 ///    new state. Impls that depend on hidden mutable state violate the contract.
 /// # Example
 /// ```
-/// use uor_foundation::enforcement::{Hasher, FINGERPRINT_MAX_BYTES};
+/// use uor_foundation::enforcement::Hasher;
 /// /// Minimal 128-bit (16-byte) FNV-1a substrate — two 64-bit lanes.
 /// #[derive(Clone, Copy)]
 /// pub struct Fnv1a16 { a: u64, b: u64 }
@@ -6111,17 +6093,22 @@ pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;
 ///         self.b = self.b.wrapping_mul(0x100000001b3);
 ///         self
 ///     }
-///     fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES] {
-///         let mut buf = [0u8; FINGERPRINT_MAX_BYTES];
+///     fn finalize(self) -> [u8; 32] {
+///         let mut buf = [0u8; 32];
 ///         buf[..8].copy_from_slice(&self.a.to_be_bytes());
 ///         buf[8..16].copy_from_slice(&self.b.to_be_bytes());
 ///         buf
 ///     }
 /// }
 /// ```
-pub trait Hasher {
-    /// Active output width in bytes. Must be in
-    /// `[FINGERPRINT_MIN_BYTES, FINGERPRINT_MAX_BYTES]`.
+/// Above, `Hasher` is reached through its default const-generic
+/// `<FP_MAX = 32>`, which is the `DefaultHostBounds::FINGERPRINT_MAX_BYTES`
+/// value. Applications that select a different `HostBounds` impl write
+/// `impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}> for MyHasher`.
+pub trait Hasher<const FP_MAX: usize = 32> {
+    /// Active output width in bytes. Must lie within the bounds
+    /// the application's selected `HostBounds` declares —
+    /// `[<B as HostBounds>::FINGERPRINT_MIN_BYTES, FP_MAX]`.
     const OUTPUT_BYTES: usize;
 
     /// Initial hasher state.
@@ -6146,31 +6133,33 @@ pub trait Hasher {
         self
     }
 
-    /// Finalize into the canonical max-width buffer. Bytes
-    /// `0..OUTPUT_BYTES` carry the hash result; bytes
-    /// `OUTPUT_BYTES..FINGERPRINT_MAX_BYTES` MUST be zero.
-    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES];
+    /// Finalize into the canonical max-width buffer of `FP_MAX` bytes.
+    /// Bytes `0..OUTPUT_BYTES` carry the hash result; bytes
+    /// `OUTPUT_BYTES..FP_MAX` MUST be zero.
+    fn finalize(self) -> [u8; FP_MAX];
 }
 
-/// v0.2.2 T5: sealed parametric content fingerprint.
-/// Wraps a fixed-capacity byte buffer of `FINGERPRINT_MAX_BYTES` bytes plus
-/// the active width in bytes. The active width is set by the producing
-/// `Hasher::OUTPUT_BYTES` and recorded so that downstream can distinguish
-/// "this is a 128-bit fingerprint" from "this is a 256-bit fingerprint"
-/// without inspecting the trailing zero bytes.
+/// Sealed parametric content fingerprint.
+/// Wraps a fixed-capacity byte buffer of `FP_MAX` bytes plus the
+/// active width in bytes. `FP_MAX` is the const-generic that carries
+/// the application's selected `HostBounds::FINGERPRINT_MAX_BYTES`
+/// (default = 32, matching `DefaultHostBounds`). The active width
+/// is set by the producing `Hasher::OUTPUT_BYTES` and recorded so
+/// downstream can distinguish "this is a 128-bit fingerprint" from
+/// "this is a 256-bit fingerprint" without inspecting trailing zeros.
 /// Equality is bit-equality on the full buffer + width tag, so two
-/// fingerprints from different hashers (different widths) are never equal
-/// even if their leading bytes happen to coincide. This prevents silent
-/// collisions when downstream consumers mix substrate hashers.
+/// fingerprints from different hashers (different widths) are never
+/// equal even if their leading bytes happen to coincide. This prevents
+/// silent collisions when downstream consumers mix substrate hashers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ContentFingerprint {
-    bytes: [u8; FINGERPRINT_MAX_BYTES],
+pub struct ContentFingerprint<const FP_MAX: usize = 32> {
+    bytes: [u8; FP_MAX],
     width_bytes: u8,
     _sealed: (),
 }
 
-impl ContentFingerprint {
-    /// v0.2.2 T6.6: pub(crate) zero placeholder. Used internally as the
+impl<const FP_MAX: usize> ContentFingerprint<FP_MAX> {
+    /// Crate-internal zero placeholder. Used internally as the
     /// `Trace::empty()` field initializer and the `Default` impl. Not
     /// publicly constructible; downstream that needs a `ContentFingerprint`
     /// constructs one via `Hasher::finalize()` followed by `from_buffer()`.
@@ -6179,7 +6168,7 @@ impl ContentFingerprint {
     #[allow(dead_code)]
     pub(crate) const fn zero() -> Self {
         Self {
-            bytes: [0u8; FINGERPRINT_MAX_BYTES],
+            bytes: [0u8; FP_MAX],
             width_bytes: 0,
             _sealed: (),
         }
@@ -6207,10 +6196,10 @@ impl ContentFingerprint {
     }
 
     /// The full buffer. Bytes `0..width_bytes` are the hash; bytes
-    /// `width_bytes..FINGERPRINT_MAX_BYTES` are zero.
+    /// `width_bytes..FP_MAX` are zero.
     #[inline]
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; FINGERPRINT_MAX_BYTES] {
+    pub const fn as_bytes(&self) -> &[u8; FP_MAX] {
         &self.bytes
     }
 
@@ -6219,7 +6208,7 @@ impl ContentFingerprint {
     /// paths via the `__test_helpers` back-door.
     #[inline]
     #[must_use]
-    pub const fn from_buffer(bytes: [u8; FINGERPRINT_MAX_BYTES], width_bytes: u8) -> Self {
+    pub const fn from_buffer(bytes: [u8; FP_MAX], width_bytes: u8) -> Self {
         Self {
             bytes,
             width_bytes,
@@ -6228,7 +6217,7 @@ impl ContentFingerprint {
     }
 }
 
-impl Default for ContentFingerprint {
+impl<const FP_MAX: usize> Default for ContentFingerprint<FP_MAX> {
     #[inline]
     fn default() -> Self {
         Self::zero()
@@ -7416,14 +7405,20 @@ pub fn fold_interaction_step_digest<H: Hasher>(
     hasher
 }
 
-/// v0.2.2 T5: utility — extract the leading 16 bytes of a finalize buffer
+/// Utility — extract the leading 16 bytes of a `Hasher::finalize` buffer
 /// as a `ContentAddress`. Used by pipeline entry points to derive the
-/// legacy 16-byte unit_address handle from a freshly-computed substrate
+/// 16-byte unit_address handle from a freshly-computed substrate
 /// fingerprint, so two units with distinct fingerprints have distinct
 /// unit_address handles too.
+/// Per the wiki's ADR-018 the `FP_MAX` const-generic carries the
+/// application's selected `<B as HostBounds>::FINGERPRINT_MAX_BYTES`.
+/// `FP_MAX` MUST be at least 16; smaller buffers cannot supply the
+/// 16-byte address prefix.
 #[inline]
 #[must_use]
-pub const fn unit_address_from_buffer(buffer: &[u8; FINGERPRINT_MAX_BYTES]) -> ContentAddress {
+pub const fn unit_address_from_buffer<const FP_MAX: usize>(
+    buffer: &[u8; FP_MAX],
+) -> ContentAddress {
     let mut bytes = [0u8; 16];
     let mut i = 0;
     while i < 16 {
@@ -15059,39 +15054,39 @@ impl TraceEvent {
     }
 }
 
-/// v0.2.2 Phase E: maximum number of TraceEvents a single Trace can
-/// carry. Matches the Landauer-budget upper bound of a CompileUnit.
-pub const TRACE_MAX_EVENTS: usize = 256;
-
-/// v0.2.2 Phase E: fixed-capacity derivation trace. Holds up to
-/// `TRACE_MAX_EVENTS` events inline; no heap. Produced by
-/// `Derivation::replay()` and consumed by `uor-foundation-verify`.
-/// v0.2.2 T5: carries `witt_level_bits` and `content_fingerprint` so
-/// `verify_trace` can reconstruct the source `GroundingCertificate` via
-/// structural-validation + fingerprint passthrough (no hash recomputation).
+/// Fixed-capacity derivation trace. Holds up to `TR_MAX` events inline;
+/// no heap. Produced by `Derivation::replay()` and consumed by
+/// `uor-foundation-verify`. `TR_MAX` is the const-generic that carries
+/// the application's selected `<MyBounds as HostBounds>::TRACE_MAX_EVENTS`;
+/// the default const-generic resolves to `DefaultHostBounds`'s 256.
+/// Carries `witt_level_bits` and `content_fingerprint` so `verify_trace`
+/// can reconstruct the source `GroundingCertificate` via structural-
+/// validation + fingerprint passthrough (no hash recomputation).
 #[derive(Debug, Clone, Copy)]
-pub struct Trace {
-    events: [Option<TraceEvent>; TRACE_MAX_EVENTS],
+pub struct Trace<const TR_MAX: usize = 256> {
+    events: [Option<TraceEvent>; TR_MAX],
     len: u16,
-    /// v0.2.2 T5: Witt level the source grounding was minted at, packed
+    /// Witt level the source grounding was minted at, packed
     /// by `Derivation::replay` from the parent `Grounded::witt_level_bits`.
     /// `verify_trace` reads this back to populate the certificate.
     witt_level_bits: u16,
-    /// v0.2.2 T5: parametric content fingerprint of the source unit's full
-    /// state, computed at grounding time by the consumer-supplied `Hasher`
-    /// and packed in by `Derivation::replay`. `verify_trace` passes it
-    /// through unchanged.
+    /// Parametric content fingerprint of the source unit's full state,
+    /// computed at grounding time by the consumer-supplied `Hasher` and
+    /// packed in by `Derivation::replay`. `verify_trace` passes it through
+    /// unchanged. The fingerprint's `FP_MAX` follows the application's
+    /// selected `<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES`; this
+    /// field uses the default-bound `ContentFingerprint`.
     content_fingerprint: ContentFingerprint,
     _sealed: (),
 }
 
-impl Trace {
+impl<const TR_MAX: usize> Trace<TR_MAX> {
     /// An empty Trace.
     #[inline]
     #[must_use]
     pub const fn empty() -> Self {
         Self {
-            events: [None; TRACE_MAX_EVENTS],
+            events: [None; TR_MAX],
             len: 0,
             witt_level_bits: 0,
             content_fingerprint: ContentFingerprint::zero(),
@@ -15099,7 +15094,7 @@ impl Trace {
         }
     }
 
-    /// v0.2.2 T6.10: crate-internal ctor for `Derivation::replay()` only.
+    /// Crate-internal ctor for `Derivation::replay()` only.
     /// Bypasses validation because `replay()` constructs events from
     /// foundation-guaranteed-valid state (monotonic, contiguous, non-zero
     /// seed). No public path reaches this constructor; downstream uses the
@@ -15108,7 +15103,7 @@ impl Trace {
     #[must_use]
     #[allow(dead_code)]
     pub(crate) const fn from_replay_events_const(
-        events: [Option<TraceEvent>; TRACE_MAX_EVENTS],
+        events: [Option<TraceEvent>; TR_MAX],
         len: u16,
         witt_level_bits: u16,
         content_fingerprint: ContentFingerprint,
@@ -15161,13 +15156,13 @@ impl Trace {
         self.content_fingerprint
     }
 
-    /// v0.2.2 T5 C4: validating constructor. Checks every invariant the
-    /// verify path relies on: events are contiguous from index 0, no event
-    /// has a zero target, and the slice fits within `TRACE_MAX_EVENTS`.
+    /// Validating constructor. Checks every invariant the verify path
+    /// relies on: events are contiguous from index 0, no event has a zero
+    /// target, and the slice fits within `TR_MAX` events.
     /// # Errors
     /// - `ReplayError::EmptyTrace` if `events.is_empty()`.
     /// - `ReplayError::CapacityExceeded { declared, provided }` if the
-    ///   slice exceeds `TRACE_MAX_EVENTS`.
+    ///   slice exceeds `TR_MAX`.
     /// - `ReplayError::OutOfOrderEvent { index }` if the event at `index`
     ///   has a `step_index` not equal to `index` (strict contiguity).
     /// - `ReplayError::ZeroTarget { index }` if any event carries a zero
@@ -15180,9 +15175,9 @@ impl Trace {
         if events.is_empty() {
             return Err(ReplayError::EmptyTrace);
         }
-        if events.len() > TRACE_MAX_EVENTS {
+        if events.len() > TR_MAX {
             return Err(ReplayError::CapacityExceeded {
-                declared: TRACE_MAX_EVENTS as u16,
+                declared: TR_MAX as u16,
                 provided: events.len() as u32,
             });
         }
@@ -15197,7 +15192,7 @@ impl Trace {
             }
             i += 1;
         }
-        let mut arr = [None; TRACE_MAX_EVENTS];
+        let mut arr = [None; TR_MAX];
         let mut j = 0usize;
         while j < events.len() {
             arr[j] = Some(events[j]);
@@ -15213,7 +15208,7 @@ impl Trace {
     }
 }
 
-impl Default for Trace {
+impl<const TR_MAX: usize> Default for Trace<TR_MAX> {
     #[inline]
     fn default() -> Self {
         Self::empty()
@@ -15225,12 +15220,14 @@ impl Default for Trace {
 /// length matches the derivation's `step_count()`, and each event's
 /// `step_index` reflects its position in the derivation.
 impl Derivation {
-    /// Replay this derivation as a fixed-size `Trace` whose length matches
-    /// `self.step_count()` (capped at `TRACE_MAX_EVENTS`).
+    /// Replay this derivation as a fixed-size `Trace<TR_MAX>` whose length matches
+    /// `self.step_count()` (capped at the application's `<HostBounds>::TRACE_MAX_EVENTS`).
+    /// Callers either annotate the binding (`let trace: Trace = ...;` picks
+    /// `DefaultHostBounds`'s 256) or use turbofish (`derivation.replay::<1024>()`).
     /// # Example
     /// ```no_run
     /// use uor_foundation::enforcement::{
-    ///     replay, CompileUnitBuilder, ConstrainedTypeInput, Grounded, Term,
+    ///     replay, CompileUnitBuilder, ConstrainedTypeInput, Grounded, Term, Trace,
     /// };
     /// use uor_foundation::pipeline::run;
     /// use uor_foundation::{VerificationDomain, WittLevel};
@@ -15239,8 +15236,7 @@ impl Derivation {
     /// #     const OUTPUT_BYTES: usize = 16;
     /// #     fn initial() -> Self { Self }
     /// #     fn fold_byte(self, _: u8) -> Self { self }
-    /// #     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {
-    /// #         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] } }
+    /// #     fn finalize(self) -> [u8; 32] { [0; 32] } }
     /// static TERMS: &[Term] = &[Term::Literal { value: 7, level: WittLevel::W8 }];
     /// static DOMS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
     /// let unit = CompileUnitBuilder::new()
@@ -15250,23 +15246,21 @@ impl Derivation {
     ///     .validate().expect("unit well-formed");
     /// let grounded: Grounded<ConstrainedTypeInput> =
     ///     run::<ConstrainedTypeInput, _, H>(unit).expect("grounds");
-    /// // Replay → round-trip verification.
-    /// let trace = grounded.derivation().replay();
+    /// // Replay → round-trip verification. The trace's event-count
+    /// // capacity comes from the application's `HostBounds`; here the
+    /// // type-annotated binding inherits `DefaultHostBounds`'s 256.
+    /// let trace: Trace = grounded.derivation().replay();
     /// let recert = replay::certify_from_trace(&trace).expect("valid trace");
     /// assert_eq!(recert.certificate().content_fingerprint(),
     ///            grounded.content_fingerprint());
     /// ```
     #[inline]
     #[must_use]
-    pub fn replay(&self) -> Trace {
+    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX> {
         let steps = self.step_count() as usize;
-        let len = if steps > TRACE_MAX_EVENTS {
-            TRACE_MAX_EVENTS
-        } else {
-            steps
-        };
-        let mut events = [None; TRACE_MAX_EVENTS];
-        // v0.2.2 T6.12: seed targets from the leading 8 bytes of the source
+        let len = if steps > TR_MAX { TR_MAX } else { steps };
+        let mut events = [None; TR_MAX];
+        // Seed targets from the leading 8 bytes of the source
         // `content_fingerprint` (substrate-computed). Combined with `| 1` so
         // the first event's target is guaranteed nonzero even when the
         // leading bytes are all zero, and XOR with `(i + 1)` keeps the
@@ -15285,7 +15279,7 @@ impl Derivation {
             ));
             i += 1;
         }
-        // v0.2.2 T5: pack the source `witt_level_bits` and `content_fingerprint`
+        // Pack the source `witt_level_bits` and `content_fingerprint`
         // into the Trace so `verify_trace` can reproduce the source certificate
         // via passthrough. The fingerprint was computed at grounding time by the
         // consumer-supplied Hasher and stored on the parent Grounded; the
@@ -15328,14 +15322,14 @@ pub enum ReplayError {
         /// variant fires.
         last_step: u32,
     },
-    /// v0.2.2 T5.8: a caller attempted to construct a Trace whose event
-    /// count exceeds `TRACE_MAX_EVENTS`. Distinct from `NonContiguousSteps`
-    /// because the recovery is different (truncate vs. close gaps).
-    /// Returned by `Trace::try_from_events`, never by `verify_trace`
-    /// (the verifier reads from an existing `Trace` whose capacity is
-    /// already enforced by the type's storage).
+    /// A caller attempted to construct a `Trace<TR_MAX>` whose event count
+    /// exceeds `TR_MAX` (the application's `<HostBounds>::TRACE_MAX_EVENTS`).
+    /// Distinct from `NonContiguousSteps` because the recovery is different
+    /// (truncate vs. close gaps). Returned by `Trace::try_from_events`,
+    /// never by `verify_trace` (the verifier reads from an existing `Trace`
+    /// whose capacity is already enforced by the type's storage).
     CapacityExceeded {
-        /// The trace's hard capacity (`TRACE_MAX_EVENTS`).
+        /// The trace's hard capacity (`TR_MAX`).
         declared: u16,
         /// The actual event count the caller attempted to pack in.
         provided: u32,
@@ -15405,8 +15399,8 @@ pub mod replay {
     ///   `ContentAddress::zero()`.
     /// - `ReplayError::NonContiguousSteps { declared, last_step }` if
     ///   the event step indices skip values.
-    pub fn certify_from_trace(
-        trace: &Trace,
+    pub fn certify_from_trace<const TR_MAX: usize>(
+        trace: &Trace<TR_MAX>,
     ) -> Result<Certified<GroundingCertificate>, ReplayError> {
         let len = trace.len() as usize;
         if len == 0 {
@@ -16834,36 +16828,35 @@ impl MarkersImpliedBy<Utf8GroundingMap> for (InvertibleMarker, PreservesStructur
 /// re-exports them under stable test-only names. Not part of the public API.
 #[doc(hidden)]
 pub mod __test_helpers {
-    use super::{
-        ContentAddress, ContentFingerprint, MulContext, Trace, TraceEvent, Validated,
-        TRACE_MAX_EVENTS,
-    };
+    use super::{ContentAddress, ContentFingerprint, MulContext, Trace, TraceEvent, Validated};
 
     /// Test-only ctor: build a Trace from a slice of events with a
     /// `ContentFingerprint::zero()` placeholder. Tests that need a non-zero
-    /// fingerprint use `trace_with_fingerprint` instead.
+    /// fingerprint use `trace_with_fingerprint` instead. Parametric in
+    /// `TR_MAX` per the wiki's ADR-018; callers pick the trace event-count
+    /// ceiling from their selected `HostBounds`.
     #[must_use]
-    pub fn trace_from_events(events: &[TraceEvent]) -> Trace {
+    pub fn trace_from_events<const TR_MAX: usize>(events: &[TraceEvent]) -> Trace<TR_MAX> {
         trace_with_fingerprint(events, 0, ContentFingerprint::zero())
     }
 
-    /// v0.2.2 T5: test-only ctor that takes an explicit `witt_level_bits`
-    /// and `ContentFingerprint`. Used by round-trip tests that need to
-    /// verify the verify-trace fingerprint passthrough invariant.
+    /// Test-only ctor that takes an explicit `witt_level_bits` and
+    /// `ContentFingerprint`. Used by round-trip tests that need to verify
+    /// the verify-trace fingerprint passthrough invariant.
     #[must_use]
-    pub fn trace_with_fingerprint(
+    pub fn trace_with_fingerprint<const TR_MAX: usize>(
         events: &[TraceEvent],
         witt_level_bits: u16,
         content_fingerprint: ContentFingerprint,
-    ) -> Trace {
-        let mut arr = [None; TRACE_MAX_EVENTS];
-        let n = events.len().min(TRACE_MAX_EVENTS);
+    ) -> Trace<TR_MAX> {
+        let mut arr = [None; TR_MAX];
+        let n = events.len().min(TR_MAX);
         let mut i = 0;
         while i < n {
             arr[i] = Some(events[i]);
             i += 1;
         }
-        // v0.2.2 T6.10: the test-helpers back-door uses the foundation-private
+        // The test-helpers back-door uses the foundation-private
         // `from_replay_events_const` to build malformed fixtures for error-path
         // tests. Downstream code uses `Trace::try_from_events` (validating).
         Trace::from_replay_events_const(arr, n as u16, witt_level_bits, content_fingerprint)

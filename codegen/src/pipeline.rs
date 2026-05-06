@@ -1276,10 +1276,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("#     const OUTPUT_BYTES: usize = 16;");
     f.doc_comment("#     fn initial() -> Self { Self }");
     f.doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
-    f.doc_comment(
-        "#     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {",
-    );
-    f.doc_comment("#         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] }");
+    f.doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] }");
     f.doc_comment("# }");
     f.doc_comment("# fn wrap<T>(t: T) -> Validated<T> { unimplemented!() /* see uor_foundation_test_helpers */ }");
     f.doc_comment("");
@@ -3582,10 +3579,7 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("#     const OUTPUT_BYTES: usize = 16;");
     f.doc_comment("#     fn initial() -> Self { Self }");
     f.doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
-    f.doc_comment(
-        "#     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {",
-    );
-    f.doc_comment("#         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] }");
+    f.doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] }");
     f.doc_comment("# }");
     f.doc_comment("static TERMS: &[Term] = &[Term::Literal { value: 1, level: WittLevel::W8 }];");
     f.doc_comment("static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];");

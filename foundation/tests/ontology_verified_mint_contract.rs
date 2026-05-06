@@ -22,13 +22,10 @@ use uor_foundation::witness_scaffolds::{
 use uor_foundation::DefaultHostTypes;
 
 fn nonzero_fp(seed: u8) -> ContentFingerprint {
-    let mut buf = [0u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES];
+    let mut buf = [0u8; 32];
     buf[0] = seed;
     buf[1] = seed.wrapping_add(1);
-    ContentFingerprint::from_buffer(
-        buf,
-        uor_foundation::enforcement::FINGERPRINT_MAX_BYTES as u8,
-    )
+    ContentFingerprint::from_buffer(buf, 32u8)
 }
 
 #[test]

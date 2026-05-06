@@ -25,9 +25,9 @@ use uor_foundation::{
 };
 
 fn fp(byte: u8) -> ContentFingerprint {
-    let mut buf = [0u8; uor_foundation::FINGERPRINT_MAX_BYTES];
+    let mut buf = [0u8; 32];
     buf[0] = byte;
-    ContentFingerprint::from_buffer(buf, uor_foundation::FINGERPRINT_MIN_BYTES as u8)
+    ContentFingerprint::from_buffer(buf, 16u8)
 }
 
 // All tests in this file share a (2 + 3) operand layout with tag_site = 3

@@ -12,7 +12,6 @@
 
 use uor_foundation::enforcement::{
     CompileUnitBuilder, ConstrainedTypeInput, Grounded, Hasher, Term, Validated,
-    FINGERPRINT_MAX_BYTES,
 };
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
@@ -45,8 +44,11 @@ impl Hasher for MyFnv1aHasher {
         self
     }
 
-    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES] {
-        let mut buf = [0u8; FINGERPRINT_MAX_BYTES];
+    // 32 = `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES`, the
+    // default const-generic on `Hasher`. Applications selecting a different
+    // `HostBounds` impl declare `impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}>`.
+    fn finalize(self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
         buf[..8].copy_from_slice(&self.lane_a.to_be_bytes());
         buf[8..16].copy_from_slice(&self.lane_b.to_be_bytes());
         // Bytes 16..32 stay zero (OUTPUT_BYTES = 16).

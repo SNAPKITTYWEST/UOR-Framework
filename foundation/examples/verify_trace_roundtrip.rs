@@ -33,8 +33,10 @@ fn main() {
     let grounded: Grounded<ConstrainedTypeInput> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("pipeline admits");
 
-    // Replay: extract a Trace from the grounded derivation.
-    let trace = grounded.derivation().replay();
+    // Replay: extract a Trace from the grounded derivation. Type-annotate
+    // so `replay::<TR_MAX>` infers `TR_MAX` from `Trace`'s default
+    // const-generic (= `<DefaultHostBounds>::TRACE_MAX_EVENTS`).
+    let trace: uor_foundation::Trace = grounded.derivation().replay();
     println!(
         "Trace: {} event(s) at witt_level_bits={}",
         trace.len(),

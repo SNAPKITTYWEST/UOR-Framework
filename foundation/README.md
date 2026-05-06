@@ -16,7 +16,7 @@ typed Rust traits. Import and implement.
 
 ```toml
 [dependencies]
-uor-foundation = "0.3.0"
+uor-foundation = "0.3.1"
 ```
 
 ### HostTypes (target §4.1 W10)
@@ -163,7 +163,7 @@ impl Hasher for Blake3Hasher {
     fn initial() -> Self { /* ... */ }
     fn fold_byte(self, b: u8) -> Self { /* ... */ }
     fn fold_bytes(self, bytes: &[u8]) -> Self { /* ... */ }
-    fn finalize(self) -> [u8; uor_foundation::FINGERPRINT_MAX_BYTES] { /* ... */ }
+    fn finalize(self) -> [u8; 32] { /* `<DefaultHostBounds>::FINGERPRINT_MAX_BYTES` */ }
 }
 
 let grounded = run::<MyShape, _, Blake3Hasher>(validated_unit)?;

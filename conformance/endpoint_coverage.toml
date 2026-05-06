@@ -18,9 +18,6 @@
 [exempt.documentation_constants]
 description = "Pub const values whose contract is the literal — pinned by snapshot"
 symbols = [
-    "FINGERPRINT_MAX_BYTES",
-    "FINGERPRINT_MIN_BYTES",
-    "TRACE_MAX_EVENTS",
     "TRACE_REPLAY_FORMAT_VERSION",
     "JACOBIAN_MAX_SITES",
     "MAX_BETTI_DIMENSION",
@@ -63,6 +60,7 @@ symbols = [
     "UnaryRingOp",
     "ValidLevelEmbedding",
     "Hasher",
+    "HostBounds",
     "HostTypes",
     "MarkerTuple",
     "MarkerIntersection",
@@ -424,6 +422,19 @@ behavior = "behavior_pipeline_determinism"
 [coverage.host_types]
 symbols = ["DefaultHostTypes"]
 behavior = "behavior_grammar_surface_roundtrip"
+
+# ─── Mapping: HostBounds + DefaultHostBounds (wiki ADR-018) ────────────
+# Substitution axis 2 of 3 (HostTypes / HostBounds / Hasher). HostBounds
+# carries every capacity bound that varies along the principal data path:
+# the fingerprint output width range, the trace event-count ceiling, and
+# the algebraic-level bit-width ceiling. The canonical surface is the
+# const-generic on Hasher / ContentFingerprint / Trace; the application's
+# HostBounds impl populates each type's const-generic at instantiation.
+# Foundation exposes no free-standing capacity constants — collapsing the
+# substitution axis is exactly what ADR-018 rejects.
+[coverage.host_bounds]
+symbols = ["DefaultHostBounds"]
+behavior = "behavior_host_bounds"
 
 # ─── Mapping: DecimalTranscendental (Phase 9) ──────────────────────────
 # Closed-arithmetic + transcendental supertrait bounded onto

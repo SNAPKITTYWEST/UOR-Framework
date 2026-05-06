@@ -1904,8 +1904,7 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 /// #     const OUTPUT_BYTES: usize = 16;
 /// #     fn initial() -> Self { Self }
 /// #     fn fold_byte(self, _: u8) -> Self { self }
-/// #     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {
-/// #         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] }
+/// #     fn finalize(self) -> [u8; 32] { [0; 32] }
 /// # }
 /// static TERMS: &[Term] = &[Term::Literal { value: 1, level: WittLevel::W8 }];
 /// static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
@@ -2752,8 +2751,7 @@ impl<
 /// #     const OUTPUT_BYTES: usize = 16;
 /// #     fn initial() -> Self { Self }
 /// #     fn fold_byte(self, _: u8) -> Self { self }
-/// #     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {
-/// #         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] }
+/// #     fn finalize(self) -> [u8; 32] { [0; 32] }
 /// # }
 /// # fn wrap<T>(t: T) -> Validated<T> { unimplemented!() /* see uor_foundation_test_helpers */ }
 /// // 3-component partition over 9 sites.

@@ -21,7 +21,7 @@
 use uor_foundation::bridge::derivation::DerivationDepthObservable;
 use uor_foundation::bridge::observable::{JacobianObservable, LandauerBudget, Observable};
 use uor_foundation::bridge::partition::{FreeRankObservable, SiteIndexHandle};
-use uor_foundation::enforcement::{ContentFingerprint, FINGERPRINT_MAX_BYTES};
+use uor_foundation::enforcement::ContentFingerprint;
 use uor_foundation::kernel::carry::CarryDepthObservable;
 use uor_foundation::pipeline::{
     validate_constrained_type, ConstrainedTypeShape, ConstraintRef, AFFINE_MAX_COEFFS,
@@ -72,10 +72,14 @@ impl ConstrainedTypeShape for MyShape {
 }
 
 fn nonzero_fingerprint(seed: u8) -> ContentFingerprint {
-    let mut buf = [0u8; FINGERPRINT_MAX_BYTES];
+    // 32 = `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES`, the
+    // default const-generic on `ContentFingerprint`. Applications selecting
+    // a different `HostBounds` impl write `ContentFingerprint::<W>` with W
+    // their chosen width.
+    let mut buf = [0u8; 32];
     buf[0] = seed;
     buf[1] = seed.wrapping_add(1);
-    ContentFingerprint::from_buffer(buf, FINGERPRINT_MAX_BYTES as u8)
+    ContentFingerprint::from_buffer(buf, 32u8)
 }
 
 // ── 1: validate const path ─────────────────────────────────────────

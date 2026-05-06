@@ -16,9 +16,9 @@
 //! BLAKE3 (recommended for production), SHA-256, BLAKE2b, FNV-1a, or any
 //! conforming impl. The architectural shape mirrors `Calibration`: the
 //! foundation defines the abstract quantity ([`ContentFingerprint`]) and the
-//! substitution point ([`Hasher`]); downstream provides the concrete
-//! substrate AND chooses the output width within the foundation's correctness
-//! budget (`[FINGERPRINT_MIN_BYTES, FINGERPRINT_MAX_BYTES]`).
+//! substitution point ([`Hasher`]); downstream provides the concrete substrate
+//! AND chooses the output width within the application's [`HostBounds`] budget
+//! (`[<B as HostBounds>::FINGERPRINT_MIN_BYTES, <B as HostBounds>::FINGERPRINT_MAX_BYTES]`).
 //!
 //! # Round-trip property
 //!
@@ -44,9 +44,17 @@ pub use uor_foundation::enforcement::replay::certify_from_trace;
 pub use uor_foundation::enforcement::{
     BindingsTableError, Certificate, CertificateKind, Certified, ContentAddress,
     ContentFingerprint, GroundingCertificate, Hasher, ReplayError, Trace, TraceEvent,
-    FINGERPRINT_MAX_BYTES, FINGERPRINT_MIN_BYTES, TRACE_MAX_EVENTS, TRACE_REPLAY_FORMAT_VERSION,
+    TRACE_REPLAY_FORMAT_VERSION,
 };
 pub use uor_foundation::PrimitiveOp;
+
+// Wiki ADR-018: `HostBounds` is the carrier of every capacity bound that
+// varies along the principal data path. Verifier callers reach
+// `Trace::<TR_MAX>` and `certify_from_trace::<TR_MAX>` with
+// `TR_MAX = <MyBounds as HostBounds>::TRACE_MAX_EVENTS` (or omit the
+// turbofish to inherit `DefaultHostBounds`'s 256 via the type's default
+// const-generic).
+pub use uor_foundation::{DefaultHostBounds, HostBounds};
 
 /// Verify a trace by re-deriving its certificate via structural validation +
 /// fingerprint passthrough.
@@ -61,7 +69,8 @@ pub use uor_foundation::PrimitiveOp;
 ///
 ///   - the choice of hash function (BLAKE3, SHA-256, BLAKE2b, FNV-1a, ...)
 ///   - the choice of output width (any value in
-///     `[FINGERPRINT_MIN_BYTES, FINGERPRINT_MAX_BYTES]`)
+///     `[<B as HostBounds>::FINGERPRINT_MIN_BYTES,
+///       <B as HostBounds>::FINGERPRINT_MAX_BYTES]`)
 ///
 /// The foundation **recommends BLAKE3** as the default substrate hasher for
 /// production deployments. PRISM ships a BLAKE3 [`Hasher`] impl; application

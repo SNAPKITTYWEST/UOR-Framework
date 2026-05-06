@@ -22,7 +22,7 @@
 
 use uor_foundation::enforcement::__test_helpers;
 use uor_foundation::enforcement::{
-    ContentFingerprint, Hasher, MulContext, Trace, TraceEvent, Validated, FINGERPRINT_MAX_BYTES,
+    ContentFingerprint, Hasher, MulContext, Trace, TraceEvent, Validated,
 };
 
 /// Test-only ctor: build a Trace from a slice of events with a
@@ -76,14 +76,20 @@ pub fn validated_runtime<T>(inner: T) -> Validated<T> {
     __test_helpers::validated_runtime(inner)
 }
 
-/// v0.2.2 T5: test-only `Hasher` impl producing a 16-byte (128-bit) FNV-1a
-/// fingerprint. Used by the conformance round-trip tests to exercise the
-/// `verify_trace` round-trip property at the foundation's minimum width.
+/// Test-only `Hasher` impl producing a 16-byte (128-bit) FNV-1a fingerprint.
+/// Used by the conformance round-trip tests to exercise the `verify_trace`
+/// round-trip property at the foundation's minimum width.
 ///
 /// Not a production substrate. Production deployments use a cryptographic
 /// hash (BLAKE3 recommended). FNV-1a is non-cryptographic — the test impl
-/// exists only to satisfy `Hasher::OUTPUT_BYTES >= FINGERPRINT_MIN_BYTES`
+/// exists only to satisfy
+/// `Hasher::OUTPUT_BYTES >= <DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES`
 /// without pulling in a crypto dependency.
+///
+/// Implements `Hasher` at its default const-generic `<FP_MAX = 32>`
+/// (the `DefaultHostBounds::FINGERPRINT_MAX_BYTES` value); the 128-bit
+/// FNV-1a output occupies bytes 0..16 of the 32-byte buffer, with bytes
+/// 16..32 zero per the `Hasher::finalize` contract.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Fnv1aHasher16 {
     state: u128,
@@ -110,8 +116,8 @@ impl Hasher for Fnv1aHasher16 {
     }
 
     #[inline]
-    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES] {
-        let mut out = [0u8; FINGERPRINT_MAX_BYTES];
+    fn finalize(self) -> [u8; 32] {
+        let mut out = [0u8; 32];
         let bytes = self.state.to_be_bytes();
         let mut i = 0;
         while i < 16 {
@@ -122,12 +128,16 @@ impl Hasher for Fnv1aHasher16 {
     }
 }
 
-/// v0.2.2 T5: test-only `Hasher` impl producing a 32-byte (256-bit) FNV-1a
-/// fingerprint. Used by the parametric-width round-trip tests to confirm
-/// the `verify_trace` round-trip property is orthogonal to the chosen
+/// Test-only `Hasher` impl producing a 32-byte (256-bit) FNV-1a fingerprint.
+/// Used by the parametric-width round-trip tests to confirm the
+/// `verify_trace` round-trip property is orthogonal to the chosen
 /// `OUTPUT_BYTES`. The state is two parallel FNV-1a 128 lanes seeded with
 /// different offset basis values; the test does not require cryptographic
 /// strength, only deterministic 32-byte output.
+///
+/// Implements `Hasher` at its default const-generic `<FP_MAX = 32>`
+/// (the `DefaultHostBounds::FINGERPRINT_MAX_BYTES` value); the full 32-byte
+/// output is the lo+hi lane concatenation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Fnv1aHasher32 {
     lo: u128,
@@ -157,8 +167,8 @@ impl Hasher for Fnv1aHasher32 {
     }
 
     #[inline]
-    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES] {
-        let mut out = [0u8; FINGERPRINT_MAX_BYTES];
+    fn finalize(self) -> [u8; 32] {
+        let mut out = [0u8; 32];
         let lo_bytes = self.lo.to_be_bytes();
         let hi_bytes = self.hi.to_be_bytes();
         let mut i = 0;

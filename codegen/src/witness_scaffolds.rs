@@ -683,19 +683,22 @@ pub fn generate_primitives_modules(ontology: &Ontology) -> Vec<(String, String)>
              /// `i as u8` salt prevents byte-swap collisions. The fold is\n\
              /// `no_std` + `const`-friendly and avoids the host-supplied\n\
              /// `Hasher` dependency that the production mint paths use.\n\
+             ///\n\
+             /// Buffer width is 32 — the `<DefaultHostBounds as HostBounds>`\n\
+             /// `FINGERPRINT_MAX_BYTES` value, matching `ContentFingerprint`'s\n\
+             /// default const-generic.\n\
              fn fingerprint_for_identity(iri: &str) -> ContentFingerprint {\n\
-             \x20   let mut buf = [0u8; crate::enforcement::FINGERPRINT_MAX_BYTES];\n\
+             \x20   let mut buf = [0u8; 32];\n\
              \x20   let bytes = iri.as_bytes();\n\
              \x20   let mut i = 0;\n\
              \x20   while i < bytes.len() {\n\
-             \x20       let pos = i % crate::enforcement::FINGERPRINT_MAX_BYTES;\n\
+             \x20       let pos = i % 32;\n\
              \x20       #[allow(clippy::cast_possible_truncation)]\n\
              \x20       let salt = i as u8;\n\
              \x20       buf[pos] ^= bytes[i].wrapping_add(salt);\n\
              \x20       i += 1;\n\
              \x20   }\n\
-             \x20   #[allow(clippy::cast_possible_truncation)]\n\
-             \x20   ContentFingerprint::from_buffer(buf, crate::enforcement::FINGERPRINT_MAX_BYTES as u8)\n\
+             \x20   ContentFingerprint::from_buffer(buf, 32u8)\n\
              }\n\n",
         );
 

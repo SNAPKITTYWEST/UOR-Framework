@@ -4659,37 +4659,19 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     // The foundation **recommends BLAKE3** as the production substrate hash
     // (PRISM ships a BLAKE3 `Hasher` impl), but the recommendation is
     // non-binding — any conforming `Hasher` impl works.
-    f.doc_comment(
-        "v0.2.2 T5: maximum content-fingerprint width carried inline on foundation types.",
-    );
-    f.doc_comment("");
-    f.doc_comment("Sized to accommodate the standard cryptographic hash outputs at the");
-    f.doc_comment("256-bit security level: BLAKE3 (default), SHA-256, BLAKE2s, SHA3-256, etc.");
-    f.doc_comment("Substrates that need wider outputs (SHA-512, BLAKE2b-512) truncate to");
-    f.doc_comment("32 bytes at finalize time, which preserves their full collision-resistance");
-    f.doc_comment("under the birthday bound (2^-128).");
-    f.doc_comment("");
-    f.doc_comment("A `Grounded` value occupies one inline buffer of this width plus a");
-    f.doc_comment("1-byte active-width tag. The 32-byte cap keeps `Grounded` under the 256-byte");
-    f.doc_comment("phantom_tag budget pinned by the conformance suite.");
-    f.line("pub const FINGERPRINT_MAX_BYTES: usize = 32;");
-    f.blank();
-    f.doc_comment("v0.2.2 T5: minimum required content-fingerprint width for substrate hashers.");
-    f.doc_comment("");
-    f.doc_comment("**Derived, not chosen.** The v0.2.2 correctness target requires trace-replay");
-    f.doc_comment("collision probability \u{2264} 2^-64 in non-adversarial settings. Under the");
-    f.doc_comment("birthday bound, an `n`-bit hash reaches a 2^-(n/2) collision probability, so");
-    f.doc_comment("the minimum bit width satisfying 2^-64 is `n = 128`, i.e., 16 bytes.");
-    f.doc_comment("");
-    f.doc_comment("A future version of the foundation that targets a different collision");
-    f.doc_comment("probability raises this constant accordingly; the value reflects the");
-    f.doc_comment("correctness target, not a prescription.");
-    f.line("pub const FINGERPRINT_MIN_BYTES: usize = 16;");
-    f.blank();
-    f.doc_comment("v0.2.2 T5: canonical-byte-layout version. Increment when the layout");
-    f.doc_comment("changes (event ordering, trailing fields, primitive-op discriminant table,");
-    f.doc_comment("certificate-kind discriminant table). Pinned by the");
-    f.doc_comment("`rust/trace_byte_layout_pinned` conformance validator.");
+    // Per the wiki's ADR-018, capacity bounds are carried by `HostBounds`
+    // and flow through every signature via the `<const FP_MAX: usize>` /
+    // `<const TR_MAX: usize>` parameters on `Hasher`, `ContentFingerprint`,
+    // `Trace`, and friends. Free-standing capacity constants on the public
+    // surface are explicitly rejected by ADR-018 (they collapse the
+    // substitution axis), so this module exposes none. Applications read
+    // their capacities through `<MyBounds as HostBounds>::CONST` instead.
+    f.doc_comment("Trace wire-format identifier. Per the wiki's ADR-018, wire-format");
+    f.doc_comment("identifiers are explicitly carved out of the `HostBounds` rule because");
+    f.doc_comment("cross-implementation interop requires a single shared format identifier.");
+    f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
+    f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
+    f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
     f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
@@ -4723,10 +4705,11 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("# Required laws");
     f.doc_comment("");
-    f.doc_comment("1. **Width-in-budget**: `OUTPUT_BYTES` must be in `[FINGERPRINT_MIN_BYTES,");
-    f.doc_comment("   FINGERPRINT_MAX_BYTES]`. Enforced at codegen time via a");
-    f.doc_comment("   `const _: () = assert!(...)` block emitted inside every");
-    f.doc_comment("   `pipeline::run::<T, _, H>` body.");
+    f.doc_comment("1. **Width-in-budget**: `OUTPUT_BYTES` must be in");
+    f.doc_comment("   `[<B as HostBounds>::FINGERPRINT_MIN_BYTES, FP_MAX]` where `FP_MAX`");
+    f.doc_comment("   is the const-generic carrying `<B as HostBounds>::FINGERPRINT_MAX_BYTES`.");
+    f.doc_comment("   Enforced at codegen time via a `const _: () = assert!(...)` block");
+    f.doc_comment("   emitted inside every `pipeline::run::<T, _, H>` body.");
     f.doc_comment("");
     f.doc_comment("2. **Determinism**: identical byte sequences produce bit-identical outputs");
     f.doc_comment("   across program runs, builds, target architectures, and rustc versions.");
@@ -4741,7 +4724,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("# Example");
     f.doc_comment("");
     f.doc_comment("```");
-    f.doc_comment("use uor_foundation::enforcement::{Hasher, FINGERPRINT_MAX_BYTES};");
+    f.doc_comment("use uor_foundation::enforcement::Hasher;");
     f.doc_comment("");
     f.doc_comment("/// Minimal 128-bit (16-byte) FNV-1a substrate — two 64-bit lanes.");
     f.doc_comment("#[derive(Clone, Copy)]");
@@ -4759,17 +4742,29 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("        self.b = self.b.wrapping_mul(0x100000001b3);");
     f.doc_comment("        self");
     f.doc_comment("    }");
-    f.doc_comment("    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES] {");
-    f.doc_comment("        let mut buf = [0u8; FINGERPRINT_MAX_BYTES];");
+    f.doc_comment("    fn finalize(self) -> [u8; 32] {");
+    f.doc_comment("        let mut buf = [0u8; 32];");
     f.doc_comment("        buf[..8].copy_from_slice(&self.a.to_be_bytes());");
     f.doc_comment("        buf[8..16].copy_from_slice(&self.b.to_be_bytes());");
     f.doc_comment("        buf");
     f.doc_comment("    }");
     f.doc_comment("}");
     f.doc_comment("```");
-    f.line("pub trait Hasher {");
-    f.indented_doc_comment("Active output width in bytes. Must be in");
-    f.indented_doc_comment("`[FINGERPRINT_MIN_BYTES, FINGERPRINT_MAX_BYTES]`.");
+    f.doc_comment("");
+    f.doc_comment("Above, `Hasher` is reached through its default const-generic");
+    f.doc_comment("`<FP_MAX = 32>`, which is the `DefaultHostBounds::FINGERPRINT_MAX_BYTES`");
+    f.doc_comment("value. Applications that select a different `HostBounds` impl write");
+    f.doc_comment("`impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}> for MyHasher`.");
+    // Wiki ADR-018 conformance: `Hasher` is parametric over the fingerprint
+    // output width, which the application's `HostBounds` impl chooses.
+    // `<const FP_MAX: usize = 32>` resolves to the `DefaultHostBounds`
+    // value when no override is supplied. Applications that select a
+    // different `HostBounds` impl declare their hasher as
+    // `Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}>`.
+    f.line("pub trait Hasher<const FP_MAX: usize = 32> {");
+    f.indented_doc_comment("Active output width in bytes. Must lie within the bounds");
+    f.indented_doc_comment("the application's selected `HostBounds` declares —");
+    f.indented_doc_comment("`[<B as HostBounds>::FINGERPRINT_MIN_BYTES, FP_MAX]`.");
     f.line("    const OUTPUT_BYTES: usize;");
     f.blank();
     f.indented_doc_comment("Initial hasher state.");
@@ -4794,33 +4789,35 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("        self");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("Finalize into the canonical max-width buffer. Bytes");
-    f.indented_doc_comment("`0..OUTPUT_BYTES` carry the hash result; bytes");
-    f.indented_doc_comment("`OUTPUT_BYTES..FINGERPRINT_MAX_BYTES` MUST be zero.");
-    f.line("    fn finalize(self) -> [u8; FINGERPRINT_MAX_BYTES];");
+    f.indented_doc_comment("Finalize into the canonical max-width buffer of `FP_MAX` bytes.");
+    f.indented_doc_comment("Bytes `0..OUTPUT_BYTES` carry the hash result; bytes");
+    f.indented_doc_comment("`OUTPUT_BYTES..FP_MAX` MUST be zero.");
+    f.line("    fn finalize(self) -> [u8; FP_MAX];");
     f.line("}");
     f.blank();
-    f.doc_comment("v0.2.2 T5: sealed parametric content fingerprint.");
+    f.doc_comment("Sealed parametric content fingerprint.");
     f.doc_comment("");
-    f.doc_comment("Wraps a fixed-capacity byte buffer of `FINGERPRINT_MAX_BYTES` bytes plus");
-    f.doc_comment("the active width in bytes. The active width is set by the producing");
-    f.doc_comment("`Hasher::OUTPUT_BYTES` and recorded so that downstream can distinguish");
-    f.doc_comment("\"this is a 128-bit fingerprint\" from \"this is a 256-bit fingerprint\"");
-    f.doc_comment("without inspecting the trailing zero bytes.");
+    f.doc_comment("Wraps a fixed-capacity byte buffer of `FP_MAX` bytes plus the");
+    f.doc_comment("active width in bytes. `FP_MAX` is the const-generic that carries");
+    f.doc_comment("the application's selected `HostBounds::FINGERPRINT_MAX_BYTES`");
+    f.doc_comment("(default = 32, matching `DefaultHostBounds`). The active width");
+    f.doc_comment("is set by the producing `Hasher::OUTPUT_BYTES` and recorded so");
+    f.doc_comment("downstream can distinguish \"this is a 128-bit fingerprint\" from");
+    f.doc_comment("\"this is a 256-bit fingerprint\" without inspecting trailing zeros.");
     f.doc_comment("");
     f.doc_comment("Equality is bit-equality on the full buffer + width tag, so two");
-    f.doc_comment("fingerprints from different hashers (different widths) are never equal");
-    f.doc_comment("even if their leading bytes happen to coincide. This prevents silent");
-    f.doc_comment("collisions when downstream consumers mix substrate hashers.");
+    f.doc_comment("fingerprints from different hashers (different widths) are never");
+    f.doc_comment("equal even if their leading bytes happen to coincide. This prevents");
+    f.doc_comment("silent collisions when downstream consumers mix substrate hashers.");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
-    f.line("pub struct ContentFingerprint {");
-    f.line("    bytes: [u8; FINGERPRINT_MAX_BYTES],");
+    f.line("pub struct ContentFingerprint<const FP_MAX: usize = 32> {");
+    f.line("    bytes: [u8; FP_MAX],");
     f.line("    width_bytes: u8,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl ContentFingerprint {");
-    f.indented_doc_comment("v0.2.2 T6.6: pub(crate) zero placeholder. Used internally as the");
+    f.line("impl<const FP_MAX: usize> ContentFingerprint<FP_MAX> {");
+    f.indented_doc_comment("Crate-internal zero placeholder. Used internally as the");
     f.indented_doc_comment("`Trace::empty()` field initializer and the `Default` impl. Not");
     f.indented_doc_comment("publicly constructible; downstream that needs a `ContentFingerprint`");
     f.indented_doc_comment("constructs one via `Hasher::finalize()` followed by `from_buffer()`.");
@@ -4829,7 +4826,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[allow(dead_code)]");
     f.line("    pub(crate) const fn zero() -> Self {");
     f.line("        Self {");
-    f.line("            bytes: [0u8; FINGERPRINT_MAX_BYTES],");
+    f.line("            bytes: [0u8; FP_MAX],");
     f.line("            width_bytes: 0,");
     f.line("            _sealed: (),");
     f.line("        }");
@@ -4857,10 +4854,10 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    }");
     f.blank();
     f.indented_doc_comment("The full buffer. Bytes `0..width_bytes` are the hash; bytes");
-    f.indented_doc_comment("`width_bytes..FINGERPRINT_MAX_BYTES` are zero.");
+    f.indented_doc_comment("`width_bytes..FP_MAX` are zero.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn as_bytes(&self) -> &[u8; FINGERPRINT_MAX_BYTES] {");
+    f.line("    pub const fn as_bytes(&self) -> &[u8; FP_MAX] {");
     f.line("        &self.bytes");
     f.line("    }");
     f.blank();
@@ -4870,7 +4867,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line("    pub const fn from_buffer(");
-    f.line("        bytes: [u8; FINGERPRINT_MAX_BYTES],");
+    f.line("        bytes: [u8; FP_MAX],");
     f.line("        width_bytes: u8,");
     f.line("    ) -> Self {");
     f.line("        Self {");
@@ -4881,7 +4878,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl Default for ContentFingerprint {");
+    f.line("impl<const FP_MAX: usize> Default for ContentFingerprint<FP_MAX> {");
     f.line("    #[inline]");
     f.line("    fn default() -> Self {");
     f.line("        Self::zero()");
@@ -5250,14 +5247,21 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    hasher");
     f.line("}");
     f.blank();
-    f.doc_comment("v0.2.2 T5: utility — extract the leading 16 bytes of a finalize buffer");
+    f.doc_comment("Utility — extract the leading 16 bytes of a `Hasher::finalize` buffer");
     f.doc_comment("as a `ContentAddress`. Used by pipeline entry points to derive the");
-    f.doc_comment("legacy 16-byte unit_address handle from a freshly-computed substrate");
+    f.doc_comment("16-byte unit_address handle from a freshly-computed substrate");
     f.doc_comment("fingerprint, so two units with distinct fingerprints have distinct");
     f.doc_comment("unit_address handles too.");
+    f.doc_comment("");
+    f.doc_comment("Per the wiki's ADR-018 the `FP_MAX` const-generic carries the");
+    f.doc_comment("application's selected `<B as HostBounds>::FINGERPRINT_MAX_BYTES`.");
+    f.doc_comment("`FP_MAX` MUST be at least 16; smaller buffers cannot supply the");
+    f.doc_comment("16-byte address prefix.");
     f.line("#[inline]");
     f.line("#[must_use]");
-    f.line("pub const fn unit_address_from_buffer(buffer: &[u8; FINGERPRINT_MAX_BYTES]) -> ContentAddress {");
+    f.line(
+        "pub const fn unit_address_from_buffer<const FP_MAX: usize>(buffer: &[u8; FP_MAX]) -> ContentAddress {",
+    );
     f.line("    let mut bytes = [0u8; 16];");
     f.line("    let mut i = 0;");
     f.line("    while i < 16 {");
@@ -9444,41 +9448,40 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    f.doc_comment("v0.2.2 Phase E: maximum number of TraceEvents a single Trace can");
-    f.doc_comment("carry. Matches the Landauer-budget upper bound of a CompileUnit.");
-    f.line("pub const TRACE_MAX_EVENTS: usize = 256;");
-    f.blank();
-
-    f.doc_comment("v0.2.2 Phase E: fixed-capacity derivation trace. Holds up to");
-    f.doc_comment("`TRACE_MAX_EVENTS` events inline; no heap. Produced by");
-    f.doc_comment("`Derivation::replay()` and consumed by `uor-foundation-verify`.");
+    f.doc_comment("Fixed-capacity derivation trace. Holds up to `TR_MAX` events inline;");
+    f.doc_comment("no heap. Produced by `Derivation::replay()` and consumed by");
+    f.doc_comment("`uor-foundation-verify`. `TR_MAX` is the const-generic that carries");
+    f.doc_comment("the application's selected `<MyBounds as HostBounds>::TRACE_MAX_EVENTS`;");
+    f.doc_comment("the default const-generic resolves to `DefaultHostBounds`'s 256.");
     f.doc_comment("");
-    f.doc_comment("v0.2.2 T5: carries `witt_level_bits` and `content_fingerprint` so");
-    f.doc_comment("`verify_trace` can reconstruct the source `GroundingCertificate` via");
-    f.doc_comment("structural-validation + fingerprint passthrough (no hash recomputation).");
+    f.doc_comment("Carries `witt_level_bits` and `content_fingerprint` so `verify_trace`");
+    f.doc_comment("can reconstruct the source `GroundingCertificate` via structural-");
+    f.doc_comment("validation + fingerprint passthrough (no hash recomputation).");
     f.line("#[derive(Debug, Clone, Copy)]");
-    f.line("pub struct Trace {");
-    f.line("    events: [Option<TraceEvent>; TRACE_MAX_EVENTS],");
+    f.line("pub struct Trace<const TR_MAX: usize = 256> {");
+    f.line("    events: [Option<TraceEvent>; TR_MAX],");
     f.line("    len: u16,");
-    f.indented_doc_comment("v0.2.2 T5: Witt level the source grounding was minted at, packed");
+    f.indented_doc_comment("Witt level the source grounding was minted at, packed");
     f.indented_doc_comment("by `Derivation::replay` from the parent `Grounded::witt_level_bits`.");
     f.indented_doc_comment("`verify_trace` reads this back to populate the certificate.");
     f.line("    witt_level_bits: u16,");
-    f.indented_doc_comment("v0.2.2 T5: parametric content fingerprint of the source unit's full");
-    f.indented_doc_comment("state, computed at grounding time by the consumer-supplied `Hasher`");
-    f.indented_doc_comment("and packed in by `Derivation::replay`. `verify_trace` passes it");
-    f.indented_doc_comment("through unchanged.");
+    f.indented_doc_comment("Parametric content fingerprint of the source unit's full state,");
+    f.indented_doc_comment("computed at grounding time by the consumer-supplied `Hasher` and");
+    f.indented_doc_comment("packed in by `Derivation::replay`. `verify_trace` passes it through");
+    f.indented_doc_comment("unchanged. The fingerprint's `FP_MAX` follows the application's");
+    f.indented_doc_comment("selected `<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES`; this");
+    f.indented_doc_comment("field uses the default-bound `ContentFingerprint`.");
     f.line("    content_fingerprint: ContentFingerprint,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl Trace {");
+    f.line("impl<const TR_MAX: usize> Trace<TR_MAX> {");
     f.indented_doc_comment("An empty Trace.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line("    pub const fn empty() -> Self {");
     f.line("        Self {");
-    f.line("            events: [None; TRACE_MAX_EVENTS],");
+    f.line("            events: [None; TR_MAX],");
     f.line("            len: 0,");
     f.line("            witt_level_bits: 0,");
     f.line("            content_fingerprint: ContentFingerprint::zero(),");
@@ -9486,7 +9489,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("        }");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("v0.2.2 T6.10: crate-internal ctor for `Derivation::replay()` only.");
+    f.indented_doc_comment("Crate-internal ctor for `Derivation::replay()` only.");
     f.indented_doc_comment("Bypasses validation because `replay()` constructs events from");
     f.indented_doc_comment("foundation-guaranteed-valid state (monotonic, contiguous, non-zero");
     f.indented_doc_comment("seed). No public path reaches this constructor; downstream uses the");
@@ -9495,7 +9498,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("    #[must_use]");
     f.line("    #[allow(dead_code)]");
     f.line("    pub(crate) const fn from_replay_events_const(");
-    f.line("        events: [Option<TraceEvent>; TRACE_MAX_EVENTS],");
+    f.line("        events: [Option<TraceEvent>; TR_MAX],");
     f.line("        len: u16,");
     f.line("        witt_level_bits: u16,");
     f.line("        content_fingerprint: ContentFingerprint,");
@@ -9544,15 +9547,15 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("        self.content_fingerprint");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("v0.2.2 T5 C4: validating constructor. Checks every invariant the");
-    f.indented_doc_comment("verify path relies on: events are contiguous from index 0, no event");
-    f.indented_doc_comment("has a zero target, and the slice fits within `TRACE_MAX_EVENTS`.");
+    f.indented_doc_comment("Validating constructor. Checks every invariant the verify path");
+    f.indented_doc_comment("relies on: events are contiguous from index 0, no event has a zero");
+    f.indented_doc_comment("target, and the slice fits within `TR_MAX` events.");
     f.indented_doc_comment("");
     f.indented_doc_comment("# Errors");
     f.indented_doc_comment("");
     f.indented_doc_comment("- `ReplayError::EmptyTrace` if `events.is_empty()`.");
     f.indented_doc_comment("- `ReplayError::CapacityExceeded { declared, provided }` if the");
-    f.indented_doc_comment("  slice exceeds `TRACE_MAX_EVENTS`.");
+    f.indented_doc_comment("  slice exceeds `TR_MAX`.");
     f.indented_doc_comment("- `ReplayError::OutOfOrderEvent { index }` if the event at `index`");
     f.indented_doc_comment("  has a `step_index` not equal to `index` (strict contiguity).");
     f.indented_doc_comment("- `ReplayError::ZeroTarget { index }` if any event carries a zero");
@@ -9565,9 +9568,9 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("        if events.is_empty() {");
     f.line("            return Err(ReplayError::EmptyTrace);");
     f.line("        }");
-    f.line("        if events.len() > TRACE_MAX_EVENTS {");
+    f.line("        if events.len() > TR_MAX {");
     f.line("            return Err(ReplayError::CapacityExceeded {");
-    f.line("                declared: TRACE_MAX_EVENTS as u16,");
+    f.line("                declared: TR_MAX as u16,");
     f.line("                provided: events.len() as u32,");
     f.line("            });");
     f.line("        }");
@@ -9582,7 +9585,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("            }");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        let mut arr = [None; TRACE_MAX_EVENTS];");
+    f.line("        let mut arr = [None; TR_MAX];");
     f.line("        let mut j = 0usize;");
     f.line("        while j < events.len() {");
     f.line("            arr[j] = Some(events[j]);");
@@ -9598,7 +9601,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl Default for Trace {");
+    f.line("impl<const TR_MAX: usize> Default for Trace<TR_MAX> {");
     f.line("    #[inline]");
     f.line("    fn default() -> Self {");
     f.line("        Self::empty()");
@@ -9611,14 +9614,24 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("length matches the derivation's `step_count()`, and each event's");
     f.doc_comment("`step_index` reflects its position in the derivation.");
     f.line("impl Derivation {");
-    f.indented_doc_comment("Replay this derivation as a fixed-size `Trace` whose length matches");
-    f.indented_doc_comment("`self.step_count()` (capped at `TRACE_MAX_EVENTS`).");
+    f.indented_doc_comment(
+        "Replay this derivation as a fixed-size `Trace<TR_MAX>` whose length matches",
+    );
+    f.indented_doc_comment(
+        "`self.step_count()` (capped at the application's `<HostBounds>::TRACE_MAX_EVENTS`).",
+    );
+    f.indented_doc_comment("Callers either annotate the binding (`let trace: Trace = ...;` picks");
+    f.indented_doc_comment(
+        "`DefaultHostBounds`'s 256) or use turbofish (`derivation.replay::<1024>()`).",
+    );
     f.indented_doc_comment("");
     f.indented_doc_comment("# Example");
     f.indented_doc_comment("");
     f.indented_doc_comment("```no_run");
     f.indented_doc_comment("use uor_foundation::enforcement::{");
-    f.indented_doc_comment("    replay, CompileUnitBuilder, ConstrainedTypeInput, Grounded, Term,");
+    f.indented_doc_comment(
+        "    replay, CompileUnitBuilder, ConstrainedTypeInput, Grounded, Term, Trace,",
+    );
     f.indented_doc_comment("};");
     f.indented_doc_comment("use uor_foundation::pipeline::run;");
     f.indented_doc_comment("use uor_foundation::{VerificationDomain, WittLevel};");
@@ -9627,10 +9640,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("#     const OUTPUT_BYTES: usize = 16;");
     f.indented_doc_comment("#     fn initial() -> Self { Self }");
     f.indented_doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
-    f.indented_doc_comment(
-        "#     fn finalize(self) -> [u8; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] {",
-    );
-    f.indented_doc_comment("#         [0; uor_foundation::enforcement::FINGERPRINT_MAX_BYTES] } }");
+    f.indented_doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] } }");
     f.indented_doc_comment(
         "static TERMS: &[Term] = &[Term::Literal { value: 7, level: WittLevel::W8 }];",
     );
@@ -9646,8 +9656,10 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("let grounded: Grounded<ConstrainedTypeInput> =");
     f.indented_doc_comment("    run::<ConstrainedTypeInput, _, H>(unit).expect(\"grounds\");");
     f.indented_doc_comment("");
-    f.indented_doc_comment("// Replay → round-trip verification.");
-    f.indented_doc_comment("let trace = grounded.derivation().replay();");
+    f.indented_doc_comment("// Replay → round-trip verification. The trace's event-count");
+    f.indented_doc_comment("// capacity comes from the application's `HostBounds`; here the");
+    f.indented_doc_comment("// type-annotated binding inherits `DefaultHostBounds`'s 256.");
+    f.indented_doc_comment("let trace: Trace = grounded.derivation().replay();");
     f.indented_doc_comment(
         "let recert = replay::certify_from_trace(&trace).expect(\"valid trace\");",
     );
@@ -9656,11 +9668,11 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("```");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn replay(&self) -> Trace {");
+    f.line("    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX> {");
     f.line("        let steps = self.step_count() as usize;");
-    f.line("        let len = if steps > TRACE_MAX_EVENTS { TRACE_MAX_EVENTS } else { steps };");
-    f.line("        let mut events = [None; TRACE_MAX_EVENTS];");
-    f.line("        // v0.2.2 T6.12: seed targets from the leading 8 bytes of the source");
+    f.line("        let len = if steps > TR_MAX { TR_MAX } else { steps };");
+    f.line("        let mut events = [None; TR_MAX];");
+    f.line("        // Seed targets from the leading 8 bytes of the source");
     f.line("        // `content_fingerprint` (substrate-computed). Combined with `| 1` so");
     f.line("        // the first event's target is guaranteed nonzero even when the");
     f.line("        // leading bytes are all zero, and XOR with `(i + 1)` keeps the");
@@ -9680,7 +9692,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("            ));");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        // v0.2.2 T5: pack the source `witt_level_bits` and `content_fingerprint`");
+    f.line("        // Pack the source `witt_level_bits` and `content_fingerprint`");
     f.line("        // into the Trace so `verify_trace` can reproduce the source certificate");
     f.line("        // via passthrough. The fingerprint was computed at grounding time by the");
     f.line("        // consumer-supplied Hasher and stored on the parent Grounded; the");
@@ -9742,14 +9754,16 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("        /// variant fires.");
     f.line("        last_step: u32,");
     f.line("    },");
-    f.indented_doc_comment("v0.2.2 T5.8: a caller attempted to construct a Trace whose event");
-    f.indented_doc_comment("count exceeds `TRACE_MAX_EVENTS`. Distinct from `NonContiguousSteps`");
-    f.indented_doc_comment("because the recovery is different (truncate vs. close gaps).");
-    f.indented_doc_comment("Returned by `Trace::try_from_events`, never by `verify_trace`");
-    f.indented_doc_comment("(the verifier reads from an existing `Trace` whose capacity is");
-    f.indented_doc_comment("already enforced by the type's storage).");
+    f.indented_doc_comment("A caller attempted to construct a `Trace<TR_MAX>` whose event count");
+    f.indented_doc_comment(
+        "exceeds `TR_MAX` (the application's `<HostBounds>::TRACE_MAX_EVENTS`).",
+    );
+    f.indented_doc_comment("Distinct from `NonContiguousSteps` because the recovery is different");
+    f.indented_doc_comment("(truncate vs. close gaps). Returned by `Trace::try_from_events`,");
+    f.indented_doc_comment("never by `verify_trace` (the verifier reads from an existing `Trace`");
+    f.indented_doc_comment("whose capacity is already enforced by the type's storage).");
     f.line("    CapacityExceeded {");
-    f.line("        /// The trace's hard capacity (`TRACE_MAX_EVENTS`).");
+    f.line("        /// The trace's hard capacity (`TR_MAX`).");
     f.line("        declared: u16,");
     f.line("        /// The actual event count the caller attempted to pack in.");
     f.line("        provided: u32,");
@@ -9829,8 +9843,8 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("  `ContentAddress::zero()`.");
     f.indented_doc_comment("- `ReplayError::NonContiguousSteps { declared, last_step }` if");
     f.indented_doc_comment("  the event step indices skip values.");
-    f.line("    pub fn certify_from_trace(");
-    f.line("        trace: &Trace,");
+    f.line("    pub fn certify_from_trace<const TR_MAX: usize>(");
+    f.line("        trace: &Trace<TR_MAX>,");
     f.line("    ) -> Result<Certified<GroundingCertificate>, ReplayError> {");
     f.line("        let len = trace.len() as usize;");
     f.line("        if len == 0 {");
@@ -11267,35 +11281,38 @@ fn generate_grounding_combinator_surface(f: &mut RustFile) {
     f.line("#[doc(hidden)]");
     f.line("pub mod __test_helpers {");
     f.line("    use super::{");
-    f.line("        ContentAddress, ContentFingerprint, MulContext, Trace, TraceEvent,");
-    f.line("        TRACE_MAX_EVENTS, Validated,");
+    f.line("        ContentAddress, ContentFingerprint, MulContext, Trace, TraceEvent, Validated,");
     f.line("    };");
     f.blank();
     f.indented_doc_comment("Test-only ctor: build a Trace from a slice of events with a");
     f.indented_doc_comment("`ContentFingerprint::zero()` placeholder. Tests that need a non-zero");
-    f.indented_doc_comment("fingerprint use `trace_with_fingerprint` instead.");
+    f.indented_doc_comment("fingerprint use `trace_with_fingerprint` instead. Parametric in");
+    f.indented_doc_comment("`TR_MAX` per the wiki's ADR-018; callers pick the trace event-count");
+    f.indented_doc_comment("ceiling from their selected `HostBounds`.");
     f.line("    #[must_use]");
-    f.line("    pub fn trace_from_events(events: &[TraceEvent]) -> Trace {");
+    f.line(
+        "    pub fn trace_from_events<const TR_MAX: usize>(events: &[TraceEvent]) -> Trace<TR_MAX> {",
+    );
     f.line("        trace_with_fingerprint(events, 0, ContentFingerprint::zero())");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("v0.2.2 T5: test-only ctor that takes an explicit `witt_level_bits`");
-    f.indented_doc_comment("and `ContentFingerprint`. Used by round-trip tests that need to");
-    f.indented_doc_comment("verify the verify-trace fingerprint passthrough invariant.");
+    f.indented_doc_comment("Test-only ctor that takes an explicit `witt_level_bits` and");
+    f.indented_doc_comment("`ContentFingerprint`. Used by round-trip tests that need to verify");
+    f.indented_doc_comment("the verify-trace fingerprint passthrough invariant.");
     f.line("    #[must_use]");
-    f.line("    pub fn trace_with_fingerprint(");
+    f.line("    pub fn trace_with_fingerprint<const TR_MAX: usize>(");
     f.line("        events: &[TraceEvent],");
     f.line("        witt_level_bits: u16,");
     f.line("        content_fingerprint: ContentFingerprint,");
-    f.line("    ) -> Trace {");
-    f.line("        let mut arr = [None; TRACE_MAX_EVENTS];");
-    f.line("        let n = events.len().min(TRACE_MAX_EVENTS);");
+    f.line("    ) -> Trace<TR_MAX> {");
+    f.line("        let mut arr = [None; TR_MAX];");
+    f.line("        let n = events.len().min(TR_MAX);");
     f.line("        let mut i = 0;");
     f.line("        while i < n {");
     f.line("            arr[i] = Some(events[i]);");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        // v0.2.2 T6.10: the test-helpers back-door uses the foundation-private");
+    f.line("        // The test-helpers back-door uses the foundation-private");
     f.line("        // `from_replay_events_const` to build malformed fixtures for error-path");
     f.line("        // tests. Downstream code uses `Trace::try_from_events` (validating).");
     f.line("        Trace::from_replay_events_const(arr, n as u16, witt_level_bits, content_fingerprint)");

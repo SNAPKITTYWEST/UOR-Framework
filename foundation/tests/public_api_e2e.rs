@@ -330,7 +330,7 @@ fn t5_grounded_derivation_replay_round_trips_via_verify_trace() {
     let unit: Validated<CompileUnit<'static>> = build_compile_unit(WittLevel::W8, 100).into();
     let grounded: Grounded<ConstrainedTypeInput> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("grounds");
-    let trace = grounded.derivation().replay();
+    let trace: uor_foundation::Trace = grounded.derivation().replay();
     let reverified =
         uor_foundation::enforcement::replay::certify_from_trace(&trace).expect("re-verifies");
     assert_eq!(
@@ -422,25 +422,25 @@ fn t5_trace_try_from_events_rejects_malformed() {
     );
     // Out-of-order: event[0] has step_index=5 (not 0).
     let bad = [trace_event(5, 0xAA)];
-    match Trace::try_from_events(&bad, 8, fp) {
+    match Trace::<256>::try_from_events(&bad, 8, fp) {
         Err(ReplayError::OutOfOrderEvent { index: 0 }) => {}
         other => panic!("expected OutOfOrderEvent, got {other:?}"),
     }
     // Empty: explicit construction requires at least one event.
     let empty: [TraceEvent; 0] = [];
-    match Trace::try_from_events(&empty, 8, fp) {
+    match Trace::<256>::try_from_events(&empty, 8, fp) {
         Err(ReplayError::EmptyTrace) => {}
         other => panic!("expected EmptyTrace, got {other:?}"),
     }
     // Zero target: rejected.
     let zero_target = [trace_event(0, 0)];
-    match Trace::try_from_events(&zero_target, 8, fp) {
+    match Trace::<256>::try_from_events(&zero_target, 8, fp) {
         Err(ReplayError::ZeroTarget { index: 0 }) => {}
         other => panic!("expected ZeroTarget, got {other:?}"),
     }
     // Valid: contiguous, monotonic, non-zero targets.
     let ok = [trace_event(0, 0xAA), trace_event(1, 0xBB)];
-    let trace = Trace::try_from_events(&ok, 8, fp).unwrap();
+    let trace = Trace::<256>::try_from_events(&ok, 8, fp).unwrap();
     assert_eq!(trace.len(), 2);
 }
 
@@ -508,16 +508,20 @@ fn t5_short_path_re_exports_resolve() {
     // T6.6: ContentFingerprint::zero() is pub(crate).
     use uor_foundation::{
         BindingsTableError, CalibrationError, Certificate, CertificateKind, ContentFingerprint,
-        Hasher, LandauerBudget, Nanos, PipelineFailure, PrimitiveOp, Term, TermArena, TermList,
-        WittLevel, FINGERPRINT_MAX_BYTES, FINGERPRINT_MIN_BYTES,
+        DefaultHostBounds, Hasher, HostBounds, LandauerBudget, Nanos, PipelineFailure, PrimitiveOp,
+        Term, TermArena, TermList, WittLevel,
     };
     fn _accept_certificate<C: Certificate>() {}
     fn _accept_hasher<H: Hasher>() {}
     let _: BindingsTableError = BindingsTableError::Unsorted { at: 1 };
     let _: CalibrationError = CalibrationError::ThermalEnergy;
     let _: CertificateKind = CertificateKind::Grounding;
-    let _: usize = FINGERPRINT_MAX_BYTES;
-    let _: usize = FINGERPRINT_MIN_BYTES;
+    // Capacity bounds are reached through the `HostBounds` substitution
+    // axis (wiki ADR-018); there are no free-standing capacity constants
+    // on the public surface.
+    let _: usize = <DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES;
+    let _: usize = <DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES;
+    let _: usize = <DefaultHostBounds as HostBounds>::TRACE_MAX_EVENTS;
     let _: PrimitiveOp = PrimitiveOp::Add;
     let _: WittLevel = WittLevel::W8;
     // The remaining types are just imported to verify they resolve.

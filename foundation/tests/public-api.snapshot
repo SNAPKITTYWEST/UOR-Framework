@@ -1,5 +1,3 @@
-foundation/src/enforcement.rs: const FINGERPRINT_MAX_BYTES
-foundation/src/enforcement.rs: const FINGERPRINT_MIN_BYTES
 foundation/src/enforcement.rs: const INHABITANCE_DISPATCH_TABLE
 foundation/src/enforcement.rs: const JACOBIAN_MAX_SITES
 foundation/src/enforcement.rs: const MAX_BETTI_DIMENSION
@@ -10,7 +8,6 @@ foundation/src/enforcement.rs: const NERVE_C2_MAX
 foundation/src/enforcement.rs: const NERVE_CONSTRAINTS_CAP
 foundation/src/enforcement.rs: const NERVE_SITES_CAP
 foundation/src/enforcement.rs: const RECURSION_TRACE_MAX_DEPTH
-foundation/src/enforcement.rs: const TRACE_MAX_EVENTS
 foundation/src/enforcement.rs: const TRACE_REPLAY_FORMAT_VERSION
 foundation/src/enforcement.rs: const fn
 foundation/src/enforcement.rs: enum BindingsTableError
@@ -297,8 +294,10 @@ foundation/src/lib.rs: mod pipeline
 foundation/src/lib.rs: mod primitives
 foundation/src/lib.rs: mod user
 foundation/src/lib.rs: mod witness_scaffolds
+foundation/src/lib.rs: struct DefaultHostBounds
 foundation/src/lib.rs: struct DefaultHostTypes
 foundation/src/lib.rs: trait DecimalTranscendental
+foundation/src/lib.rs: trait HostBounds
 foundation/src/lib.rs: trait HostTypes
 foundation/src/lib.rs: use enforcement
 foundation/src/lib.rs: use enums

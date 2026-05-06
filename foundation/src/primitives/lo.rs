@@ -11,27 +11,26 @@ use crate::HostTypes;
 
 /// Index-salted XOR fold over chunked bytes — see `br.rs` for rationale.
 fn fingerprint_for_inputs(chunks: &[&[u8]]) -> ContentFingerprint {
-    let mut buf = [0u8; crate::enforcement::FINGERPRINT_MAX_BYTES];
+    let mut buf = [0u8; 32];
     let mut global: usize = 0;
     let mut chunk_idx = 0;
     while chunk_idx < chunks.len() {
         let chunk = chunks[chunk_idx];
         let mut i = 0;
         while i < chunk.len() {
-            let pos = global % crate::enforcement::FINGERPRINT_MAX_BYTES;
+            let pos = global % 32;
             #[allow(clippy::cast_possible_truncation)]
             let salt = global as u8;
             buf[pos] ^= chunk[i].wrapping_add(salt);
             i += 1;
             global += 1;
         }
-        let pos = global % crate::enforcement::FINGERPRINT_MAX_BYTES;
+        let pos = global % 32;
         buf[pos] ^= 0xFFu8;
         global += 1;
         chunk_idx += 1;
     }
-    #[allow(clippy::cast_possible_truncation)]
-    ContentFingerprint::from_buffer(buf, crate::enforcement::FINGERPRINT_MAX_BYTES as u8)
+    ContentFingerprint::from_buffer(buf, 32u8)
 }
 
 /// Phase 15 verification primitive for

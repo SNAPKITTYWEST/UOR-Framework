@@ -4,6 +4,40 @@
 
 Rust workspace encoding the UOR Foundation ontology as typed data structures, a generated `#![no_std]` trait crate (`uor-foundation`), and validated serializations (JSON-LD, Turtle, N-Triples, OWL RDF/XML, JSON Schema, SHACL Shapes, EBNF). All source code, documentation, and web artifacts are machine-generated from the authoritative ontology defined in `spec/`.
 
+## Authoritative source
+
+The authoritative source for `uor-foundation` is the project wiki: <https://github.com/UOR-Foundation/UOR-Framework/wiki>. Consult it for canonical definitions, design rationale, and ontology semantics; treat it as the source of truth when wiki content and other docs disagree.
+
+The wiki specifies **Prism**, realized by three crates: `uor-foundation` (substrate), `prism` (runtime), `prism-verify` (replay surface). The current workspace co-locates substrate + runtime inside `uor-foundation` and exposes the replay surface as `uor-foundation-verify` (the wiki's `prism-verify` under a legacy name). When evolving the implementation toward the wiki, prefer making `uor-foundation` *scalable along the wiki's substitution axes* over the cosmetic crate-renaming.
+
+## Substitution axes (wiki §2 + ADR-007 + ADR-018)
+
+The wiki names three substitution axes the application author selects against:
+
+| Axis | Trait (in `uor-foundation`) | What the application varies |
+|---|---|---|
+| `HostTypes` | `pub trait HostTypes` ([foundation/src/lib.rs](foundation/src/lib.rs)) | Host-environment representations: `Decimal`, `HostString`, `WitnessBytes`. Default impl: `DefaultHostTypes`. |
+| `HostBounds` | `pub trait HostBounds` ([foundation/src/lib.rs](foundation/src/lib.rs)) | Every capacity bound that varies along the principal data path (wiki ADR-018): fingerprint output width range, trace event-count ceiling, algebraic-level bit-width ceiling. Default impl: `DefaultHostBounds` (16/32/256/64). |
+| `Hasher` | `pub trait Hasher<const FP_MAX: usize = 32>` ([foundation/src/enforcement.rs](foundation/src/enforcement.rs)) | Content-addressing function; the const-generic carries the application's selected `HostBounds::FINGERPRINT_MAX_BYTES`. No default impl — application supplies a substrate (BLAKE3 recommended). |
+
+### How `HostBounds` flows through the type system (stable Rust 1.83)
+
+ADR-018 mandates that "every signature in `prism`'s and `uor-foundation`'s public API that admits a value with a capacity-bounded width parameterizes that width through the application's selected `HostBounds`." The wiki's example pattern `[u8; H::FINGERPRINT_MAX_BYTES]` requires nightly `generic_const_exprs`. On stable Rust 1.83 (the workspace MSRV, matching the sibling [`UOR-Foundation/prism`](https://github.com/UOR-Foundation/prism) repo), the equivalent is **min-const-generics**: capacity-bearing types carry a `<const N: usize>` parameter, and applications populate it with `<MyBounds as HostBounds>::CONST` at instantiation sites.
+
+The carriers:
+
+| Type | Const-generic | Default | Sourced from |
+|---|---|---|---|
+| `Hasher<const FP_MAX: usize = 32>` | fingerprint output buffer width | 32 | `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES` |
+| `ContentFingerprint<const FP_MAX: usize = 32>` | inline fingerprint buffer width | 32 | same |
+| `Trace<const TR_MAX: usize = 256>` | inline event-count ceiling | 256 | `<DefaultHostBounds as HostBounds>::TRACE_MAX_EVENTS` |
+
+Applications using `DefaultHostBounds` reach these types under their default const-generic and never write turbofish. Applications selecting a different `HostBounds` impl write e.g. `ContentFingerprint::<64>` or `Trace::<1024>` and the type system propagates. Capacity-bearing functions (`Derivation::replay`, `replay::certify_from_trace`, `unit_address_from_buffer`, the `__test_helpers::trace_*` ctors) carry the matching const-generic on the function itself; type-annotated bindings or turbofish populate the parameter from the application's `HostBounds`.
+
+`TRACE_REPLAY_FORMAT_VERSION` stays foundation-fixed (wiki ADR-018 carve-out for wire-format identifiers — cross-implementation interop requires a single shared value).
+
+There are no free-standing `FINGERPRINT_MIN_BYTES` / `FINGERPRINT_MAX_BYTES` / `TRACE_MAX_EVENTS` constants on `uor-foundation`'s public surface — collapsing the substitution axis is exactly what ADR-018's "Rejected alternative 1" rules out. Applications and downstream crates (including [`uor-prism`](https://github.com/UOR-Foundation/prism)) read capacities through `<MyBounds as HostBounds>::CONST`.
+
 ## Workspace layout
 
 | Crate | Path | Published | Purpose |
@@ -12,6 +46,7 @@ Rust workspace encoding the UOR Foundation ontology as typed data structures, a 
 | `uor-codegen` | `codegen/` | no | Ontology-to-Rust trait generator |
 | `uor-foundation` | `foundation/` | **crates.io** | Generated `#![no_std]` trait library — never edit manually |
 | `uor-foundation-sdk` | `uor-foundation-sdk/` | **crates.io** (pending first release) | Procedural-macro ergonomics (`product_shape!`, `coproduct_shape!`, `cartesian_product_shape!`) for composing `ConstrainedTypeShape` operands — emitted by `uor-crate` from `codegen/src/sdk_macros.rs`. |
+| `uor-foundation-verify` | `uor-foundation-verify/` | **crates.io** (pending) | Trace-replay verifier — thin façade re-exporting `certify_from_trace`, `Certified`, the wire-format types, and the `HostBounds` substitution axis. Wiki name: `prism-verify`. |
 | `uor-conformance` | `conformance/` | no | Conformance suite (OWL, SHACL, RDF, Rust API, docs, website) — check count in `spec/src/counts.rs` |
 | `uor-docs` | `docs/` | no | Documentation generator |
 | `uor-website` | `website/` | no | Static site generator |
