@@ -81,7 +81,24 @@ jobs:
         run: cargo publish --dry-run --allow-dirty -p uor-foundation
 
       - name: Verify SDK crate packaging (dry-run)
-        run: cargo publish --dry-run --allow-dirty -p uor-foundation-sdk
+        # The SDK declares `uor-foundation = "^X.Y.Z"`; on a version-bump
+        # commit the new foundation isn't on crates.io yet (release.yml
+        # publishes foundation first and waits for the index to update
+        # before publishing the SDK). Skip the dry-run when the workspace
+        # foundation version isn't indexed; otherwise verify packaging.
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(awk '/^\[workspace\.package\]/{f=1} f && /^version *=/{gsub(/[" ]/,"",$3); print $3; exit}' Cargo.toml)
+          echo "workspace foundation version: $VERSION"
+          if cargo search uor-foundation --limit 50 \
+              | grep -E "^uor-foundation = \"$VERSION\"" >/dev/null; then
+            echo "uor-foundation $VERSION is on crates.io — running SDK dry-run"
+            cargo publish --dry-run --allow-dirty -p uor-foundation-sdk
+          else
+            echo "uor-foundation $VERSION not yet on crates.io — skipping SDK dry-run"
+            echo "(release.yml handles ordered publish via wait-for-index)"
+          fi
 
       - name: Generate Lean 4 formalization
         run: cargo run --bin uor-lean

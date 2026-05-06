@@ -93,7 +93,25 @@ jobs:
         run: cargo publish --dry-run --allow-dirty -p uor-foundation
 
       - name: Verify SDK crate packaging
-        run: cargo publish --dry-run --allow-dirty -p uor-foundation-sdk
+        # The SDK declares `uor-foundation = "^X.Y.Z"`; on a fresh tag the
+        # new foundation isn't on crates.io yet — foundation is published
+        # later in this same job, with the wait-for-index step gating the
+        # SDK publish. Skip the dry-run on first publish; the actual SDK
+        # publish step at the end of this job is the authoritative
+        # verification (and runs after wait-for-index resolves the dep).
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "tag-derived version: $VERSION"
+          if cargo search uor-foundation --limit 50 \
+              | grep -E "^uor-foundation = \"$VERSION\"" >/dev/null; then
+            echo "uor-foundation $VERSION is on crates.io — running SDK dry-run"
+            cargo publish --dry-run --allow-dirty -p uor-foundation-sdk
+          else
+            echo "uor-foundation $VERSION not yet on crates.io — skipping SDK dry-run"
+            echo "(authoritative verification is the publish step at the bottom of this job, after wait-for-index)"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
