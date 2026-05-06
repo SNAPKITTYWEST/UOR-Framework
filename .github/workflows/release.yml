@@ -153,16 +153,29 @@ jobs:
       - name: Wait for uor-foundation to appear on crates.io index
         # crates.io propagates with a few-second index delay; the SDK publish
         # fails with "not found" if issued too quickly.
+        #
+        # The previous implementation used `cargo search`, which reads from
+        # the runner's CACHED `~/.cargo/registry` index. The cache is
+        # restored from the cargo cache action at the top of the job and
+        # was minted before the foundation publish, so `cargo search` saw
+        # a stale view of the registry and the loop timed out on v0.3.1
+        # even though the publish had succeeded. We now query crates.io's
+        # HTTP API directly, bypassing cargo's cache entirely.
         run: |
-          for i in {1..30}; do
-            if cargo search uor-foundation --limit 1 2>/dev/null | grep -q "^uor-foundation = \"${GITHUB_REF_NAME#v}"; then
-              echo "uor-foundation ${GITHUB_REF_NAME#v} visible on index"
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          for i in {1..60}; do
+            if curl -sSf \
+                 -H "User-Agent: UOR-Framework-release-workflow" \
+                 "https://crates.io/api/v1/crates/uor-foundation/$VERSION" \
+                 | grep -q "\"num\":\"$VERSION\""; then
+              echo "uor-foundation $VERSION visible on registry"
               exit 0
             fi
-            echo "Waiting for uor-foundation ${GITHUB_REF_NAME#v} ($i/30)..."
-            sleep 10
+            echo "Waiting for uor-foundation $VERSION ($i/60)..."
+            sleep 5
           done
-          echo "Timed out waiting for uor-foundation on index"
+          echo "Timed out waiting for uor-foundation on registry"
           exit 1
 
       - name: Publish uor-foundation-sdk to crates.io
