@@ -5,9 +5,10 @@
 //! site-count / site-budget arithmetic.
 
 use uor_foundation::pipeline::{
-    CartesianProductShape, ConstrainedTypeShape, ConstraintRef, AFFINE_MAX_COEFFS,
+    CartesianProductShape, ConstrainedTypeShape, ConstraintRef, FoundationClosed, PrismModel,
+    AFFINE_MAX_COEFFS,
 };
-use uor_foundation_sdk::{cartesian_product_shape, coproduct_shape, product_shape};
+use uor_foundation_sdk::{cartesian_product_shape, coproduct_shape, prism_model, product_shape};
 
 // Leaf shapes — Phase 17 expanded the SDK operand-support catalogue
 // to every ConstraintRef variant. Affine and Conjunction now compose
@@ -241,4 +242,124 @@ fn coproduct_shape_supports_affine_operand() {
         }
         _ => panic!("expected Affine tag-pinner at index 1"),
     }
+}
+
+// =====================================================================
+// `prism_model!` smoke tests — wiki ADR-020 + ADR-022 D3.
+//
+// These tests exercise the closure-bodied form: the macro parses the
+// route function body as a Rust expression tree, maps recognised
+// PrimitiveOp function calls to `Term::Application`, integer literals
+// to `Term::Literal`, and the route's `input` parameter to
+// `Term::Variable`. Anything else fails to compile (a closure violation
+// per ADR-020).
+//
+// The test verifies the macro emits the four binding impls (D1 +
+// D4 + D5) and that the parsed term arena is the value-level slice
+// returned by `<Route as FoundationClosed>::arena_slice()`.
+
+use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher, Term};
+use uor_foundation::{DefaultHostBounds, DefaultHostTypes, PrimitiveOp};
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SmokeHasher;
+impl Hasher for SmokeHasher {
+    const OUTPUT_BYTES: usize = 16;
+    fn initial() -> Self {
+        Self
+    }
+    fn fold_byte(self, _: u8) -> Self {
+        self
+    }
+    fn finalize(self) -> [u8; 32] {
+        [0; 32]
+    }
+}
+
+prism_model! {
+    pub struct AddTwoLiterals;
+    pub struct AddTwoLiteralsRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for AddTwoLiterals {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = AddTwoLiteralsRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            add(2, 3)
+        }
+    }
+}
+
+#[test]
+fn prism_model_macro_emits_term_arena_for_simple_addition() {
+    let arena = <AddTwoLiteralsRoute as FoundationClosed>::arena_slice();
+    // `add(2, 3)` → [Literal(2), Literal(3), Application{Add, [0..2]}]
+    assert_eq!(
+        arena.len(),
+        3,
+        "three terms: two literals + one application"
+    );
+    match arena[0] {
+        Term::Literal { value, .. } => assert_eq!(value, 2),
+        other => panic!("expected Literal(2) at index 0, got {other:?}"),
+    }
+    match arena[1] {
+        Term::Literal { value, .. } => assert_eq!(value, 3),
+        other => panic!("expected Literal(3) at index 1, got {other:?}"),
+    }
+    match arena[2] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Add));
+            assert_eq!(args.start, 0);
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application{{Add, [0..2]}} at index 2, got {other:?}"),
+    }
+}
+
+prism_model! {
+    pub struct VariableThenSucc;
+    pub struct VariableThenSuccRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for VariableThenSucc {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = VariableThenSuccRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            succ(input)
+        }
+    }
+}
+
+#[test]
+fn prism_model_macro_recognises_input_variable_and_unary_op() {
+    let arena = <VariableThenSuccRoute as FoundationClosed>::arena_slice();
+    // `succ(input)` → [Variable(0), Application{Succ, [0..1]}]
+    assert_eq!(arena.len(), 2);
+    match arena[0] {
+        Term::Variable { name_index } => assert_eq!(name_index, 0),
+        other => panic!("expected Variable at index 0, got {other:?}"),
+    }
+    match arena[1] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Succ));
+            assert_eq!(args.start, 0);
+            assert_eq!(args.len, 1);
+        }
+        other => panic!("expected Application{{Succ, …}} at index 1, got {other:?}"),
+    }
+}
+
+#[test]
+fn prism_model_macro_satisfies_prism_model_bound() {
+    // The macro emitted `impl PrismModel<H, B, A> for AddTwoLiterals` —
+    // pin that the impl resolves at compile time.
+    fn _accepts<M: PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher>>() {}
+    _accepts::<AddTwoLiterals>();
+    _accepts::<VariableThenSucc>();
+    // Surface assertion: the bound check above is itself the test.
+    assert_eq!(
+        core::any::type_name::<
+            <AddTwoLiterals as PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher>>::Route,
+        >(),
+        core::any::type_name::<AddTwoLiteralsRoute>(),
+    );
 }

@@ -1911,8 +1911,18 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    // FoundationClosed — sealed marker (ADR-020).
-    f.doc_comment("Marker trait — `Route` types satisfying this bound are closed under");
+    // FoundationClosed — sealed trait carrying the route witness's
+    // term-tree arena (ADR-020 + ADR-022 D5).
+    //
+    // The wiki spec for D5 binds Route to expose its TermArena so
+    // `run_route` can consume it. On stable Rust we cannot bind a
+    // generic `TermArena<{Self::CAP}>` (that needs nightly
+    // generic_const_exprs), so the equivalent surface is a static
+    // slice: every Route exposes its term-tree as `&'static [Term]`.
+    // The `prism_model!` macro emits the impl that returns the parsed
+    // closure body's term tree; foundation's identity-route impl on
+    // `ConstrainedTypeInput` returns an empty slice.
+    f.doc_comment("Trait — `Route` types satisfying this bound are closed under");
     f.doc_comment("foundation vocabulary: every node in the witnessed term tree is a");
     f.doc_comment("foundation-vocabulary item.");
     f.doc_comment("");
@@ -1924,7 +1934,27 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("a function outside foundation vocabulary receives no");
     f.doc_comment("`FoundationClosed` impl, and the application fails to compile with");
     f.doc_comment("an unsatisfied bound on `Route`.");
-    f.line("pub trait FoundationClosed: __sdk_seal::Sealed {}");
+    f.doc_comment("");
+    f.doc_comment("# `arena_slice`");
+    f.doc_comment("");
+    f.doc_comment("Per ADR-022 D5, [`run_route`] consumes the route's term-tree arena.");
+    f.doc_comment("The `prism_model!` macro emits the [`arena_slice`] impl returning");
+    f.doc_comment("the parsed closure body's term tree as a static slice. The");
+    f.doc_comment("foundation-sanctioned identity route returns an empty slice");
+    f.doc_comment("(no transformation, input passes through to output).");
+    f.doc_comment("");
+    f.doc_comment("On stable Rust without `generic_const_exprs`, the slice form is");
+    f.doc_comment("the equivalent of the wiki's `&'static TermArena` bound: it");
+    f.doc_comment("exposes the term tree without forcing every Route to carry the");
+    f.doc_comment("arena's `CAP` const-generic through the trait.");
+    f.line("pub trait FoundationClosed: __sdk_seal::Sealed {");
+    f.indented_doc_comment(
+        "Returns the term-tree arena slice the `prism_model!` macro emitted for",
+    );
+    f.indented_doc_comment("this route witness. [`run_route`] reads this to populate the");
+    f.indented_doc_comment("`CompileUnit`'s root_term before invoking [`run`].");
+    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term];");
+    f.line("}");
     f.blank();
 
     // PrismModel — the typed-iso contract.
@@ -2046,18 +2076,32 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    A: crate::enforcement::Hasher,");
     f.line("    M: PrismModel<H, B, A>,");
     f.line("{");
-    f.line("    // Phase-bridging body: build a CompileUnit from foundation defaults");
-    f.line("    // and dispatch to `run`. The macro-emitted Route witness carries");
-    f.line("    // the term-tree arena; future SDK iterations wire the witness's");
-    f.line("    // arena into the unit explicitly. For now `run_route` validates the");
-    f.line("    // empty unit and dispatches — exercising the path the architecture");
-    f.line("    // commits to so the trait surface is callable.");
+    f.line("    // ADR-022 D5: read the route's term-tree arena from the model's");
+    f.line("    // `Route` (the macro-emitted witness; identity-route returns &[]),");
+    f.line("    // build a `Validated<CompileUnit, FinalPhase>` whose root_term is");
+    f.line("    // exactly that arena, and dispatch to `run` (the catamorphism).");
+    f.line("    let arena_slice = <M::Route as FoundationClosed>::arena_slice();");
+    f.line("    // Foundation defaults for unit-level parameters that are not part");
+    f.line("    // of the Route's term-tree. The Witt-level ceiling and");
+    f.line("    // thermodynamic budget come from the application's `HostBounds`");
+    f.line("    // selection (ADR-018) — `B::WITT_LEVEL_MAX_BITS` caps the level,");
+    f.line("    // and a budget large enough to admit any in-bounds route avoids");
+    f.line("    // false-positive solvency rejections. `target_domains` is");
+    f.line("    // `Enumerative` because the arena is a finite term tree.");
     f.line("    let _ = input;");
+    f.line("    static TARGET_DOMAINS: &[crate::VerificationDomain] =");
+    f.line("        &[crate::VerificationDomain::Enumerative];");
+    f.line("    let level = match B::WITT_LEVEL_MAX_BITS {");
+    f.line("        bits if bits >= 32 => crate::WittLevel::W32,");
+    f.line("        bits if bits >= 24 => crate::WittLevel::W24,");
+    f.line("        bits if bits >= 16 => crate::WittLevel::W16,");
+    f.line("        _ => crate::WittLevel::W8,");
+    f.line("    };");
     f.line("    let unit = CompileUnitBuilder::new()");
-    f.line("        .root_term(&[])");
-    f.line("        .witt_level_ceiling(crate::WittLevel::W8)");
-    f.line("        .thermodynamic_budget(0)");
-    f.line("        .target_domains(&[])");
+    f.line("        .root_term(arena_slice)");
+    f.line("        .witt_level_ceiling(level)");
+    f.line("        .thermodynamic_budget(1024)");
+    f.line("        .target_domains(TARGET_DOMAINS)");
     f.line("        .result_type::<M::Output>()");
     f.line("        .validate()");
     f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
@@ -2079,8 +2123,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("Application authors with non-trivial routes use the `prism_model!`");
     f.doc_comment("macro from `uor-foundation-sdk`, which emits `FoundationClosed` for");
     f.doc_comment("the witness it generates iff every node is foundation-vocabulary.");
+    f.doc_comment("");
+    f.doc_comment("The identity route's `arena_slice()` returns `&[]` — no terms, no");
+    f.doc_comment("transformation, input passes through to output unchanged.");
     f.line("impl __sdk_seal::Sealed for ConstrainedTypeInput {}");
-    f.line("impl FoundationClosed for ConstrainedTypeInput {}");
+    f.line("impl FoundationClosed for ConstrainedTypeInput {");
+    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term] {");
+    f.line("        &[]");
+    f.line("    }");
+    f.line("}");
     f.blank();
 }
 

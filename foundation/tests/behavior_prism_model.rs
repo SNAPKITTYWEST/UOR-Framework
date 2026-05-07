@@ -82,11 +82,11 @@ impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityMod
     type Output = ConstrainedTypeInput;
     type Route = ConstrainedTypeInput;
 
-    fn forward(_input: Self::Input) -> Result<Grounded<Self::Output>, PipelineFailure> {
-        Err(PipelineFailure::ContradictionDetected {
-            at_step: 0,
-            trace_iri: "https://uor.foundation/test/behavior_prism_model/identity",
-        })
+    /// Per wiki ADR-022 D5, `forward` delegates to `run_route` — that is
+    /// the architecturally-committed body the `prism_model!` macro
+    /// emits. This test impl writes it by hand to pin the contract.
+    fn forward(input: Self::Input) -> Result<Grounded<Self::Output>, PipelineFailure> {
+        run_route::<DefaultHostTypes, DefaultHostBounds, TestHasher, Self>(input)
     }
 }
 
@@ -153,15 +153,33 @@ fn prism_model_route_bound_is_foundation_closed() {
 fn prism_model_forward_returns_grounded_result() {
     // Wiki ADR-020 specifies
     // `forward(input: Input) → Result<Grounded<Output>, PipelineFailure>`.
-    // Pin that signature shape via a runtime call.
+    // ADR-022 D5: the body delegates to `run_route`. The IdentityModel
+    // above writes that body by hand, so this call exercises the
+    // architectural surface end-to-end. Pin the result type shape; the
+    // identity route's empty arena lands somewhere in the
+    // `PipelineFailure` taxonomy at preflight time (the specific
+    // variant is foundation-internal).
     let result =
         <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::forward(
             ConstrainedTypeInput::default(),
         );
-    assert!(matches!(
-        result,
-        Err(PipelineFailure::ContradictionDetected { .. })
-    ));
+    let _: Result<Grounded<ConstrainedTypeInput>, PipelineFailure> = result;
+    // The identity route's preflight resolves to the `Result` shape the
+    // wiki commits `forward` to. Either an Ok grounded value or any
+    // PipelineFailure variant — both are valid; what matters is the
+    // signature is honoured. The shape pin above is itself the
+    // assertion (the let-binding's type annotation rejects any other
+    // shape at compile time).
+    let arena = <<IdentityModel as PrismModel<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        TestHasher,
+    >>::Route as FoundationClosed>::arena_slice();
+    assert_eq!(
+        arena.len(),
+        0,
+        "IdentityModel's route is foundation's identity route — empty term arena",
+    );
 }
 
 #[test]

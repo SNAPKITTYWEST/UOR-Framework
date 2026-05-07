@@ -626,147 +626,511 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
     expansion.into()
 }
 
-/// Callsite input for `prism_model!(Name, H, B, A, Input, Output, Route)`
-/// — seven identifier tokens (model name, then the three substitution-axis
-/// types, then the model's three associated types). The wiki specifies a
-/// closure-bodied `route` function form (ADR-022 D3); the
-/// identifier-list form here is the minimal viable surface that emits
-/// the load-bearing seal + `FoundationClosed` + `PrismModel` impls per
-/// ADR-022 D1 and D4. A future iteration can add the closure-bodied
-/// surface as a superset; the impl emissions this macro produces are
-/// the architectural commitments the wiki requires.
-struct PrismModelArgs {
-    name: Ident,
-    host_types: Ident,
-    host_bounds: Ident,
-    hasher: Ident,
-    input: Ident,
-    output: Ident,
-    route: Ident,
+// =====================================================================
+// `prism_model!` — wiki ADR-020 + ADR-022 D3.
+//
+// The macro accepts the closure-bodied form the wiki specifies as the
+// maximally-Rust-native syntax for declaring a Prism model:
+//
+// ```text
+// prism_model! {
+//     pub struct MyModel;
+//     pub struct MyRoute;
+//     impl PrismModel<HType, BType, AType> for MyModel {
+//         type Input  = InputShape;
+//         type Output = OutputShape;
+//         type Route  = MyRoute;
+//         fn route(input: Self::Input) -> Self::Output {
+//             // closure body — Rust expression syntax parsed by the macro
+//             // into a Term tree at expansion time. The body never executes
+//             // as Rust at runtime; it is consumed at macro time, mapped to
+//             // the term-tree representation, and the macro emits both the
+//             // term tree (as a `&'static [Term]` slice) and the
+//             // closure-checked `FoundationClosed` impl.
+//             //
+//             // Recognised foundation-vocabulary forms:
+//             //   - integer literals          → Term::Literal
+//             //   - identifier `input`        → Term::Variable
+//             //   - lowercase PrimitiveOp     → Term::Application
+//             //     names: add, sub, mul, xor, and, or
+//             //           neg, bnot, succ, pred
+//             // Anything else fails to compile, pointing at the offending
+//             // call site (a closure violation per ADR-020).
+//         }
+//     }
+// }
+// ```
+//
+// Emissions (per ADR-022):
+//   D1: `impl __sdk_seal::Sealed for MyModel`,
+//       `impl __sdk_seal::Sealed for MyRoute`
+//   D2: `const ROUTE_TERMS_<MODEL>: &'static [Term] = &[…]` (fully const
+//       — `TermArena::from_slice(ROUTE_TERMS_<MODEL>)` is a `const fn`)
+//   D5: `impl FoundationClosed for MyRoute { arena_slice() → ROUTE_TERMS_<MODEL> }`
+//   D4: `impl PrismModel<H,B,A> for MyModel { …; fn forward(input) { run_route::<H,B,A,Self>(input) } }`
+
+/// Parsed shape of the macro input — a struct declaration for the model,
+/// optionally one for the route witness, and an `impl PrismModel<…> for
+/// <Model>` block carrying the three associated types and the closure-bodied
+/// `route` function.
+struct PrismModelInput {
+    model_vis: syn::Visibility,
+    model_name: Ident,
+    route_vis: syn::Visibility,
+    route_name: Ident,
+    h_ty: syn::Type,
+    b_ty: syn::Type,
+    a_ty: syn::Type,
+    input_ty: syn::Type,
+    output_ty: syn::Type,
+    route_input_ident: Ident,
+    route_body: syn::Block,
 }
 
-impl Parse for PrismModelArgs {
+impl Parse for PrismModelInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        let name: Ident = input.parse()?;
+        // Model struct: `pub struct ModelName;`
+        let model_vis: syn::Visibility = input.parse()?;
+        input.parse::<Token![struct]>()?;
+        let model_name: Ident = input.parse()?;
+        input.parse::<Token![;]>()?;
+
+        // Route witness struct: `pub struct RouteName;`
+        let route_vis: syn::Visibility = input.parse()?;
+        input.parse::<Token![struct]>()?;
+        let route_name: Ident = input.parse()?;
+        input.parse::<Token![;]>()?;
+
+        // `impl PrismModel<H, B, A> for ModelName`
+        input.parse::<Token![impl]>()?;
+        let trait_ident: Ident = input.parse()?;
+        if trait_ident != "PrismModel" {
+            return Err(syn::Error::new(
+                trait_ident.span(),
+                "prism_model! expects an `impl PrismModel<H, B, A> for <Model>` block",
+            ));
+        }
+        input.parse::<Token![<]>()?;
+        let h_ty: syn::Type = input.parse()?;
         input.parse::<Token![,]>()?;
-        let host_types: Ident = input.parse()?;
+        let b_ty: syn::Type = input.parse()?;
         input.parse::<Token![,]>()?;
-        let host_bounds: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let hasher: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let input_ty: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let output: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let route: Ident = input.parse()?;
-        let _ = input.parse::<Token![,]>();
+        let a_ty: syn::Type = input.parse()?;
+        input.parse::<Token![>]>()?;
+        input.parse::<Token![for]>()?;
+        let impl_target: Ident = input.parse()?;
+        if impl_target != model_name {
+            return Err(syn::Error::new(
+                impl_target.span(),
+                "prism_model!'s `impl PrismModel<…> for <Model>` target must match the declared model struct",
+            ));
+        }
+
+        // Body of the impl block: `{ type Input = …; type Output = …; type Route = …; fn route(…) { … } }`
+        let body;
+        syn::braced!(body in input);
+
+        // type Input = …;
+        body.parse::<Token![type]>()?;
+        let input_kw: Ident = body.parse()?;
+        if input_kw != "Input" {
+            return Err(syn::Error::new(
+                input_kw.span(),
+                "expected `type Input = …;`",
+            ));
+        }
+        body.parse::<Token![=]>()?;
+        let input_ty: syn::Type = body.parse()?;
+        body.parse::<Token![;]>()?;
+
+        // type Output = …;
+        body.parse::<Token![type]>()?;
+        let output_kw: Ident = body.parse()?;
+        if output_kw != "Output" {
+            return Err(syn::Error::new(
+                output_kw.span(),
+                "expected `type Output = …;`",
+            ));
+        }
+        body.parse::<Token![=]>()?;
+        let output_ty: syn::Type = body.parse()?;
+        body.parse::<Token![;]>()?;
+
+        // type Route = …;
+        body.parse::<Token![type]>()?;
+        let route_kw: Ident = body.parse()?;
+        if route_kw != "Route" {
+            return Err(syn::Error::new(
+                route_kw.span(),
+                "expected `type Route = …;`",
+            ));
+        }
+        body.parse::<Token![=]>()?;
+        let route_ty_ident: Ident = body.parse()?;
+        if route_ty_ident != route_name {
+            return Err(syn::Error::new(
+                route_ty_ident.span(),
+                "prism_model!'s `type Route = <RouteName>;` must match the declared route struct",
+            ));
+        }
+        body.parse::<Token![;]>()?;
+
+        // fn route(input: Self::Input) -> Self::Output { … }
+        body.parse::<Token![fn]>()?;
+        let fn_kw: Ident = body.parse()?;
+        if fn_kw != "route" {
+            return Err(syn::Error::new(
+                fn_kw.span(),
+                "expected `fn route(input: Self::Input) -> Self::Output { … }`",
+            ));
+        }
+        let params;
+        syn::parenthesized!(params in body);
+        let route_input_ident: Ident = params.parse()?;
+        params.parse::<Token![:]>()?;
+        let _input_param_ty: syn::Type = params.parse()?;
+        // Discard return-type position — we already know it from `type Output`.
+        body.parse::<Token![->]>()?;
+        let _output_param_ty: syn::Type = body.parse()?;
+        let route_body: syn::Block = body.parse()?;
+
         Ok(Self {
-            name,
-            host_types,
-            host_bounds,
-            hasher,
-            input: input_ty,
-            output,
-            route,
+            model_vis,
+            model_name,
+            route_vis,
+            route_name,
+            h_ty,
+            b_ty,
+            a_ty,
+            input_ty,
+            output_ty,
+            route_input_ident,
+            route_body,
         })
     }
 }
 
-/// `prism_model!` — wiki ADR-020 + ADR-022 D3.
+/// One spec entry in the term arena being built. Maps to a `Term::*`
+/// variant token stream at emission time.
+enum TermSpec {
+    /// `Term::Literal { value, level: WittLevel::W8 }`
+    Literal(u64),
+    /// `Term::Variable { name_index: 0 }` (the macro recognises `input`
+    /// as the sole bound name; future iterations support `let` bindings).
+    Variable,
+    /// `Term::Application { operator, args: TermList { start, len } }`
+    Application {
+        operator: proc_macro2::TokenStream,
+        args_start: u32,
+        args_len: u32,
+    },
+}
+
+/// Recursively walk a Rust expression and append the terms that compute
+/// it to `arena`, returning the index where this expression's *root*
+/// term lands. `route_input` is the name of the route's bound input
+/// parameter (mapped to `Term::Variable { name_index: 0 }`).
+fn emit_term_for_expr(
+    expr: &syn::Expr,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+) -> Result<usize> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(int_lit), .. }) => {
+            let value: u64 = int_lit.base10_parse().map_err(|e| {
+                syn::Error::new(int_lit.span(), format!("integer literal out of u64 range: {e}"))
+            })?;
+            let idx = arena.len();
+            arena.push(TermSpec::Literal(value));
+            Ok(idx)
+        }
+        syn::Expr::Path(path_expr) if path_expr.path.get_ident() == Some(route_input) => {
+            let idx = arena.len();
+            arena.push(TermSpec::Variable);
+            Ok(idx)
+        }
+        syn::Expr::Path(path_expr) => Err(syn::Error::new_spanned(
+            path_expr,
+            "closure violation: identifier is not a foundation-vocabulary name (only the route's `input` parameter is recognised as a variable reference)",
+        )),
+        syn::Expr::Call(call_expr) => emit_term_for_call(call_expr, route_input, arena),
+        syn::Expr::Block(block_expr) => {
+            // A `{ expr }` block — accept iff it has exactly one expression
+            // statement (the canonical closure-body shape after parsing).
+            let stmts = &block_expr.block.stmts;
+            if stmts.len() == 1 {
+                if let syn::Stmt::Expr(inner, _) = &stmts[0] {
+                    return emit_term_for_expr(inner, route_input, arena);
+                }
+            }
+            Err(syn::Error::new_spanned(
+                block_expr,
+                "closure violation: block expressions must contain exactly one expression statement",
+            ))
+        }
+        syn::Expr::Paren(paren_expr) => emit_term_for_expr(&paren_expr.expr, route_input, arena),
+        other => Err(syn::Error::new_spanned(
+            other,
+            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, and lowercase PrimitiveOp function calls — add, sub, mul, xor, and, or, neg, bnot, succ, pred)",
+        )),
+    }
+}
+
+/// Map a function-call expression to a `Term::Application`. Recognises
+/// the ten lowercase PrimitiveOp names and rejects anything else as a
+/// closure violation.
+fn emit_term_for_call(
+    call: &syn::ExprCall,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+) -> Result<usize> {
+    // The function being called must be a bare identifier matching one
+    // of the recognised PrimitiveOp names.
+    let func_ident = match call.func.as_ref() {
+        syn::Expr::Path(p) => p.path.get_ident().cloned().ok_or_else(|| {
+            syn::Error::new_spanned(
+                &call.func,
+                "closure violation: call target must be a bare identifier matching a PrimitiveOp name",
+            )
+        })?,
+        other => {
+            return Err(syn::Error::new_spanned(
+                other,
+                "closure violation: call target must be a bare identifier matching a PrimitiveOp name",
+            ));
+        }
+    };
+
+    let (operator, expected_arity) = match func_ident.to_string().as_str() {
+        "add" => (quote! { ::uor_foundation::PrimitiveOp::Add }, 2usize),
+        "sub" => (quote! { ::uor_foundation::PrimitiveOp::Sub }, 2),
+        "mul" => (quote! { ::uor_foundation::PrimitiveOp::Mul }, 2),
+        "xor" => (quote! { ::uor_foundation::PrimitiveOp::Xor }, 2),
+        "and" => (quote! { ::uor_foundation::PrimitiveOp::And }, 2),
+        "or" => (quote! { ::uor_foundation::PrimitiveOp::Or }, 2),
+        "neg" => (quote! { ::uor_foundation::PrimitiveOp::Neg }, 1),
+        "bnot" => (quote! { ::uor_foundation::PrimitiveOp::Bnot }, 1),
+        "succ" => (quote! { ::uor_foundation::PrimitiveOp::Succ }, 1),
+        "pred" => (quote! { ::uor_foundation::PrimitiveOp::Pred }, 1),
+        other => {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred)"
+                ),
+            ));
+        }
+    };
+
+    if call.args.len() != expected_arity {
+        return Err(syn::Error::new(
+            func_ident.span(),
+            format!(
+                "PrimitiveOp `{}` expects {} argument(s), got {}",
+                func_ident,
+                expected_arity,
+                call.args.len()
+            ),
+        ));
+    }
+
+    // Emit each arg's subtree and record its root index.
+    let mut arg_root_indices: Vec<usize> = Vec::with_capacity(call.args.len());
+    for arg in call.args.iter() {
+        arg_root_indices.push(emit_term_for_expr(arg, route_input, arena)?);
+    }
+
+    // ADR-022 D2: the args block must be CONTIGUOUS in the arena. If
+    // the arg roots already are (the common case for leaf args or for
+    // the canonical post-order layout), use them directly. Otherwise
+    // duplicate each arg's root term into a fresh contiguous block —
+    // a duplicate carries the same `Term` value (same operator + same
+    // args.start), so it is semantically identical.
+    let already_contiguous = arg_root_indices
+        .windows(2)
+        .all(|w| w[1] == w[0] + 1);
+
+    let (args_start, args_len) = if already_contiguous && !arg_root_indices.is_empty() {
+        let len = arg_root_indices.len();
+        let start = arg_root_indices[0];
+        (start as u32, len as u32)
+    } else {
+        // Build a contiguous duplicate block at the end of the arena.
+        let start = arena.len();
+        for &idx in &arg_root_indices {
+            // Clone the spec at idx into a new slot. Since TermSpec is
+            // not Clone, hand-build a fresh entry referring to the same
+            // contents. (Operators are token streams; clone via .clone()
+            // on the field.)
+            let dup = match &arena[idx] {
+                TermSpec::Literal(v) => TermSpec::Literal(*v),
+                TermSpec::Variable => TermSpec::Variable,
+                TermSpec::Application {
+                    operator,
+                    args_start,
+                    args_len,
+                } => TermSpec::Application {
+                    operator: operator.clone(),
+                    args_start: *args_start,
+                    args_len: *args_len,
+                },
+            };
+            arena.push(dup);
+        }
+        (start as u32, arg_root_indices.len() as u32)
+    };
+
+    let app_idx = arena.len();
+    arena.push(TermSpec::Application {
+        operator,
+        args_start,
+        args_len,
+    });
+    Ok(app_idx)
+}
+
+/// Emit the macro-time-built term arena as a sequence of `Term::*`
+/// constructor expressions, ready to splice into a `&'static [Term]`
+/// const-array literal.
+fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
+    arena
+        .iter()
+        .map(|spec| match spec {
+            TermSpec::Literal(value) => quote! {
+                ::uor_foundation::enforcement::Term::Literal {
+                    value: #value,
+                    level: ::uor_foundation::WittLevel::W8,
+                }
+            },
+            TermSpec::Variable => quote! {
+                ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
+            },
+            TermSpec::Application {
+                operator,
+                args_start,
+                args_len,
+            } => {
+                let s = *args_start;
+                let l = *args_len;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Application {
+                        operator: #operator,
+                        args: ::uor_foundation::enforcement::TermList {
+                            start: #s,
+                            len: #l,
+                        },
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
+/// `prism_model!` — wiki ADR-020 + ADR-022 D3 closure-bodied form.
 ///
-/// Emits the architecturally-required impl block for a `PrismModel` plus
-/// the load-bearing seal impls per ADR-022 D1: `__sdk_seal::Sealed for
-/// <Model>`, `__sdk_seal::Sealed for <Route>`, `FoundationClosed for
-/// <Route>`, and `PrismModel<H, B, A> for <Model>` with `forward` body
-/// dispatching to `pipeline::run_route::<H, B, A, Self>(input)` per
-/// ADR-022 D5.
+/// Parses the model declaration (struct, route witness struct, impl block
+/// with `Input` / `Output` / `Route` associated types and a closure-bodied
+/// `route` function), maps the closure body to a foundation-vocabulary
+/// term tree at expansion time, and emits:
 ///
-/// # Example
+/// - `pub struct <Model>;` and `pub struct <Route>;` (re-emitted from input)
+/// - `const ROUTE_TERMS_<MODEL>: &'static [Term] = &[…];` (the term tree)
+/// - `impl __sdk_seal::Sealed for <Model>` and `for <Route>` (D1)
+/// - `impl FoundationClosed for <Route> { arena_slice() → ROUTE_TERMS_<MODEL> }` (D5)
+/// - `impl PrismModel<H, B, A> for <Model>` with `forward` body delegating
+///   to `pipeline::run_route::<H, B, A, Self>(input)` (D4 + D5)
 ///
-/// ```ignore
-/// use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher};
-/// use uor_foundation::{DefaultHostBounds, DefaultHostTypes};
-/// use uor_foundation_sdk::prism_model;
-///
-/// pub struct MyHasher;
-/// impl Hasher for MyHasher {
-///     const OUTPUT_BYTES: usize = 16;
-///     fn initial() -> Self { Self }
-///     fn fold_byte(self, _: u8) -> Self { self }
-///     fn finalize(self) -> [u8; 32] { [0; 32] }
-/// }
-///
-/// pub struct IdentityModel;
-///
-/// prism_model!(
-///     IdentityModel,
-///     DefaultHostTypes,
-///     DefaultHostBounds,
-///     MyHasher,
-///     ConstrainedTypeInput,
-///     ConstrainedTypeInput,
-///     ConstrainedTypeInput
-/// );
-/// ```
-///
-/// The wiki's full closure-bodied form (`fn route(input) -> output {
-/// closure_body }`) is the maximally Rust-native surface ADR-022 D3
-/// names; the identifier-list form here ships the architectural
-/// commitments now and admits a closure-bodied superset later.
+/// A function call to a name not in the foundation PrimitiveOp catalogue
+/// (add, sub, mul, xor, and, or, neg, bnot, succ, pred) fails to compile,
+/// pointing at the offending span — the wiki's closure-violation
+/// enforcement (ADR-020).
 #[proc_macro]
 pub fn prism_model(input: TokenStream) -> TokenStream {
-    let PrismModelArgs {
-        name,
-        host_types,
-        host_bounds,
-        hasher,
-        input: input_ty,
-        output,
-        route,
-    } = parse_macro_input!(input as PrismModelArgs);
+    let parsed = parse_macro_input!(input as PrismModelInput);
+    let PrismModelInput {
+        model_vis,
+        model_name,
+        route_vis,
+        route_name,
+        h_ty,
+        b_ty,
+        a_ty,
+        input_ty,
+        output_ty,
+        route_input_ident,
+        route_body,
+    } = parsed;
+
+    // Walk the closure body — the macro-time mapping that ADR-020 / D3
+    // names. The body must be a single expression block; we accept the
+    // canonical Rust shape of `{ expr }` and treat the lone expression
+    // as the route's term tree.
+    let final_expr = match route_body.stmts.last() {
+        Some(syn::Stmt::Expr(e, _)) => e.clone(),
+        _ => {
+            return syn::Error::new_spanned(
+                &route_body,
+                "closure violation: route body must end with an expression statement (no `;`)",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let mut arena: Vec<TermSpec> = Vec::new();
+    if let Err(e) = emit_term_for_expr(&final_expr, &route_input_ident, &mut arena) {
+        return e.to_compile_error().into();
+    }
+    let term_specs = render_arena(&arena);
+
+    // Synthesize a unique const name from the model's identifier so two
+    // models in the same module don't clash on `ROUTE_TERMS`.
+    let route_terms_const = Ident::new(
+        &format!("ROUTE_TERMS_FOR_{}", to_screaming_snake(&model_name.to_string())),
+        model_name.span(),
+    );
 
     let expansion = quote! {
-        // ADR-022 D1: emit the seal impls. The macro is the only
-        // sanctioned producer of these impls outside foundation itself.
-        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #route {}
-        impl ::uor_foundation::pipeline::FoundationClosed for #route {}
+        // Re-emit the model + route witness structs from the input.
+        #model_vis struct #model_name;
+        #route_vis struct #route_name;
 
-        // ADR-020 + ADR-022 D4: PrismModel impl, parametric over the
-        // three substitution axes selected at the call site. ADR-022 D5:
-        // forward body delegates to `run_route`.
-        impl ::uor_foundation::pipeline::PrismModel<
-            #host_types,
-            #host_bounds,
-            #hasher,
-        > for #name {
+        // ADR-022 D2: const term-tree slice. Macro-time-built, fully
+        // const, ready for `TermArena::from_slice` if a caller wants
+        // to wrap it. `pipeline::run_route` reads it directly via
+        // `FoundationClosed::arena_slice`.
+        #[allow(non_upper_case_globals, dead_code)]
+        const #route_terms_const: &[::uor_foundation::enforcement::Term] = &[
+            #( #term_specs ),*
+        ];
+
+        // ADR-022 D1: seal impls. Foundation-internal macro is the
+        // only sanctioned producer outside foundation itself.
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #model_name {}
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #route_name {}
+
+        // ADR-022 D5: FoundationClosed impl returning the parsed term-tree.
+        impl ::uor_foundation::pipeline::FoundationClosed for #route_name {
+            fn arena_slice() -> &'static [::uor_foundation::enforcement::Term] {
+                #route_terms_const
+            }
+        }
+
+        // ADR-020 + ADR-022 D4: PrismModel impl.
+        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty> for #model_name {
             type Input = #input_ty;
-            type Output = #output;
-            type Route = #route;
+            type Output = #output_ty;
+            type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<
-                    #host_types,
-                    #host_bounds,
-                    #hasher,
-                >>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
-                    <Self as ::uor_foundation::pipeline::PrismModel<
-                        #host_types,
-                        #host_bounds,
-                        #hasher,
-                    >>::Output,
+                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty>>::Output,
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
-                ::uor_foundation::pipeline::run_route::<
-                    #host_types,
-                    #host_bounds,
-                    #hasher,
-                    Self,
-                >(input)
+                ::uor_foundation::pipeline::run_route::<#h_ty, #b_ty, #a_ty, Self>(input)
             }
         }
     };

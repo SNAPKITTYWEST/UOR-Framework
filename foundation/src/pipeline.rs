@@ -422,7 +422,7 @@ pub mod __sdk_seal {
     pub trait Sealed {}
 }
 
-/// Marker trait — `Route` types satisfying this bound are closed under
+/// Trait — `Route` types satisfying this bound are closed under
 /// foundation vocabulary: every node in the witnessed term tree is a
 /// foundation-vocabulary item.
 /// Sealed via [`__sdk_seal::Sealed`]: the route-emitting `prism_model!`
@@ -433,7 +433,22 @@ pub mod __sdk_seal {
 /// a function outside foundation vocabulary receives no
 /// `FoundationClosed` impl, and the application fails to compile with
 /// an unsatisfied bound on `Route`.
-pub trait FoundationClosed: __sdk_seal::Sealed {}
+/// # `arena_slice`
+/// Per ADR-022 D5, [`run_route`] consumes the route's term-tree arena.
+/// The `prism_model!` macro emits the [`arena_slice`] impl returning
+/// the parsed closure body's term tree as a static slice. The
+/// foundation-sanctioned identity route returns an empty slice
+/// (no transformation, input passes through to output).
+/// On stable Rust without `generic_const_exprs`, the slice form is
+/// the equivalent of the wiki's `&'static TermArena` bound: it
+/// exposes the term tree without forcing every Route to carry the
+/// arena's `CAP` const-generic through the trait.
+pub trait FoundationClosed: __sdk_seal::Sealed {
+    /// Returns the term-tree arena slice the `prism_model!` macro emitted for
+    /// this route witness. [`run_route`] reads this to populate the
+    /// `CompileUnit`'s root_term before invoking [`run`].
+    fn arena_slice() -> &'static [crate::enforcement::Term];
+}
 
 /// The application author's typed-iso contract: an `Input` feature type, an
 /// `Output` label type, and a type-level `Route` witness of the term tree
@@ -527,18 +542,31 @@ where
     A: crate::enforcement::Hasher,
     M: PrismModel<H, B, A>,
 {
-    // Phase-bridging body: build a CompileUnit from foundation defaults
-    // and dispatch to `run`. The macro-emitted Route witness carries
-    // the term-tree arena; future SDK iterations wire the witness's
-    // arena into the unit explicitly. For now `run_route` validates the
-    // empty unit and dispatches — exercising the path the architecture
-    // commits to so the trait surface is callable.
+    // ADR-022 D5: read the route's term-tree arena from the model's
+    // `Route` (the macro-emitted witness; identity-route returns &[]),
+    // build a `Validated<CompileUnit, FinalPhase>` whose root_term is
+    // exactly that arena, and dispatch to `run` (the catamorphism).
+    let arena_slice = <M::Route as FoundationClosed>::arena_slice();
+    // Foundation defaults for unit-level parameters that are not part
+    // of the Route's term-tree. The Witt-level ceiling and
+    // thermodynamic budget come from the application's `HostBounds`
+    // selection (ADR-018) — `B::WITT_LEVEL_MAX_BITS` caps the level,
+    // and a budget large enough to admit any in-bounds route avoids
+    // false-positive solvency rejections. `target_domains` is
+    // `Enumerative` because the arena is a finite term tree.
     let _ = input;
+    static TARGET_DOMAINS: &[crate::VerificationDomain] = &[crate::VerificationDomain::Enumerative];
+    let level = match B::WITT_LEVEL_MAX_BITS {
+        bits if bits >= 32 => crate::WittLevel::W32,
+        bits if bits >= 24 => crate::WittLevel::W24,
+        bits if bits >= 16 => crate::WittLevel::W16,
+        _ => crate::WittLevel::W8,
+    };
     let unit = CompileUnitBuilder::new()
-        .root_term(&[])
-        .witt_level_ceiling(crate::WittLevel::W8)
-        .thermodynamic_budget(0)
-        .target_domains(&[])
+        .root_term(arena_slice)
+        .witt_level_ceiling(level)
+        .thermodynamic_budget(1024)
+        .target_domains(TARGET_DOMAINS)
         .result_type::<M::Output>()
         .validate()
         .map_err(|report| PipelineFailure::ShapeViolation { report })?;
@@ -550,8 +578,14 @@ where
 /// Application authors with non-trivial routes use the `prism_model!`
 /// macro from `uor-foundation-sdk`, which emits `FoundationClosed` for
 /// the witness it generates iff every node is foundation-vocabulary.
+/// The identity route's `arena_slice()` returns `&[]` — no terms, no
+/// transformation, input passes through to output unchanged.
 impl __sdk_seal::Sealed for ConstrainedTypeInput {}
-impl FoundationClosed for ConstrainedTypeInput {}
+impl FoundationClosed for ConstrainedTypeInput {
+    fn arena_slice() -> &'static [crate::enforcement::Term] {
+        &[]
+    }
+}
 
 /// Marker for a `ConstrainedTypeShape` that is the Cartesian product of
 /// two component shapes. Selecting this trait routes nerve-Betti computation

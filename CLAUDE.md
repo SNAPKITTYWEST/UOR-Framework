@@ -74,9 +74,38 @@ where
 
 ADR-022 D1: the seal is [`pipeline::__sdk_seal::Sealed`](foundation/src/pipeline.rs) — `#[doc(hidden)] pub mod __sdk_seal { pub trait Sealed {} }`. The doc-hidden naming-convention pair is the ecosystem-standard idiom for cross-crate-extensible-but-controlled traits; the [`prism_model!`](uor-foundation-sdk/src/lib.rs) macro from `uor-foundation-sdk` emits `impl __sdk_seal::Sealed for <Model>`, `impl __sdk_seal::Sealed for <RouteWitness>`, `impl FoundationClosed for <RouteWitness>`, and `impl PrismModel<H, B, A> for <Model>` together. Foundation sanctions the identity-route impl on `ConstrainedTypeInput` directly; non-trivial routes go through the macro.
 
-ADR-022 D5: [`pipeline::run_route<H, B, A, M>(input)`](foundation/src/pipeline.rs) is the canonical catamorphism call-site. The macro-emitted `forward` body is exactly `run_route::<H, B, A, Self>(input)`. The lower-level [`pipeline::run`](foundation/src/pipeline.rs) remains for callers (test harnesses, conformance suites, alternative SDK surfaces) that construct the `CompileUnit` themselves.
+ADR-022 D5: [`pipeline::run_route<H, B, A, M>(input)`](foundation/src/pipeline.rs) is the canonical catamorphism call-site. It reads the route's term arena via `<M::Route as FoundationClosed>::arena_slice()`, builds a `Validated<CompileUnit, FinalPhase>` from it (using the application's `<B as HostBounds>::WITT_LEVEL_MAX_BITS` to derive the Witt-level ceiling), and dispatches to `pipeline::run`. The macro-emitted `forward` body is exactly `run_route::<H, B, A, Self>(input)`. The lower-level [`pipeline::run`](foundation/src/pipeline.rs) remains for callers (test harnesses, conformance suites, alternative SDK surfaces) that construct the `CompileUnit` themselves.
 
-ADR-022 D2: [`enforcement::TermArena<CAP>::from_slice`](foundation/src/enforcement.rs) is the const constructor the macro emits (`const ROUTE: TermArena<CAP> = TermArena::from_slice(ROUTE_SLICE)`), so the route declaration is fully `const` and the catamorphism is monomorphized at the application's compile time.
+ADR-022 D2: [`enforcement::TermArena<CAP>::from_slice`](foundation/src/enforcement.rs) is the const constructor the macro can emit (`const ROUTE: TermArena<CAP> = TermArena::from_slice(ROUTE_SLICE)`); on stable Rust where every `Route` is required to expose its term tree as a `&'static [Term]` slice, the macro emits `const ROUTE_TERMS_FOR_<MODEL>: &'static [Term] = &[…]` and the route witness's `FoundationClosed::arena_slice()` returns it. Either form is fully `const` and the catamorphism is monomorphized at the application's compile time.
+
+ADR-022 D3: [`uor-foundation-sdk::prism_model!`](uor-foundation-sdk/src/lib.rs) accepts the closure-bodied form the wiki specifies as the maximally-Rust-native syntax:
+
+```rust
+prism_model! {
+    pub struct MyModel;
+    pub struct MyRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, MyHasher> for MyModel {
+        type Input  = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route  = MyRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            // closure body — Rust expression syntax parsed by the macro
+            // into a Term tree at expansion time. Recognised forms:
+            //   - integer literals  → Term::Literal
+            //   - identifier `input` → Term::Variable { name_index: 0 }
+            //   - lowercase PrimitiveOp calls → Term::Application:
+            //       add / sub / mul / xor / and / or  (binary)
+            //       neg / bnot / succ / pred           (unary)
+            // Anything else is a closure violation per ADR-020 — the
+            // macro emits a compile error pointing at the offending
+            // call site.
+            add(input, 1)
+        }
+    }
+}
+```
+
+The body is consumed at macro time and never executes as Rust at runtime; the macro-time mapping produces both the term-tree slice (the value-level state) and the impl block (the type-level state). [Smoke tests in uor-foundation-sdk/tests/smoke.rs](uor-foundation-sdk/tests/smoke.rs) pin the macro's `add(2, 3)` and `succ(input)` paths.
 
 `forward()` is the catamorphism into `pipeline::run_route`'s runtime carrier (per ADR-019); together with the trace-witnessed anamorphism through [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) it forms the verifiable round-trip ADR-021 names as a normative architectural property.
 
