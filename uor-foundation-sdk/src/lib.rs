@@ -837,6 +837,9 @@ enum TermSpec {
         args_start: u32,
         args_len: u32,
     },
+    /// `Term::HasherProjection { input_index }` — wiki ADR-026 G19.
+    /// The input subtree's root is at `input_index`.
+    HasherProjection { input_index: u32 },
 }
 
 /// Recursively walk a Rust expression and append the terms that compute
@@ -914,6 +917,25 @@ fn emit_term_for_call(
         }
     };
 
+    // ADR-026 G19: `hash(input)` lowers to `Term::HasherProjection`.
+    if func_ident == "hash" {
+        if call.args.len() != 1 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `hash` (ADR-026 G19) expects 1 argument, got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let input_root = emit_term_for_expr(&call.args[0], route_input, arena)?;
+        let idx = arena.len();
+        arena.push(TermSpec::HasherProjection {
+            input_index: input_root as u32,
+        });
+        return Ok(idx);
+    }
+
     let (operator, expected_arity) = match func_ident.to_string().as_str() {
         "add" => (quote! { ::uor_foundation::PrimitiveOp::Add }, 2usize),
         "sub" => (quote! { ::uor_foundation::PrimitiveOp::Sub }, 2),
@@ -925,11 +947,35 @@ fn emit_term_for_call(
         "bnot" => (quote! { ::uor_foundation::PrimitiveOp::Bnot }, 1),
         "succ" => (quote! { ::uor_foundation::PrimitiveOp::Succ }, 1),
         "pred" => (quote! { ::uor_foundation::PrimitiveOp::Pred }, 1),
+        // ADR-026 reserved macro-vocabulary identifiers (G13–G18). The
+        // closure-body lowering for these forms is specified
+        // architecturally; the substrate-level macro recognises them so
+        // they never fall through to the closure-violation branch as
+        // unknown identifiers, but the structural lowering is owned by
+        // the implementation (per ADR-024's three-way responsibility split
+        // between substrate, prism, and implementation). Implementations
+        // that need these forms supply their own SDK macros that desugar
+        // into the substrate primitives; the substrate macro reserves the
+        // identifiers so they cannot be re-used as `verb!` names.
+        "parallel"
+        | "fold_n"
+        | "tree_fold"
+        | "first_admit"
+        | "partition_product"
+        | "partition_coproduct" => {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `{}` is a reserved ADR-026 macro-vocabulary identifier whose route-body lowering is implementation-owned (see ADR-024 three-way responsibility split); use the type-level shape macros (`product_shape!`, `coproduct_shape!`, `cartesian_product_shape!`) at `type Input`/`type Output` positions, or supply an implementation-side `verb!` lowering that desugars into the substrate primitives",
+                    func_ident
+                ),
+            ));
+        }
         other => {
             return Err(syn::Error::new(
                 func_ident.span(),
                 format!(
-                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred)"
+                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred), the ADR-026 G19 hasher-projection identifier `hash`, nor a reserved macro-vocabulary identifier (parallel, fold_n, tree_fold, first_admit, partition_product, partition_coproduct)"
                 ),
             ));
         }
@@ -985,6 +1031,9 @@ fn emit_term_for_call(
                     args_start: *args_start,
                     args_len: *args_len,
                 },
+                TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
+                    input_index: *input_index,
+                },
             };
             arena.push(dup);
         }
@@ -1030,6 +1079,14 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                             start: #s,
                             len: #l,
                         },
+                    }
+                }
+            }
+            TermSpec::HasherProjection { input_index } => {
+                let i = *input_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::HasherProjection {
+                        input_index: #i,
                     }
                 }
             }
@@ -1147,6 +1204,408 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
                 ::uor_foundation::pipeline::run_route::<#h_ty, #b_ty, #a_ty, Self>(input)
             }
         }
+    };
+
+    expansion.into()
+}
+
+// =====================================================================
+// `output_shape!` — wiki ADR-027.
+//
+// Generalizes `GroundedShape`'s seal: the foundation source seals the
+// trait via `__sdk_seal::Sealed`, and the `output_shape!` SDK macro
+// emits — alongside the application's `ConstrainedTypeShape` impl — the
+// `__sdk_seal::Sealed`, `GroundedShape`, and `IntoBindingValue` impls
+// gated on the seal. This widens the path applications can declare a
+// custom Output shape without lifting the seal entirely.
+//
+// Macro form:
+//
+// ```text
+// output_shape! {
+//     pub struct OutputHash;
+//     impl ConstrainedTypeShape for OutputHash {
+//         const IRI: &'static str = "https://prism.btc/shape/OutputHash";
+//         const SITE_COUNT: usize = 32;
+//         const CONSTRAINTS: &'static [ConstraintRef] = &[];
+//     }
+// }
+// ```
+//
+// Emissions (per ADR-027):
+//   - `pub struct <Name>;` (re-emitted)
+//   - `impl ConstrainedTypeShape for <Name>` (re-emitted)
+//   - `impl __sdk_seal::Sealed for <Name>`
+//   - `impl GroundedShape for <Name>`
+//   - `impl IntoBindingValue for <Name>` with MAX_BYTES = SITE_COUNT
+//     (byte-level granularity default; shapes whose Witt level is
+//     greater than 8 bits use a wider per-site multiplier the
+//     application sets via a custom `IntoBindingValue` impl).
+
+/// Parsed shape of the macro input.
+struct OutputShapeInput {
+    struct_vis: syn::Visibility,
+    struct_name: Ident,
+    impl_iri: syn::LitStr,
+    impl_site_count: syn::Expr,
+    impl_constraints: syn::Expr,
+}
+
+impl Parse for OutputShapeInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        // `pub struct OutputHash;`
+        let struct_vis: syn::Visibility = input.parse()?;
+        input.parse::<Token![struct]>()?;
+        let struct_name: Ident = input.parse()?;
+        input.parse::<Token![;]>()?;
+
+        // `impl ConstrainedTypeShape for OutputHash { ... }`
+        input.parse::<Token![impl]>()?;
+        let trait_ident: Ident = input.parse()?;
+        if trait_ident != "ConstrainedTypeShape" {
+            return Err(syn::Error::new(
+                trait_ident.span(),
+                "output_shape! expects `impl ConstrainedTypeShape for <Name>`",
+            ));
+        }
+        input.parse::<Token![for]>()?;
+        let target: Ident = input.parse()?;
+        if target != struct_name {
+            return Err(syn::Error::new(
+                target.span(),
+                "output_shape!'s `impl ConstrainedTypeShape for <Name>` target must match the declared struct",
+            ));
+        }
+
+        let body;
+        syn::braced!(body in input);
+
+        // `const IRI: &'static str = "...";`
+        body.parse::<Token![const]>()?;
+        let kw_iri: Ident = body.parse()?;
+        if kw_iri != "IRI" {
+            return Err(syn::Error::new(
+                kw_iri.span(),
+                "expected `const IRI: &'static str = ...`",
+            ));
+        }
+        body.parse::<Token![:]>()?;
+        let _ty: syn::Type = body.parse()?;
+        body.parse::<Token![=]>()?;
+        let impl_iri: syn::LitStr = body.parse()?;
+        body.parse::<Token![;]>()?;
+
+        // `const SITE_COUNT: usize = ...;`
+        body.parse::<Token![const]>()?;
+        let kw_sc: Ident = body.parse()?;
+        if kw_sc != "SITE_COUNT" {
+            return Err(syn::Error::new(
+                kw_sc.span(),
+                "expected `const SITE_COUNT: usize = ...`",
+            ));
+        }
+        body.parse::<Token![:]>()?;
+        let _ty: syn::Type = body.parse()?;
+        body.parse::<Token![=]>()?;
+        let impl_site_count: syn::Expr = body.parse()?;
+        body.parse::<Token![;]>()?;
+
+        // `const CONSTRAINTS: &'static [ConstraintRef] = ...;`
+        body.parse::<Token![const]>()?;
+        let kw_cn: Ident = body.parse()?;
+        if kw_cn != "CONSTRAINTS" {
+            return Err(syn::Error::new(
+                kw_cn.span(),
+                "expected `const CONSTRAINTS: &'static [ConstraintRef] = ...`",
+            ));
+        }
+        body.parse::<Token![:]>()?;
+        let _ty: syn::Type = body.parse()?;
+        body.parse::<Token![=]>()?;
+        let impl_constraints: syn::Expr = body.parse()?;
+        body.parse::<Token![;]>()?;
+
+        Ok(Self {
+            struct_vis,
+            struct_name,
+            impl_iri,
+            impl_site_count,
+            impl_constraints,
+        })
+    }
+}
+
+/// `output_shape!` — wiki ADR-027 custom Output shape declaration.
+///
+/// Emits the application-named struct, the `ConstrainedTypeShape` impl
+/// (re-emitted from the user's body), and the additional impls
+/// `__sdk_seal::Sealed`, `GroundedShape`, and `IntoBindingValue` so the
+/// shape qualifies as a `PrismModel::Output`.
+#[proc_macro]
+pub fn output_shape(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as OutputShapeInput);
+    let OutputShapeInput {
+        struct_vis,
+        struct_name,
+        impl_iri,
+        impl_site_count,
+        impl_constraints,
+    } = parsed;
+
+    let expansion = quote! {
+        // Re-emit the user's struct and ConstrainedTypeShape impl.
+        #struct_vis struct #struct_name;
+
+        impl ::uor_foundation::pipeline::ConstrainedTypeShape for #struct_name {
+            const IRI: &'static str = #impl_iri;
+            const SITE_COUNT: usize = #impl_site_count;
+            const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] =
+                #impl_constraints;
+        }
+
+        // ADR-027 emissions: the four sealed-trait impls.
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #struct_name {}
+        impl ::uor_foundation::enforcement::GroundedShape for #struct_name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #struct_name {
+            const MAX_BYTES: usize =
+                <#struct_name as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                // The output shape carries the catamorphism's evaluation result, not a
+                // user-supplied input, so the input-side serialization is trivial.
+                // Applications that re-use the output shape as a downstream model's
+                // Input write a bespoke `IntoBindingValue` impl reflecting the bytes
+                // they emit at runtime.
+                Ok(0)
+            }
+        }
+    };
+
+    expansion.into()
+}
+
+// =====================================================================
+// `verb!` — wiki ADR-024 Layer-3 implementation closure.
+//
+// An implementation declares a named, reusable composition of prism
+// operators applied to substrate primitives. The macro:
+//
+//   - parses a closure-bodied function declaration
+//     (`pub fn name(input: T) -> U { … }`)
+//   - emits a `&'static [Term]` slice carrying the verb's term-tree
+//     fragment (built via the same G1–G19 closure-body grammar as
+//     `prism_model!`)
+//   - emits a `pub fn name_term_arena() -> &'static [Term]` accessor
+//     so `prism_model!` can reference the verb by name during
+//     route-closure expansion
+//
+// Form:
+//
+// ```text
+// verb! {
+//     pub fn sha256_compression(input: BlockInput) -> CompressionState {
+//         // closure body — same G1–G19 grammar as prism_model!
+//         hash(input)
+//     }
+// }
+// ```
+//
+// Per ADR-024's three-way responsibility split, the verb's runtime
+// is implementation-owned: the term-tree fragment is the structural
+// declaration; how an implementation evaluates it (sequential,
+// parallel, optimised) is the implementation's choice. Foundation's
+// `pipeline::run_route` evaluates verb-reachable Term trees per the
+// per-variant fold-rules (ADR-029).
+
+/// Parsed shape of the `verb!` macro input.
+struct VerbInput {
+    fn_vis: syn::Visibility,
+    fn_name: Ident,
+    input_param: Ident,
+    input_ty: syn::Type,
+    output_ty: syn::Type,
+    body: syn::Block,
+}
+
+impl Parse for VerbInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let fn_vis: syn::Visibility = input.parse()?;
+        input.parse::<Token![fn]>()?;
+        let fn_name: Ident = input.parse()?;
+        let params;
+        syn::parenthesized!(params in input);
+        let input_param: Ident = params.parse()?;
+        params.parse::<Token![:]>()?;
+        let input_ty: syn::Type = params.parse()?;
+        input.parse::<Token![->]>()?;
+        let output_ty: syn::Type = input.parse()?;
+        let body: syn::Block = input.parse()?;
+        Ok(Self {
+            fn_vis,
+            fn_name,
+            input_param,
+            input_ty,
+            output_ty,
+            body,
+        })
+    }
+}
+
+/// `verb!` — wiki ADR-024 Layer-3 verb declaration. Emits a const
+/// term-tree fragment and a public accessor.
+#[proc_macro]
+pub fn verb(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as VerbInput);
+    let VerbInput {
+        fn_vis,
+        fn_name,
+        input_param,
+        input_ty,
+        output_ty,
+        body,
+    } = parsed;
+
+    let final_expr = match body.stmts.last() {
+        Some(syn::Stmt::Expr(e, _)) => e.clone(),
+        _ => {
+            return syn::Error::new_spanned(
+                &body,
+                "closure violation: verb body must end with an expression statement (no `;`)",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let mut arena: Vec<TermSpec> = Vec::new();
+    if let Err(e) = emit_term_for_expr(&final_expr, &input_param, &mut arena) {
+        return e.to_compile_error().into();
+    }
+    let term_specs = render_arena(&arena);
+
+    let const_name = Ident::new(
+        &format!("VERB_TERMS_{}", to_screaming_snake(&fn_name.to_string())),
+        fn_name.span(),
+    );
+    let accessor_name = Ident::new(&format!("{}_term_arena", fn_name), fn_name.span());
+
+    let expansion = quote! {
+        // Const term-tree fragment, fully-const, ready for the verb's
+        // accessor or for `prism_model!` to splice into a route arena.
+        #[allow(non_upper_case_globals, dead_code)]
+        const #const_name: &[::uor_foundation::enforcement::Term] = &[
+            #( #term_specs ),*
+        ];
+
+        // Public accessor for the verb's term-tree fragment. Per
+        // ADR-024, the verb is a structural declaration — its
+        // runtime is implementation-owned.
+        #fn_vis fn #accessor_name() -> &'static [::uor_foundation::enforcement::Term] {
+            #const_name
+        }
+
+        // Marker `pub fn name(_: InputTy) -> OutputTy` so the verb
+        // appears at the consumer's name-resolution surface. The body
+        // never executes as Rust at runtime; foundation's catamorphism
+        // walks the term-tree fragment per ADR-029.
+        #[allow(unused_variables, unreachable_code)]
+        #fn_vis fn #fn_name(#input_param: #input_ty) -> #output_ty {
+            // Verb bodies are catamorphism-evaluated; the Rust function
+            // form exists for name-resolution and macro-time reference.
+            // Implementations that invoke a verb directly use foundation's
+            // `evaluate_term_tree` against the verb's term-tree slice.
+            let _ = #input_param;
+            unimplemented!(
+                "verb `{}` body is catamorphism-evaluated by foundation's pipeline; \
+                 callers reach it through the term-tree accessor `{}_term_arena()`, \
+                 not by direct Rust invocation",
+                stringify!(#fn_name),
+                stringify!(#fn_name),
+            )
+        }
+    };
+
+    expansion.into()
+}
+
+// =====================================================================
+// `use_verbs!` — wiki ADR-024 cross-implementation verb imports.
+//
+// Re-exports verbs from another crate's `verb!` emissions. The
+// importing implementation's verb-closure check treats imported
+// verbs as opaque atoms; the imported crate's own `verb!` macro
+// performed that crate's closure check.
+//
+// Form:
+//
+// ```text
+// use_verbs! {
+//     from other_implementation_crate {
+//         verb_name_a,
+//         verb_name_b,
+//     };
+// }
+// ```
+
+/// Parsed shape of the `use_verbs!` macro input.
+struct UseVerbsInput {
+    crate_path: syn::Path,
+    verb_names: Vec<Ident>,
+}
+
+impl Parse for UseVerbsInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        // `from <crate_path>`
+        let from_kw: Ident = input.parse()?;
+        if from_kw != "from" {
+            return Err(syn::Error::new(
+                from_kw.span(),
+                "expected `from <crate_path>`",
+            ));
+        }
+        let crate_path: syn::Path = input.parse()?;
+
+        // `{ verb_a, verb_b, ... }`
+        let body;
+        syn::braced!(body in input);
+        let mut verb_names: Vec<Ident> = Vec::new();
+        while !body.is_empty() {
+            verb_names.push(body.parse()?);
+            if body.peek(Token![,]) {
+                body.parse::<Token![,]>()?;
+            }
+        }
+
+        // Optional trailing semicolon.
+        let _ = input.parse::<Token![;]>();
+
+        Ok(Self {
+            crate_path,
+            verb_names,
+        })
+    }
+}
+
+/// `use_verbs!` — wiki ADR-024 cross-implementation verb imports.
+#[proc_macro]
+pub fn use_verbs(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as UseVerbsInput);
+    let UseVerbsInput {
+        crate_path,
+        verb_names,
+    } = parsed;
+
+    let mut imports: Vec<proc_macro2::TokenStream> = Vec::with_capacity(verb_names.len() * 2);
+    for name in &verb_names {
+        let arena_name = Ident::new(&format!("{}_term_arena", name), name.span());
+        imports.push(quote! { pub use #crate_path::#name; });
+        imports.push(quote! { pub use #crate_path::#arena_name; });
+    }
+
+    let expansion = quote! {
+        #( #imports )*
     };
 
     expansion.into()

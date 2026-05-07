@@ -2048,6 +2048,44 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
     f.blank();
 
+    // ROUTE_OUTPUT_BUFFER_BYTES — wiki ADR-028.
+    //
+    // Parallel to `ROUTE_INPUT_BUFFER_BYTES`: the foundation-side
+    // ceiling for the on-stack buffer that carries the catamorphism's
+    // evaluation result (the route's output bytes) into the
+    // `Grounded<T>`. Output shapes whose `IntoBindingValue::MAX_BYTES`
+    // exceeds this ceiling are rejected at runtime by `run_route` per
+    // ADR-028's symmetric input/output rejection rule.
+    f.doc_comment("Foundation-side ceiling for the on-stack buffer [`run_route`] uses to");
+    f.doc_comment("carry the catamorphism's evaluation result into the `Grounded<T>`'s");
+    f.doc_comment("output payload per wiki ADR-028. Parallel to");
+    f.doc_comment("[`ROUTE_INPUT_BUFFER_BYTES`].");
+    f.doc_comment("");
+    f.doc_comment("Output shapes whose `IntoBindingValue::MAX_BYTES` exceeds this ceiling");
+    f.doc_comment("are rejected at runtime by [`run_route`] (the symmetric output-side");
+    f.doc_comment("rejection rule paralleling ADR-023's input-side rule).");
+    f.line("pub const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;");
+    f.blank();
+
+    // FOLD_UNROLL_THRESHOLD — wiki ADR-026 G14.
+    //
+    // The closure-body grammar's `fold_n(<n>, init, |state, idx| step)`
+    // form lowers to either an unrolled `Term::Application` chain
+    // (when `n <= FOLD_UNROLL_THRESHOLD`) or `Term::Recurse` (when
+    // `n > FOLD_UNROLL_THRESHOLD` or `n` is parametric). Foundation
+    // fixes the threshold so two implementations compiling the same
+    // closure-body emit the same Term tree.
+    f.doc_comment("Foundation-fixed threshold for the closure-body grammar `fold_n`'s");
+    f.doc_comment("unroll-vs-`Term::Recurse` lowering rule per wiki ADR-026 G14.");
+    f.doc_comment("");
+    f.doc_comment("`fold_n` calls with const-literal counts at or below this threshold");
+    f.doc_comment("unroll into a sequential `Term::Application` chain; counts above");
+    f.doc_comment("(or parametric counts) lower to `Term::Recurse` with a descent-");
+    f.doc_comment("measure-bounded fold. The fixed threshold means two implementations");
+    f.doc_comment("compiling the same closure body emit the same Term tree.");
+    f.line("pub const FOLD_UNROLL_THRESHOLD: usize = 8;");
+    f.blank();
+
     // PrismModel — the typed-iso contract.
     f.doc_comment("The application author's typed-iso contract: an `Input` feature type, an");
     f.doc_comment("`Output` label type, and a type-level `Route` witness of the term tree");
@@ -2110,7 +2148,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment(
         "foundation vocabulary that is also a [`crate::enforcement::GroundedShape`].",
     );
-    f.line("    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape;");
+    f.line(
+        "    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape + IntoBindingValue;",
+    );
     f.blank();
     f.indented_doc_comment("Type-level witness of the term tree mapping `Input` to `Output`.");
     f.indented_doc_comment("Bound by [`FoundationClosed`]: the `prism_model!` macro emits the");
@@ -2257,7 +2297,458 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        .result_type::<M::Output>()");
     f.line("        .validate()");
     f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
-    f.line("    run::<M::Output, _, A>(unit)");
+    f.line("    // ADR-028: reject Output shapes that would overflow the foundation");
+    f.line("    // ceiling. Parallel to ADR-023's input-side check, but checked");
+    f.line("    // against the Output-side `IntoBindingValue::MAX_BYTES`.");
+    f.line("    let out_max = <M::Output as IntoBindingValue>::MAX_BYTES;");
+    f.line("    if out_max > ROUTE_OUTPUT_BUFFER_BYTES {");
+    f.line("        return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line(
+        "                shape_iri: \"https://uor.foundation/pipeline/RouteOutputBufferShape\",",
+    );
+    f.line(
+        "                constraint_iri: \"https://uor.foundation/pipeline/RouteOutputBufferShape/maxBytes\",",
+    );
+    f.line("                property_iri: \"https://uor.foundation/pipeline/outputMaxBytes\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: 0,");
+    f.line("                max_count: ROUTE_OUTPUT_BUFFER_BYTES as u32,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            },");
+    f.line("        });");
+    f.line("    }");
+    f.line("    // ADR-029: evaluate the route's Term tree as a structural fold.");
+    f.line("    // The catamorphism's output bytes flow into the Grounded's");
+    f.line("    // output payload (ADR-028).");
+    f.line("    let evaluation = evaluate_term_tree::<A>(arena_slice, &buf[..written])?;");
+    f.line("    let grounded = run::<M::Output, _, A>(unit)?;");
+    f.line("    Ok(grounded.with_output_bytes(evaluation.bytes()))");
+    f.line("}");
+    f.blank();
+
+    // Catamorphism evaluator — ADR-029.
+    //
+    // Per-variant fold-rules for the route's Term tree. Foundation's
+    // `pipeline::run_route` calls this evaluator after validating the
+    // `CompileUnit`; the result is the Output shape's canonical bytes,
+    // which populate the Grounded's output payload (ADR-028). The
+    // evaluator is parametric in the Hasher axis `A` because the
+    // `HasherProjection` variant delegates evaluation to the
+    // application's selected `Hasher` impl per ADR-029's
+    // substitution-axis-realized verb form.
+    f.doc_comment("Maximum byte width any single `TermValue` carries during evaluation.");
+    f.doc_comment("");
+    f.doc_comment("Foundation-fixed at 32 bytes — covers the full Witt-level family up to");
+    f.doc_comment("`W32`'s 32-bit width and the `Hasher`'s 32-byte digest output. Larger");
+    f.doc_comment("intermediate values are not architecturally permitted at the");
+    f.doc_comment("term-evaluation level.");
+    f.line("pub const TERM_VALUE_MAX_BYTES: usize = 32;");
+    f.blank();
+    f.doc_comment("Wiki ADR-029: a single Term variant's evaluated value, carried as a");
+    f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
+    f.doc_comment("catamorphism produces a `TermValue` per variant, propagated up the");
+    f.doc_comment("term tree by the per-variant fold rules.");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("pub struct TermValue {");
+    f.indented_doc_comment("Fixed-capacity byte buffer (zero-padded beyond `len`).");
+    f.line("    bytes: [u8; TERM_VALUE_MAX_BYTES],");
+    f.indented_doc_comment("Active prefix length.");
+    f.line("    len: u8,");
+    f.line("}");
+    f.blank();
+    f.line("impl TermValue {");
+    f.indented_doc_comment("Construct an empty `TermValue` (length zero).");
+    f.line("    #[must_use]");
+    f.line("    pub const fn empty() -> Self {");
+    f.line("        Self { bytes: [0u8; TERM_VALUE_MAX_BYTES], len: 0 }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment(
+        "Construct a `TermValue` from a slice; copies up to `TERM_VALUE_MAX_BYTES` bytes.",
+    );
+    f.line("    #[must_use]");
+    f.line("    pub fn from_slice(bytes: &[u8]) -> Self {");
+    f.line("        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("        let copy_len = if bytes.len() > TERM_VALUE_MAX_BYTES {");
+    f.line("            TERM_VALUE_MAX_BYTES");
+    f.line("        } else { bytes.len() };");
+    f.line("        let mut i = 0;");
+    f.line("        while i < copy_len {");
+    f.line("            buf[i] = bytes[i];");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        Self { bytes: buf, len: copy_len as u8 }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Returns the active byte prefix.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn bytes(&self) -> &[u8] {");
+    f.line("        &self.bytes[..self.len as usize]");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Wiki ADR-029: catamorphism evaluator over the route's Term tree.");
+    f.doc_comment("");
+    f.doc_comment("Per-variant fold rules:");
+    f.doc_comment("");
+    f.doc_comment("- `Term::Literal { value, level }` — emit `value` as big-endian bytes at the");
+    f.doc_comment("  byte width of `level`.");
+    f.doc_comment("- `Term::Variable { name_index }` — `name_index = 0` returns the route");
+    f.doc_comment("  input bytes; other indices look up `let`-introduced bindings (current");
+    f.doc_comment("  iteration: not yet supported, returns the input bytes for any non-zero");
+    f.doc_comment("  index).");
+    f.doc_comment("- `Term::Application { operator, args }` — evaluate each arg and apply");
+    f.doc_comment("  the `PrimitiveOp` per its algebraic rule.");
+    f.doc_comment("- `Term::Lift { operand, target }` — evaluate operand, zero-extend to");
+    f.doc_comment("  `target` Witt level's byte width.");
+    f.doc_comment("- `Term::Project { operand, target }` — evaluate operand, truncate to");
+    f.doc_comment("  `target` Witt level's byte width.");
+    f.doc_comment("- `Term::Match { scrutinee, arms }` — evaluate scrutinee, match arms by");
+    f.doc_comment("  literal-byte equality (wildcard arm `name_index = u32::MAX` matches");
+    f.doc_comment("  unconditionally).");
+    f.doc_comment("- `Term::Recurse { measure, base, step }` — evaluate measure; if zero,");
+    f.doc_comment("  evaluate base; otherwise evaluate step (current iteration: bounded recursion");
+    f.doc_comment("  unrolls one step).");
+    f.doc_comment("- `Term::Unfold { seed, step }` — evaluate seed; emit step applied once.");
+    f.doc_comment("- `Term::Try { body, handler }` — evaluate body; on failure, propagate");
+    f.doc_comment("  if `handler_index = u32::MAX`, otherwise evaluate handler.");
+    f.doc_comment("- `Term::HasherProjection { input }` — fold the input's bytes through the");
+    f.doc_comment("  application's `Hasher` substitution-axis impl and emit the digest.");
+    f.doc_comment("");
+    f.doc_comment("# Errors");
+    f.doc_comment("");
+    f.doc_comment("Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds");
+    f.doc_comment("index, level mismatch, exhausted match without wildcard arm, etc.).");
+    f.line("pub fn evaluate_term_tree<A>(");
+    f.line("    arena: &[crate::enforcement::Term],");
+    f.line("    input_bytes: &[u8],");
+    f.line(") -> Result<TermValue, PipelineFailure>");
+    f.line("where");
+    f.line("    A: crate::enforcement::Hasher,");
+    f.line("{");
+    f.line("    if arena.is_empty() {");
+    f.line("        // Identity route: output equals input bytes.");
+    f.line("        return Ok(TermValue::from_slice(input_bytes));");
+    f.line("    }");
+    f.line("    // Canonical convention: the root term is the last entry in the");
+    f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
+    f.line("    // is the final node).");
+    f.line("    let root_idx = arena.len() - 1;");
+    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes)");
+    f.line("}");
+    f.blank();
+
+    // Per-variant evaluator — ADR-029.
+    f.line("fn evaluate_term_at<A>(");
+    f.line("    arena: &[crate::enforcement::Term],");
+    f.line("    idx: usize,");
+    f.line("    input_bytes: &[u8],");
+    f.line(") -> Result<TermValue, PipelineFailure>");
+    f.line("where");
+    f.line("    A: crate::enforcement::Hasher,");
+    f.line("{");
+    f.line("    if idx >= arena.len() {");
+    f.line("        return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/TermArenaShape\",");
+    f.line(
+        "                constraint_iri: \"https://uor.foundation/pipeline/TermArenaShape/inBounds\",",
+    );
+    f.line("                property_iri: \"https://uor.foundation/pipeline/termIndex\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: 0,");
+    f.line("                max_count: arena.len() as u32,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            },");
+    f.line("        });");
+    f.line("    }");
+    f.line("    match arena[idx] {");
+    f.line("        crate::enforcement::Term::Literal { value, level } => {");
+    f.line("            let width = (level.witt_length() / 8) as usize;");
+    f.line("            let width = if width == 0 { 1 } else if width > 8 { 8 } else { width };");
+    f.line("            let be = value.to_be_bytes();");
+    f.line("            // Take the trailing `width` bytes (big-endian truncation).");
+    f.line("            Ok(TermValue::from_slice(&be[8 - width..]))");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Variable { name_index } => {");
+    f.line("            // ADR-022 D3 G2: name_index = 0 is the route input slot.");
+    f.line("            // Other indices reference let-bindings (G10), which the");
+    f.line("            // current macro emission does not produce; treat them as");
+    f.line("            // the same input slot for compatibility (the variable's");
+    f.line("            // dataflow trace lives in the binding-table fingerprint).");
+    f.line("            let _ = name_index;");
+    f.line("            Ok(TermValue::from_slice(input_bytes))");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Application { operator, args } => {");
+    f.line("            let start = args.start as usize;");
+    f.line("            let len = args.len as usize;");
+    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes)");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
+    f.line(
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+    );
+    f.line("            let target_width = (target.witt_length() / 8) as usize;");
+    f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
+    f.line("                TERM_VALUE_MAX_BYTES");
+    f.line("            } else if target_width == 0 { 1 } else { target_width };");
+    f.line("            let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            // Big-endian zero-extend: pad the high bytes with zeros.");
+    f.line("            let src = v.bytes();");
+    f.line("            let pad = target_width.saturating_sub(src.len());");
+    f.line("            let mut i = 0;");
+    f.line("            while i < src.len() && pad + i < target_width {");
+    f.line("                buf[pad + i] = src[i];");
+    f.line("                i += 1;");
+    f.line("            }");
+    f.line("            Ok(TermValue { bytes: buf, len: target_width as u8 })");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
+    f.line(
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+    );
+    f.line("            let target_width = (target.witt_length() / 8) as usize;");
+    f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
+    f.line("                TERM_VALUE_MAX_BYTES");
+    f.line("            } else if target_width == 0 { 1 } else { target_width };");
+    f.line("            let src = v.bytes();");
+    f.line("            // Big-endian truncation: take the trailing `target_width` bytes.");
+    f.line("            let take_from = src.len().saturating_sub(target_width);");
+    f.line("            Ok(TermValue::from_slice(&src[take_from..]))");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
+    f.line(
+        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes)?;",
+    );
+    f.line("            let start = arms.start as usize;");
+    f.line("            let count = arms.len as usize;");
+    f.line("            // Arms alternate (pattern, body) per ADR-022 D3 G6.");
+    f.line("            let mut i = 0usize;");
+    f.line("            while i + 1 < count {");
+    f.line("                let pattern_idx = start + i;");
+    f.line("                let body_idx = start + i + 1;");
+    f.line("                let is_wildcard = matches!(");
+    f.line("                    arena[pattern_idx],");
+    f.line(
+        "                    crate::enforcement::Term::Variable { name_index } if name_index == u32::MAX",
+    );
+    f.line("                );");
+    f.line("                if is_wildcard {");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                }");
+    f.line(
+        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes)?;",
+    );
+    f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                }");
+    f.line("                i += 2;");
+    f.line("            }");
+    f.line("            // Per ADR-022 D3 G6 the macro enforces wildcard exhaustiveness;");
+    f.line("            // a well-formed Term tree never reaches this branch.");
+    f.line("            Err(PipelineFailure::ShapeViolation {");
+    f.line("                report: crate::enforcement::ShapeViolation {");
+    f.line(
+        "                    shape_iri: \"https://uor.foundation/pipeline/MatchExhaustivenessShape\",",
+    );
+    f.line(
+        "                    constraint_iri: \"https://uor.foundation/pipeline/MatchExhaustivenessShape/wildcard\",",
+    );
+    f.line("                    property_iri: \"https://uor.foundation/pipeline/matchArms\",");
+    f.line("                    expected_range: \"http://www.w3.org/2001/XMLSchema#string\",");
+    f.line("                    min_count: 1,");
+    f.line("                    max_count: 0,");
+    f.line("                    kind: crate::ViolationKind::Missing,");
+    f.line("                },");
+    f.line("            })");
+    f.line("        }");
+    f.line(
+        "        crate::enforcement::Term::Recurse { measure_index, base_index, step_index } => {",
+    );
+    f.line(
+        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes)?;",
+    );
+    f.line("            // Measure equals zero iff every byte in the measure value is zero.");
+    f.line("            let is_zero = measure.bytes().iter().all(|&b| b == 0);");
+    f.line("            if is_zero {");
+    f.line("                evaluate_term_at::<A>(arena, base_index as usize, input_bytes)");
+    f.line("            } else {");
+    f.line("                // Bounded recursion: evaluate one step. The Term::Recurse");
+    f.line("                // structure encodes well-foundedness via the measure; deeper");
+    f.line("                // unrolling is implementation-controlled (ADR-026 G14 maps");
+    f.line("                // higher counts to recursion).");
+    f.line("                evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line("            }");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Unfold { seed_index, step_index } => {");
+    f.line(
+        "            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes)?;",
+    );
+    f.line("            evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
+    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes) {");
+    f.line("                Ok(v) => Ok(v),");
+    f.line("                Err(e) => {");
+    f.line("                    if handler_index == u32::MAX {");
+    f.line("                        Err(e)");
+    f.line("                    } else {");
+    f.line(
+        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes)",
+    );
+    f.line("                    }");
+    f.line("                }");
+    f.line("            }");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::HasherProjection { input_index } => {");
+    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes)?;");
+    f.line("            let mut hasher = <A as crate::enforcement::Hasher>::initial();");
+    f.line("            hasher = hasher.fold_bytes(v.bytes());");
+    f.line("            let digest = hasher.finalize();");
+    f.line(
+        "            // Take the first `OUTPUT_BYTES` bytes of the digest as the canonical width.",
+    );
+    f.line("            let width = if A::OUTPUT_BYTES > TERM_VALUE_MAX_BYTES {");
+    f.line("                TERM_VALUE_MAX_BYTES");
+    f.line("            } else { A::OUTPUT_BYTES };");
+    f.line("            Ok(TermValue::from_slice(&digest[..width]))");
+    f.line("        }");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
+    f.line("fn apply_primitive_op<A>(");
+    f.line("    arena: &[crate::enforcement::Term],");
+    f.line("    operator: crate::PrimitiveOp,");
+    f.line("    args_start: usize,");
+    f.line("    args_len: usize,");
+    f.line("    input_bytes: &[u8],");
+    f.line(") -> Result<TermValue, PipelineFailure>");
+    f.line("where");
+    f.line("    A: crate::enforcement::Hasher,");
+    f.line("{");
+    f.line("    // Unary ops: 1 arg. Binary ops: 2 args.");
+    f.line("    let arity = match operator {");
+    f.line("        crate::PrimitiveOp::Neg");
+    f.line("        | crate::PrimitiveOp::Bnot");
+    f.line("        | crate::PrimitiveOp::Succ");
+    f.line("        | crate::PrimitiveOp::Pred => 1usize,");
+    f.line("        crate::PrimitiveOp::Add");
+    f.line("        | crate::PrimitiveOp::Sub");
+    f.line("        | crate::PrimitiveOp::Mul");
+    f.line("        | crate::PrimitiveOp::Xor");
+    f.line("        | crate::PrimitiveOp::And");
+    f.line("        | crate::PrimitiveOp::Or => 2usize,");
+    f.line("    };");
+    f.line("    if args_len != arity {");
+    f.line("        return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape\",");
+    f.line(
+        "                constraint_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape/arity\",",
+    );
+    f.line("                property_iri: \"https://uor.foundation/pipeline/operatorArity\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: arity as u32,");
+    f.line("                max_count: arity as u32,");
+    f.line("                kind: crate::ViolationKind::CardinalityViolation,");
+    f.line("            },");
+    f.line("        });");
+    f.line("    }");
+    f.line("    if arity == 1 {");
+    f.line("        let v = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
+    f.line("        let x = bytes_to_u64_be(v.bytes());");
+    f.line("        let r = match operator {");
+    f.line("            crate::PrimitiveOp::Neg => x.wrapping_neg(),");
+    f.line("            crate::PrimitiveOp::Bnot => !x,");
+    f.line("            crate::PrimitiveOp::Succ => x.wrapping_add(1),");
+    f.line("            crate::PrimitiveOp::Pred => x.wrapping_sub(1),");
+    f.line("            _ => return Err(PipelineFailure::ShapeViolation {");
+    f.line("                report: crate::enforcement::ShapeViolation {");
+    f.line(
+        "                    shape_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape\",",
+    );
+    f.line(
+        "                    constraint_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape/binary-as-unary\",",
+    );
+    f.line("                    property_iri: \"https://uor.foundation/pipeline/operatorArity\",");
+    f.line(
+        "                    expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                    min_count: 2,");
+    f.line("                    max_count: 2,");
+    f.line("                    kind: crate::ViolationKind::CardinalityViolation,");
+    f.line("                },");
+    f.line("            }),");
+    f.line("        };");
+    f.line("        let width = v.bytes().len().max(1);");
+    f.line("        let arr = u64_to_be_min(r, width);");
+    f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
+    f.line("    } else {");
+    f.line("        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
+    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes)?;");
+    f.line("        let a = bytes_to_u64_be(lhs.bytes());");
+    f.line("        let b = bytes_to_u64_be(rhs.bytes());");
+    f.line("        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);");
+    f.line("        let r = match operator {");
+    f.line("            crate::PrimitiveOp::Add => a.wrapping_add(b),");
+    f.line("            crate::PrimitiveOp::Sub => a.wrapping_sub(b),");
+    f.line("            crate::PrimitiveOp::Mul => a.wrapping_mul(b),");
+    f.line("            crate::PrimitiveOp::Xor => a ^ b,");
+    f.line("            crate::PrimitiveOp::And => a & b,");
+    f.line("            crate::PrimitiveOp::Or => a | b,");
+    f.line("            _ => return Err(PipelineFailure::ShapeViolation {");
+    f.line("                report: crate::enforcement::ShapeViolation {");
+    f.line(
+        "                    shape_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape\",",
+    );
+    f.line(
+        "                    constraint_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape/unary-as-binary\",",
+    );
+    f.line("                    property_iri: \"https://uor.foundation/pipeline/operatorArity\",");
+    f.line(
+        "                    expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                    min_count: 1,");
+    f.line("                    max_count: 1,");
+    f.line("                    kind: crate::ViolationKind::CardinalityViolation,");
+    f.line("                },");
+    f.line("            }),");
+    f.line("        };");
+    f.line("        let width = if width > 8 { 8 } else { width };");
+    f.line("        let arr = u64_to_be_min(r, width);");
+    f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // u64 <-> bytes helpers for primitive op evaluation.
+    f.line("fn bytes_to_u64_be(bytes: &[u8]) -> u64 {");
+    f.line("    let take = if bytes.len() > 8 { 8 } else { bytes.len() };");
+    f.line("    let start = bytes.len() - take;");
+    f.line("    let mut acc = 0u64;");
+    f.line("    let mut i = 0;");
+    f.line("    while i < take {");
+    f.line("        acc = (acc << 8) | bytes[start + i] as u64;");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    acc");
+    f.line("}");
+    f.blank();
+    f.line("fn u64_to_be_min(value: u64, width: usize) -> [u8; 8] {");
+    f.line("    // Big-endian byte representation; callers slice the trailing `width` bytes.");
+    f.line("    let _ = width;");
+    f.line("    value.to_be_bytes()");
     f.line("}");
     f.blank();
 

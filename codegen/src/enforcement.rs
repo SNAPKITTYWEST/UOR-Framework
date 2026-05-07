@@ -2004,6 +2004,19 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Index of the handler term.");
     f.line("        handler_index: u32,");
     f.line("    },");
+    f.indented_doc_comment("Substitution-axis-realized verb projection (wiki ADR-029).");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Delegates evaluation to the application's `Hasher` substitution-axis");
+    f.indented_doc_comment("impl: the catamorphism folds the input binding's bytes through");
+    f.indented_doc_comment("`<A as Hasher>::initial().fold_bytes(...)` and emits");
+    f.indented_doc_comment("`<A as Hasher>::finalize()` as the result. Emitted by");
+    f.indented_doc_comment(
+        "`prism_model!` from the closure-body form `hash(input)` (ADR-026 G19).",
+    );
+    f.line("    HasherProjection {");
+    f.line("        /// Index of the input term in the arena (the bytes to hash).");
+    f.line("        input_index: u32,");
+    f.line("    },");
     f.line("}");
     f.blank();
 
@@ -4559,23 +4572,15 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Sealed marker trait identifying type:ConstrainedType subclasses that may");
     f.doc_comment("appear as the parameter of `Grounded<T>`.");
     f.doc_comment("");
-    f.doc_comment("v0.2.2 W2: the sealing now lives in a private `grounded_shape_sealed`");
-    f.doc_comment("module — there is no `__macro_internals` back-door. The only impl is for");
-    f.doc_comment("the foundation-supplied `ConstrainedTypeInput` shim. Downstream code that");
-    f.doc_comment("needs to bind a user type as `T` in `Grounded<T>` does so via the");
-    f.doc_comment("compile-time-evidence pattern: declare a");
-    f.doc_comment("`const _VALIDATED_<T>: Validated<ConstrainedTypeInput, CompileTime> = ...;`");
-    f.doc_comment("module-scope evidence constant, and the foundation's pipeline binds it.");
-    f.line("mod grounded_shape_sealed {");
-    f.indented_doc_comment("Private supertrait. Not implementable outside this crate.");
-    f.line("    pub trait Sealed {}");
-    f.line("    impl Sealed for super::ConstrainedTypeInput {}");
-    f.line("}");
-    f.doc_comment("v0.2.2 W2: sealed marker trait for shapes that can appear as the parameter");
-    f.doc_comment("of `Grounded<T>`. Implemented only by `ConstrainedTypeInput`. Downstream");
-    f.doc_comment("user types bind to this trait via the compile-time-evidence pattern in a");
-    f.doc_comment("future v0.2.2 cookbook revision.");
-    f.line("pub trait GroundedShape: grounded_shape_sealed::Sealed {}");
+    f.doc_comment("Per wiki ADR-027, the seal is the same `__sdk_seal::Sealed` supertrait");
+    f.doc_comment("foundation uses for `FoundationClosed`, `PrismModel`, and");
+    f.doc_comment("`IntoBindingValue`: only foundation and the SDK shape macros emit");
+    f.doc_comment("impls. The foundation-sanctioned identity output `ConstrainedTypeInput`");
+    f.doc_comment("retains its direct impl; application authors declaring custom Output");
+    f.doc_comment("shapes invoke the `output_shape!` SDK macro, which emits");
+    f.doc_comment("`__sdk_seal::Sealed`, `GroundedShape`, `IntoBindingValue`, and");
+    f.doc_comment("`ConstrainedTypeShape` together.");
+    f.line("pub trait GroundedShape: crate::pipeline::__sdk_seal::Sealed {}");
     f.line("impl GroundedShape for ConstrainedTypeInput {}");
     f.blank();
 
@@ -5453,6 +5458,15 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("`H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`");
     f.indented_doc_comment("so the verify path can re-derive the source certificate.");
     f.line("    content_fingerprint: ContentFingerprint,");
+    f.indented_doc_comment("Wiki ADR-028: output-value payload — the catamorphism's evaluation");
+    f.indented_doc_comment("result populated by `pipeline::run_route` per ADR-029's per-variant");
+    f.indented_doc_comment("fold rules. Fixed-capacity stack buffer; the active prefix runs to");
+    f.indented_doc_comment("`output_len` bytes. Read via [`Grounded::output_bytes`].");
+    f.line("    output_payload: [u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],");
+    f.indented_doc_comment(
+        "Active length of `output_payload` (the route's evaluation output length).",
+    );
+    f.line("    output_len: u16,");
     f.indented_doc_comment("Phantom type tying this `Grounded` to a specific `ConstrainedType`.");
     f.line("    _phantom: PhantomData<T>,");
     f.indented_doc_comment("Phantom domain tag (Q3). Defaults to `T` for backwards-compatible");
@@ -5627,9 +5641,32 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("            jacobian_len: self.jacobian_len,");
     f.line("            betti_numbers: self.betti_numbers,");
     f.line("            content_fingerprint: self.content_fingerprint,");
+    f.line("            output_payload: self.output_payload,");
+    f.line("            output_len: self.output_len,");
     f.line("            _phantom: PhantomData,");
     f.line("            _tag: PhantomData,");
     f.line("        }");
+    f.line("    }");
+    f.blank();
+
+    // Wiki ADR-028: output_bytes accessor.
+    f.indented_doc_comment(
+        "Wiki ADR-028: returns the catamorphism's evaluation output bytes — the",
+    );
+    f.indented_doc_comment("active prefix of the on-stack output payload `pipeline::run_route`");
+    f.indented_doc_comment("populated per ADR-029's per-variant fold rules.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment(
+        "For the foundation-sanctioned identity output (`ConstrainedTypeInput`)",
+    );
+    f.indented_doc_comment("the slice is empty (no transformation, identity route). For shapes");
+    f.indented_doc_comment("declared via the `output_shape!` SDK macro the slice carries the");
+    f.indented_doc_comment("route's evaluation result.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn output_bytes(&self) -> &[u8] {");
+    f.line("        let len = self.output_len as usize;");
+    f.line("        &self.output_payload[..len]");
     f.line("    }");
     f.blank();
 
@@ -5779,9 +5816,39 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("            jacobian_len: jac_len as u16,");
     f.line("            betti_numbers: betti,");
     f.line("            content_fingerprint,");
+    f.line("            output_payload: [0u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],");
+    f.line("            output_len: 0,");
     f.line("            _phantom: PhantomData,");
     f.line("            _tag: PhantomData,");
     f.line("        }");
+    f.line("    }");
+    f.blank();
+
+    // Wiki ADR-028: crate-internal setter for the output payload.
+    f.indented_doc_comment("Wiki ADR-028: crate-internal setter for the output-value payload.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Called by `pipeline::run_route` after the catamorphism evaluates the");
+    f.indented_doc_comment("Term tree per ADR-029. The bytes are copied into the on-stack");
+    f.indented_doc_comment(
+        "buffer; bytes beyond `len` are zero-padded. Returns self for chaining.",
+    );
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Panics if `bytes.len() > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES`.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {");
+    f.line("        let len = bytes.len();");
+    f.line("        debug_assert!(len <= crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES);");
+    f.line("        let copy_len = if len > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES {");
+    f.line("            crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES");
+    f.line("        } else { len };");
+    f.line("        let mut i = 0;");
+    f.line("        while i < copy_len {");
+    f.line("            self.output_payload[i] = bytes[i];");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        self.output_len = copy_len as u16;");
+    f.line("        self");
     f.line("    }");
     f.blank();
     f.indented_doc_comment("v0.2.2 T6.17: attach a downstream-validated `BindingsTable` to this");

@@ -1858,6 +1858,16 @@ pub enum Term {
         /// Index of the handler term.
         handler_index: u32,
     },
+    /// Substitution-axis-realized verb projection (wiki ADR-029).
+    /// Delegates evaluation to the application's `Hasher` substitution-axis
+    /// impl: the catamorphism folds the input binding's bytes through
+    /// `<A as Hasher>::initial().fold_bytes(...)` and emits
+    /// `<A as Hasher>::finalize()` as the result. Emitted by
+    /// `prism_model!` from the closure-body form `hash(input)` (ADR-026 G19).
+    HasherProjection {
+        /// Index of the input term in the arena (the bytes to hash).
+        input_index: u32,
+    },
 }
 
 /// A type declaration with constraint kinds.
@@ -5971,23 +5981,15 @@ pub enum PartitionComponent {
 
 /// Sealed marker trait identifying type:ConstrainedType subclasses that may
 /// appear as the parameter of `Grounded<T>`.
-/// v0.2.2 W2: the sealing now lives in a private `grounded_shape_sealed`
-/// module — there is no `__macro_internals` back-door. The only impl is for
-/// the foundation-supplied `ConstrainedTypeInput` shim. Downstream code that
-/// needs to bind a user type as `T` in `Grounded<T>` does so via the
-/// compile-time-evidence pattern: declare a
-/// `const _VALIDATED_<T>: Validated<ConstrainedTypeInput, CompileTime> = ...;`
-/// module-scope evidence constant, and the foundation's pipeline binds it.
-mod grounded_shape_sealed {
-    /// Private supertrait. Not implementable outside this crate.
-    pub trait Sealed {}
-    impl Sealed for super::ConstrainedTypeInput {}
-}
-/// v0.2.2 W2: sealed marker trait for shapes that can appear as the parameter
-/// of `Grounded<T>`. Implemented only by `ConstrainedTypeInput`. Downstream
-/// user types bind to this trait via the compile-time-evidence pattern in a
-/// future v0.2.2 cookbook revision.
-pub trait GroundedShape: grounded_shape_sealed::Sealed {}
+/// Per wiki ADR-027, the seal is the same `__sdk_seal::Sealed` supertrait
+/// foundation uses for `FoundationClosed`, `PrismModel`, and
+/// `IntoBindingValue`: only foundation and the SDK shape macros emit
+/// impls. The foundation-sanctioned identity output `ConstrainedTypeInput`
+/// retains its direct impl; application authors declaring custom Output
+/// shapes invoke the `output_shape!` SDK macro, which emits
+/// `__sdk_seal::Sealed`, `GroundedShape`, `IntoBindingValue`, and
+/// `ConstrainedTypeShape` together.
+pub trait GroundedShape: crate::pipeline::__sdk_seal::Sealed {}
 impl GroundedShape for ConstrainedTypeInput {}
 
 /// v0.2.2 T4.2: sealed content-addressed handle.
@@ -7594,6 +7596,13 @@ pub struct Grounded<T: GroundedShape, Tag = T> {
     /// `H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`
     /// so the verify path can re-derive the source certificate.
     content_fingerprint: ContentFingerprint,
+    /// Wiki ADR-028: output-value payload — the catamorphism's evaluation
+    /// result populated by `pipeline::run_route` per ADR-029's per-variant
+    /// fold rules. Fixed-capacity stack buffer; the active prefix runs to
+    /// `output_len` bytes. Read via [`Grounded::output_bytes`].
+    output_payload: [u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],
+    /// Active length of `output_payload` (the route's evaluation output length).
+    output_len: u16,
     /// Phantom type tying this `Grounded` to a specific `ConstrainedType`.
     _phantom: PhantomData<T>,
     /// Phantom domain tag (Q3). Defaults to `T` for backwards-compatible
@@ -7746,9 +7755,25 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
             jacobian_len: self.jacobian_len,
             betti_numbers: self.betti_numbers,
             content_fingerprint: self.content_fingerprint,
+            output_payload: self.output_payload,
+            output_len: self.output_len,
             _phantom: PhantomData,
             _tag: PhantomData,
         }
+    }
+
+    /// Wiki ADR-028: returns the catamorphism's evaluation output bytes — the
+    /// active prefix of the on-stack output payload `pipeline::run_route`
+    /// populated per ADR-029's per-variant fold rules.
+    /// For the foundation-sanctioned identity output (`ConstrainedTypeInput`)
+    /// the slice is empty (no transformation, identity route). For shapes
+    /// declared via the `output_shape!` SDK macro the slice carries the
+    /// route's evaluation result.
+    #[inline]
+    #[must_use]
+    pub fn output_bytes(&self) -> &[u8] {
+        let len = self.output_len as usize;
+        &self.output_payload[..len]
     }
 
     /// Phase A.1: the foundation-internal two-clock value read at witness mint time.
@@ -7875,9 +7900,35 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
             jacobian_len: jac_len as u16,
             betti_numbers: betti,
             content_fingerprint,
+            output_payload: [0u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],
+            output_len: 0,
             _phantom: PhantomData,
             _tag: PhantomData,
         }
+    }
+
+    /// Wiki ADR-028: crate-internal setter for the output-value payload.
+    /// Called by `pipeline::run_route` after the catamorphism evaluates the
+    /// Term tree per ADR-029. The bytes are copied into the on-stack
+    /// buffer; bytes beyond `len` are zero-padded. Returns self for chaining.
+    /// Panics if `bytes.len() > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES`.
+    #[inline]
+    #[must_use]
+    pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {
+        let len = bytes.len();
+        debug_assert!(len <= crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES);
+        let copy_len = if len > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES {
+            crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES
+        } else {
+            len
+        };
+        let mut i = 0;
+        while i < copy_len {
+            self.output_payload[i] = bytes[i];
+            i += 1;
+        }
+        self.output_len = copy_len as u16;
+        self
     }
 
     /// v0.2.2 T6.17: attach a downstream-validated `BindingsTable` to this

@@ -128,6 +128,22 @@ pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
 
 `PrismModel::Input` carries the bound: `type Input: ConstrainedTypeShape + IntoBindingValue`. ADR-018's substitution-axis discipline carries through here too — `ROUTE_INPUT_BUFFER_BYTES` is the stable-Rust 1.83 equivalent of nightly's `[u8; <T as IntoBindingValue>::MAX_BYTES]` form: stable Rust cannot size a buffer with a generic associated constant (that requires `generic_const_exprs`), so the foundation-fixed ceiling caps the stack buffer; inputs declaring `MAX_BYTES > ROUTE_INPUT_BUFFER_BYTES` are rejected at runtime by `run_route`.
 
+## Catamorphism evaluation + Output payload (wiki ADR-027 + ADR-028 + ADR-029)
+
+The catamorphism `pipeline::run` actually evaluates the route's Term tree (ADR-029) — not just validates the CompileUnit metadata. [`pipeline::evaluate_term_tree`](foundation/src/pipeline.rs) walks the arena per the per-variant fold-rules and produces a `TermValue` (fixed-capacity byte buffer, ceiling [`pipeline::TERM_VALUE_MAX_BYTES`](foundation/src/pipeline.rs) = 32). `pipeline::run_route` calls the evaluator, populates the `Grounded`'s output payload (ADR-028), and returns. The `Grounded<T>` carrier exposes [`output_bytes()`](foundation/src/enforcement.rs); the output buffer ceiling is [`pipeline::ROUTE_OUTPUT_BUFFER_BYTES`](foundation/src/pipeline.rs) = 4096 (parallel to the input ceiling from ADR-023).
+
+`PrismModel::Output` is bound by `ConstrainedTypeShape + GroundedShape + IntoBindingValue`. `GroundedShape` is now sealed via the same `__sdk_seal::Sealed` supertrait foundation uses for `FoundationClosed`, `PrismModel`, and `IntoBindingValue` (ADR-027). The [`output_shape!`](uor-foundation-sdk/src/lib.rs) SDK macro is the sanctioned construction path: applications declaring custom Output shapes invoke it; the macro emits `__sdk_seal::Sealed`, `GroundedShape`, `IntoBindingValue`, and `ConstrainedTypeShape` together. The foundation-sanctioned identity output `ConstrainedTypeInput` retains its direct impl.
+
+`Term::HasherProjection { input_index }` — the tenth Term variant — is the substitution-axis-realized verb form (ADR-029): the catamorphism delegates evaluation to the application's `Hasher` substitution-axis impl, folding the input bytes through `<A as Hasher>::initial().fold_bytes(...)` and emitting `<A as Hasher>::finalize()`. The `prism_model!` macro emits this variant from the closure-body form `hash(input)` (ADR-026 G19).
+
+## Three-layer algebraic closure (wiki ADR-024 + ADR-025 + ADR-026)
+
+Per ADR-024, the architecture commits to three layers of algebraic closure, each with its own carrier, operator set, and closure check:
+
+1. **Substrate closure** (`uor-foundation`): the `Term` enum's variants, the `PrimitiveOp` discriminants, the `ConstraintRef` variants, and the `WittLevel` ceiling. Operators per ADR-025: composer ops `×` (partition_product) and `+` (partition_coproduct), plus the endomorphism family `after_op` for `op ∈ Γ = {+, −, ×, ÷, ^}`.
+2. **Prism closure** (route-level): the seven prism operators per ADR-026 — `compose`, `parallel_compose`, `fold_n`, `tree_fold`, `first_admit`, `partition_product`, `partition_coproduct` — plus the substitution-axis verb form (G19 `hash`). The closure-body grammar G1–G19 (ADR-022 D3 + ADR-026's extension) is the syntactic surface; the `prism_model!` macro recognizes the reserved identifiers and emits the corresponding Term variants. [`pipeline::FOLD_UNROLL_THRESHOLD`](foundation/src/pipeline.rs) = 8 fixes the `fold_n` unroll-vs-`Term::Recurse` lowering rule (ADR-026 G14).
+3. **Implementation closure** (verb-level): each implementation declares named, reusable compositions of prism operators applied to substrate primitives via the [`verb!`](uor-foundation-sdk/src/lib.rs) SDK macro. Cross-implementation imports proceed through the [`use_verbs!`](uor-foundation-sdk/src/lib.rs) macro. Verbs are structural declarations; their runtime is implementation-owned per the three-way responsibility split (substrate owns primitives, prism owns operators, implementation owns runtime).
+
 ## V&V framework alignment (wiki ADR-021)
 
 ADR-021 names the four V&V Decisions Prism resolves under the hylomorphism framing:

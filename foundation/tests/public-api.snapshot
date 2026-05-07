@@ -305,9 +305,12 @@ foundation/src/lib.rs: use witness_scaffolds
 foundation/src/pipeline.rs: const AFFINE_MAX_COEFFS
 foundation/src/pipeline.rs: const CONJUNCTION_MAX_TERMS
 foundation/src/pipeline.rs: const INTERACTION_DIVERGENCE_BUDGET
+foundation/src/pipeline.rs: const FOLD_UNROLL_THRESHOLD
 foundation/src/pipeline.rs: const PREFLIGHT_CHECK_IRIS
 foundation/src/pipeline.rs: const REDUCTION_STAGE_IRIS
 foundation/src/pipeline.rs: const ROUTE_INPUT_BUFFER_BYTES
+foundation/src/pipeline.rs: const ROUTE_OUTPUT_BUFFER_BYTES
+foundation/src/pipeline.rs: const TERM_VALUE_MAX_BYTES
 foundation/src/pipeline.rs: const WITT_MAX_BITS
 foundation/src/pipeline.rs: const fn
 foundation/src/pipeline.rs: enum ConstraintRef
@@ -322,6 +325,7 @@ foundation/src/pipeline.rs: fn certify_tower_completeness_const
 foundation/src/pipeline.rs: fn decide_horn_sat
 foundation/src/pipeline.rs: fn decide_two_sat
 foundation/src/pipeline.rs: fn estimate_preflight_uor_time
+foundation/src/pipeline.rs: fn evaluate_term_tree
 foundation/src/pipeline.rs: fn parse_u32
 foundation/src/pipeline.rs: fn parse_u64
 foundation/src/pipeline.rs: fn parse_u64_bits_str
@@ -356,6 +360,7 @@ foundation/src/pipeline.rs: struct SpectralSequencePage
 foundation/src/pipeline.rs: struct StageOutcome
 foundation/src/pipeline.rs: struct StreamDeclaration
 foundation/src/pipeline.rs: struct StreamDriver
+foundation/src/pipeline.rs: struct TermValue
 foundation/src/pipeline.rs: trait CartesianProductShape
 foundation/src/pipeline.rs: trait ConstrainedTypeShape
 foundation/src/pipeline.rs: trait FoundationClosed

@@ -82,12 +82,16 @@ fn grounded_sealed_field_count_unchanged() {
         g_size >= 18,
         "Grounded must hold at least the witt_bits + unit_address"
     );
-    // Upper bound: shouldn't exceed a reasonable budget for the documented field set.
-    // After Phase A added uor_time (24 bytes pinned by Phase A test), Phase B adds 0.
-    // The full layout is verified more precisely by Phase E's grounded_size_pin.
+    // Upper bound: per ADR-028 the Grounded carries an output-value
+    // payload of capacity `pipeline::ROUTE_OUTPUT_BUFFER_BYTES` (the
+    // catamorphism's evaluation result, populated by `pipeline::run_route`
+    // per ADR-029). The struct's footprint is the metadata fields plus
+    // the output buffer plus alignment overhead.
+    let metadata_overhead = 1024usize; // generous budget for the metadata fields
+    let max_size = uor_foundation::pipeline::ROUTE_OUTPUT_BUFFER_BYTES + metadata_overhead;
     assert!(
-        g_size <= 256,
-        "Grounded must fit in 256 bytes (no_std discipline)"
+        g_size <= max_size,
+        "Grounded must fit in {max_size} bytes (no_std discipline + ADR-028 output payload), got {g_size}",
     );
 }
 

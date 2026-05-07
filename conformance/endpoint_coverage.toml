@@ -470,6 +470,37 @@ behavior = "behavior_prism_model"
 symbols = ["IntoBindingValue", "ROUTE_INPUT_BUFFER_BYTES"]
 behavior = "behavior_into_binding_value"
 
+# ─── Mapping: catamorphism evaluator (wiki ADR-029) ────────────────────
+# ADR-029 specifies that `pipeline::run` actually evaluates the route's
+# Term tree as a structural fold with per-variant fold rules. The
+# evaluator (`evaluate_term_tree`) produces a `TermValue` (fixed-capacity
+# byte buffer) per variant; `pipeline::run_route` populates the
+# `Grounded`'s output payload (per ADR-028) with the catamorphism's
+# evaluation result. `TERM_VALUE_MAX_BYTES` is the foundation-fixed
+# per-value byte ceiling.
+[coverage.catamorphism_evaluator]
+symbols = ["evaluate_term_tree", "TermValue", "TERM_VALUE_MAX_BYTES"]
+behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: route output payload (wiki ADR-028) ──────────────────────
+# ADR-028 commits the Grounded<T> to carry the catamorphism's evaluation
+# result as a fixed-capacity output payload alongside the metadata
+# fingerprint. `ROUTE_OUTPUT_BUFFER_BYTES` is the foundation-side ceiling
+# (parallel to `ROUTE_INPUT_BUFFER_BYTES` from ADR-023).
+[coverage.route_output_payload]
+symbols = ["ROUTE_OUTPUT_BUFFER_BYTES"]
+behavior = "behavior_route_output_payload"
+
+# ─── Mapping: closure-body grammar fold-unroll (wiki ADR-026 G14) ──────
+# ADR-026 G14 specifies the `fold_n` lowering rule: counts at or below
+# `pipeline::FOLD_UNROLL_THRESHOLD` unroll into a `Term::Application`
+# chain; counts above use `Term::Recurse`. Foundation fixes the
+# threshold so two implementations compiling the same closure-body emit
+# the same Term tree.
+[coverage.fold_unroll_threshold]
+symbols = ["FOLD_UNROLL_THRESHOLD"]
+behavior = "behavior_fold_unroll_threshold"
+
 # ─── Mapping: DecimalTranscendental (Phase 9) ──────────────────────────
 # Closed-arithmetic + transcendental supertrait bounded onto
 # `HostTypes::Decimal`. Default-host f64/f32 impls delegate to libm.
