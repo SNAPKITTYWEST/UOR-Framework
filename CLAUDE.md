@@ -38,6 +38,37 @@ Applications using `DefaultHostBounds` reach these types under their default con
 
 There are no free-standing `FINGERPRINT_MIN_BYTES` / `FINGERPRINT_MAX_BYTES` / `TRACE_MAX_EVENTS` constants on `uor-foundation`'s public surface — collapsing the substitution axis is exactly what ADR-018's "Rejected alternative 1" rules out. Applications and downstream crates (including [`uor-prism`](https://github.com/UOR-Foundation/prism)) read capacities through `<MyBounds as HostBounds>::CONST`.
 
+## Categorical structure (wiki ADR-019)
+
+`uor-foundation`'s vocabulary is the **signature category** of Prism's typed routes. The vocabulary names the structure explicitly:
+
+| Concept | Realization |
+|---|---|
+| Signature endofunctor F | The nine [`enforcement::Term`](foundation/src/enforcement.rs) variants — `Literal`, `Application`, `Lift`, `Project`, `Variable`, `Match`, `Recurse`, `Unfold`, `Try` |
+| Initial algebra of F | [`enforcement::Term`](foundation/src/enforcement.rs) itself — the free term language F generates |
+| Catamorphism into the runtime carrier | [`pipeline::run`](foundation/src/pipeline.rs) — unique homomorphism induced by initiality |
+| Anamorphism's witness object | `Trace` — produced by [`enforcement::Derivation::replay`](foundation/src/enforcement.rs) and consumed by [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) |
+| Fixed points of the typed pipeline endofunctor | The four UOR-domain sealed types (`Datum`, `Triad`, `Derivation`, `FreeRank`) and three Prism-mechanism sealed types (`Validated`, `Grounded`, `Certified`) |
+
+Initiality and uniqueness of the catamorphism hold *within each fixed choice of the three substitution axes* (`HostTypes`, `HostBounds`, `Hasher`). ADR-018's capacity-completeness — "the indexing of carriers is total over `HostBounds`" — is the categorical statement that every capacity-bounded width is part of the index. Closure (ADR-013) and zero-cost runtime (TC-01) are two halves of the same theorem: closure is the precondition that makes F's signature complete; completeness lets the catamorphism be discharged at the application's compile time, with no runtime indirection.
+
+## `PrismModel` — the application author's typed iso (wiki ADR-020)
+
+[`pipeline::PrismModel`](foundation/src/pipeline.rs) codifies the application author's typed-iso contract:
+
+```rust
+pub trait PrismModel {
+    type Input: ConstrainedTypeShape;
+    type Output: ConstrainedTypeShape + GroundedShape;
+    type Route: FoundationClosed;
+    fn forward(input: Self::Input) -> Result<Grounded<Self::Output>, PipelineFailure>;
+}
+```
+
+`Route` is a type-level witness of the term tree mapping `Input` to `Output`; the `FoundationClosed` bound enforces closure under foundation vocabulary at the application's compile time per UORassembly (TC-04, ADR-006). [`pipeline::FoundationClosed`](foundation/src/pipeline.rs) is sealed via a private super-trait — only foundation itself sanctions impls (e.g., `ConstrainedTypeInput` as the identity route) and the `prism_model!` proc-macro from [`uor-foundation-sdk`](uor-foundation-sdk/) emits impls on the witness it generates iff every node is a foundation-vocabulary item. A hand-rolled composition that escapes foundation vocabulary fails to compile with an unsatisfied bound on `Route`.
+
+`forward()` is the catamorphism into [`pipeline::run`](foundation/src/pipeline.rs)'s runtime carrier (per ADR-019); together with the trace-witnessed anamorphism through [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) it forms the verifiable round-trip described in the wiki. Application authors do not write `forward`'s body — the `prism_model!` macro derives it from the syntactic Route declaration via initiality of `Term`.
+
 ## Workspace layout
 
 | Crate | Path | Published | Purpose |

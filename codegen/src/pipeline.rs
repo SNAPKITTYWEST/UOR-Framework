@@ -1863,7 +1863,145 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
+    emit_prism_model(f);
     emit_cartesian_product_shape(f);
+}
+
+/// Emits the wiki ADR-020 surface: the [`FoundationClosed`] marker trait
+/// and the [`PrismModel`] developer contract that codifies the typed iso
+/// between input features and output labels. Sealed via the
+/// `foundation_closed_sealed::Sealed` super-trait so application code
+/// cannot impl `FoundationClosed` for arbitrary types — the
+/// route-emitting macro (`prism_model!` from `uor-foundation-sdk`) emits
+/// it for the witness it generates iff every node in the witnessed term
+/// tree is a foundation-vocabulary item.
+fn emit_prism_model(f: &mut RustFile) {
+    // FoundationClosed — sealed marker.
+    //
+    // The wiki (ADR-020) names this `FoundationClosed`; the route
+    // emitting macro produces an impl iff the route witness is closed
+    // under foundation vocabulary. We seal it so application code
+    // cannot bypass the closure check by impl'ing the marker on an
+    // arbitrary type.
+    f.doc_comment("Marker trait — `Route` types satisfying this bound are closed under");
+    f.doc_comment("foundation vocabulary: every node in the witnessed term tree is a");
+    f.doc_comment("foundation-vocabulary item.");
+    f.doc_comment("");
+    f.doc_comment("Sealed: the route-emitting `prism_model!` macro from");
+    f.doc_comment("`uor-foundation-sdk` is the only sanctioned producer of impls. Wiki");
+    f.doc_comment("ADR-020 specifies this as the load-bearing enforcement of bilateral");
+    f.doc_comment("compile-time UORassembly (TC-04, ADR-006) for whole-model declarations:");
+    f.doc_comment("a route that imports a function outside foundation vocabulary receives");
+    f.doc_comment("no `FoundationClosed` impl, and the application fails to compile with");
+    f.doc_comment("an unsatisfied bound on `Route`.");
+    f.line("pub trait FoundationClosed: foundation_closed_sealed::Sealed {}");
+    f.blank();
+    f.line("mod foundation_closed_sealed {");
+    f.indented_doc_comment("Private super-trait implementing the seal: outside this module,");
+    f.indented_doc_comment("no impl can be written, so `FoundationClosed` cannot be impl'd");
+    f.indented_doc_comment("from application code. The `prism_model!` macro emits both the");
+    f.indented_doc_comment("`Sealed` impl and the `FoundationClosed` impl.");
+    f.line("    pub trait Sealed {}");
+    f.line("}");
+    f.blank();
+
+    // PrismModel — the typed-iso contract.
+    f.doc_comment("The application author's typed-iso contract: an `Input` feature type, an");
+    f.doc_comment("`Output` label type, and a type-level `Route` witness of the term tree");
+    f.doc_comment("mapping one to the other. Per the wiki's ADR-020 — \"the model I am");
+    f.doc_comment("declaring\" — codifies a hylomorphism-with-verifiable-round-trip:");
+    f.doc_comment("the catamorphism from `Input` to `Result<Grounded<Output>, PipelineFailure>`");
+    f.doc_comment("(see [`run`]) plus the recoverable anamorphism through the trace to");
+    f.doc_comment("`Certified<GroundingCertificate>` (see");
+    f.doc_comment("[`crate::enforcement::replay::certify_from_trace`]).");
+    f.doc_comment("");
+    f.doc_comment("The trait's name derives from the implementation crate, not from the");
+    f.doc_comment("categorical Prism optic.");
+    f.doc_comment("");
+    f.doc_comment("# Compile-time guarantees");
+    f.doc_comment("");
+    f.doc_comment("Implementing `PrismModel` for an application type yields, by virtue of");
+    f.doc_comment("the trait's bounds:");
+    f.doc_comment("");
+    f.doc_comment("- **Closure under foundation vocabulary**: the `Route` bound");
+    f.doc_comment("  ([`FoundationClosed`]) is satisfied iff every term in the route witness");
+    f.doc_comment("  comes from foundation's signature endofunctor F (wiki ADR-019). A");
+    f.doc_comment("  hand-rolled composition that escapes foundation vocabulary fails to");
+    f.doc_comment("  compile.");
+    f.doc_comment("- **Zero-cost runtime** (TC-01): `forward` is the catamorphism induced");
+    f.doc_comment("  by initiality of `Term` (ADR-019); the application's compile time");
+    f.doc_comment("  monomorphizes the catamorphism into native code.");
+    f.doc_comment("- **Seal coverage** (TC-02): `forward`'s output is");
+    f.doc_comment("  `Grounded<Self::Output>` constructed via the seal regime");
+    f.doc_comment("  ([`crate::enforcement::Grounded`], ADR-011).");
+    f.doc_comment("- **Replay equivalence** (TC-05): a `Trace` is recoverable from the");
+    f.doc_comment("  `Grounded<Output>` via `derivation().replay()`; certifying it via");
+    f.doc_comment("  [`crate::enforcement::replay::certify_from_trace`] yields a");
+    f.doc_comment("  `Certified<GroundingCertificate>` whose certificate matches the one");
+    f.doc_comment("  reachable from `forward`'s output.");
+    f.doc_comment("");
+    f.doc_comment("# Authoring");
+    f.doc_comment("");
+    f.doc_comment("Application authors do not write `forward`'s body by hand; the");
+    f.doc_comment("`prism_model!` macro from `uor-foundation-sdk` derives it from the");
+    f.doc_comment("syntactic Route declaration via initiality of `Term` (ADR-019). The");
+    f.doc_comment("macro emits both the type-level `Route` witness (which the application's");
+    f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
+    f.doc_comment("`pipeline::run` traverses.");
+    f.line("pub trait PrismModel {");
+    f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
+    f.indented_doc_comment("foundation vocabulary.");
+    f.line("    type Input: ConstrainedTypeShape;");
+    f.blank();
+    f.indented_doc_comment("Output label type — a [`ConstrainedTypeShape`] impl declared in");
+    f.indented_doc_comment(
+        "foundation vocabulary that is also a [`crate::enforcement::GroundedShape`].",
+    );
+    f.line("    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape;");
+    f.blank();
+    f.indented_doc_comment("Type-level witness of the term tree mapping `Input` to `Output`.");
+    f.indented_doc_comment("Bound by [`FoundationClosed`]: the `prism_model!` macro emits the");
+    f.indented_doc_comment("`FoundationClosed` impl for this witness iff every node is a");
+    f.indented_doc_comment("foundation-vocabulary item, satisfying the closure check at the");
+    f.indented_doc_comment("application's compile time per UORassembly (TC-04).");
+    f.line("    type Route: FoundationClosed;");
+    f.blank();
+    f.indented_doc_comment("The catamorphism into [`run`]'s runtime carrier.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Implementations are emitted by the `prism_model!` macro from the");
+    f.indented_doc_comment("syntactic Route declaration; the macro derives the body via");
+    f.indented_doc_comment("initiality of `Term` (wiki ADR-019).");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("# Errors");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Returns a [`PipelineFailure`] when the input does not satisfy the");
+    f.indented_doc_comment("route's preflight checks (budget solvency, feasibility, package");
+    f.indented_doc_comment("coherence, dispatch coverage, timing) or when reduction stages");
+    f.indented_doc_comment("detect contradiction along the route.");
+    f.line("    fn forward(input: Self::Input) -> Result<");
+    f.line("        crate::enforcement::Grounded<Self::Output>,");
+    f.line("        PipelineFailure,");
+    f.line("    >;");
+    f.line("}");
+    f.blank();
+
+    // Foundation-sanctioned identity route. `ConstrainedTypeInput` is
+    // foundation's empty default shape (zero sites, zero constraints);
+    // its term tree is a leaf, vacuously closed under foundation
+    // vocabulary. Sanctioning this impl lets trivial `PrismModel`
+    // declarations (and tests of the trait surface) compile without
+    // going through the `prism_model!` macro. Non-trivial routes get
+    // their `FoundationClosed` impls from the macro, which emits both
+    // the `Sealed` impl and the `FoundationClosed` impl on the witness
+    // it generates.
+    f.doc_comment("Foundation-sanctioned identity route: `ConstrainedTypeInput` is the");
+    f.doc_comment("empty default shape, vacuously closed under foundation vocabulary.");
+    f.doc_comment("Application authors with non-trivial routes use the `prism_model!`");
+    f.doc_comment("macro from `uor-foundation-sdk`, which emits `FoundationClosed` for");
+    f.doc_comment("the witness it generates iff every node is foundation-vocabulary.");
+    f.line("impl foundation_closed_sealed::Sealed for ConstrainedTypeInput {}");
+    f.line("impl FoundationClosed for ConstrainedTypeInput {}");
+    f.blank();
 }
 
 /// Emits the `CartesianProductShape` marker trait, its companion

@@ -382,6 +382,64 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
          //! trees. The `Term` enum's struct-variant constructors are the canonical\n\
          //! builder API — there is no DSL macro in v0.2.2.\n\
          //!\n\
+         //! # Foundation as a signature category (wiki ADR-019)\n\
+         //!\n\
+         //! `uor-foundation`'s vocabulary is the **signature category** of Prism's\n\
+         //! typed routes. Objects are [`pipeline::ConstrainedTypeShape`] impls under\n\
+         //! the substitution-axis selections; morphisms are typed compositions of\n\
+         //! [`PrimitiveOp`] discriminants and [`enforcement::Term::Application`]\n\
+         //! constructions.\n\
+         //!\n\
+         //! The category supports a **signature endofunctor** F whose enriched\n\
+         //! signature has one branch per [`enforcement::Term`] variant — the four\n\
+         //! first-order constructors (`Literal`, `Application`, `Lift`, `Project`),\n\
+         //! plus binding (`Variable`), case analysis (`Match`), explicit fixed-point\n\
+         //! (`Recurse`), explicit unfold (`Unfold`), and failure-promote (`Try`).\n\
+         //!\n\
+         //! [`enforcement::Term`] is F's **initial algebra**: any well-typed term\n\
+         //! tree is an element of the free term language F generates from its\n\
+         //! enriched signature, and any carrier supporting the same enriched\n\
+         //! structure admits a *unique* structure-preserving map from `Term`.\n\
+         //!\n\
+         //! [`pipeline::run`] is the **catamorphism** into the runtime carrier\n\
+         //! parameterized by the substitution axes (`HostTypes`, `HostBounds`,\n\
+         //! `Hasher`). Its dual, the **anamorphism**, is the trace-replay surface\n\
+         //! ([`enforcement::Derivation::replay`] +\n\
+         //! [`enforcement::replay::certify_from_trace`]); the trace is the\n\
+         //! anamorphism's witness object. The four UOR-domain sealed types\n\
+         //! ([`enforcement::Datum`], [`enforcement::Triad`],\n\
+         //! [`enforcement::Derivation`], [`enforcement::FreeRank`]) and the three\n\
+         //! Prism-mechanism sealed types ([`enforcement::Validated`],\n\
+         //! [`enforcement::Grounded`], [`enforcement::Certified`]) are **fixed\n\
+         //! points** of the typed pipeline endofunctor (distinct from F; see wiki\n\
+         //! section 8, Fixed Points).\n\
+         //!\n\
+         //! Initiality and uniqueness of the catamorphism hold *within each fixed\n\
+         //! choice of the three substitution axes*: for a given\n\
+         //! `(HostTypes, HostBounds, Hasher)` selection, there is exactly one\n\
+         //! F-algebra homomorphism from `Term` to the corresponding carrier. The\n\
+         //! categorical statement of ADR-018's capacity completeness is that the\n\
+         //! indexing of carriers is *total* over `HostBounds` — every\n\
+         //! capacity-bounded width that varies along the principal data path is\n\
+         //! part of the index. The substrate-vs-implementor split (ADR-007's\n\
+         //! three-position pattern) extends naturally: foundation defines F and\n\
+         //! the initial algebra; the runtime declares the bound any application's\n\
+         //! `Route` MUST satisfy and the catamorphism that compiles it; the\n\
+         //! application author selects the F-algebra by writing the model.\n\
+         //!\n\
+         //! # `PrismModel` — the application author's typed iso (wiki ADR-020)\n\
+         //!\n\
+         //! [`pipeline::PrismModel`] codifies the iso the application author\n\
+         //! declares: an `Input` feature type, an `Output` label type, and a\n\
+         //! type-level `Route` witness of the term tree mapping one to the other.\n\
+         //! The `Route` associated type is bound by [`pipeline::FoundationClosed`]\n\
+         //! — closure under foundation vocabulary, enforced at the application's\n\
+         //! compile time per UORassembly (TC-04, ADR-006). `forward()` is the\n\
+         //! catamorphism into [`pipeline::run`]'s runtime carrier; together with\n\
+         //! the `Trace`-witnessed anamorphism through\n\
+         //! [`enforcement::replay::certify_from_trace`] it forms the verifiable\n\
+         //! round-trip described in the wiki.\n\
+         //!\n\
          //! # Witness minting (Phases 10 + 12 + 14 + 15)\n\
          //!\n\
          //! Path-2 ontology classes (theorem-attesting witnesses such as\n\

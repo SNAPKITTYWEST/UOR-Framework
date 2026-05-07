@@ -355,3 +355,5 @@ foundation/src/pipeline.rs: struct StreamDeclaration
 foundation/src/pipeline.rs: struct StreamDriver
 foundation/src/pipeline.rs: trait CartesianProductShape
 foundation/src/pipeline.rs: trait ConstrainedTypeShape
+foundation/src/pipeline.rs: trait FoundationClosed
+foundation/src/pipeline.rs: trait PrismModel

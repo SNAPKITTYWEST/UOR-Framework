@@ -73,6 +73,8 @@ symbols = [
     "GroundingExt",
     "GroundingProgramRun",
     "ConstrainedTypeShape",
+    "FoundationClosed",
+    "PrismModel",
 ]
 
 # ─── Mapping: sealed witnesses ──────────────────────────────────────────
@@ -435,6 +437,20 @@ behavior = "behavior_grammar_surface_roundtrip"
 [coverage.host_bounds]
 symbols = ["DefaultHostBounds"]
 behavior = "behavior_host_bounds"
+
+# ─── Mapping: PrismModel + FoundationClosed (wiki ADR-019 + ADR-020) ───
+# ADR-019 names the categorical structure: foundation as a signature
+# endofunctor F, Term as F's initial algebra, pipeline::run as the
+# catamorphism, trace as the anamorphism witness, sealed types as fixed
+# points. ADR-020 codifies the typed-iso contract as a Rust trait:
+# PrismModel carries Input / Output / Route, with Route bound by
+# FoundationClosed (the closure-under-foundation-vocabulary check).
+# FoundationClosed is sealed via a private super-trait so application
+# code cannot bypass the closure check — only foundation itself and the
+# `prism_model!` macro from uor-foundation-sdk produce impls.
+[coverage.prism_model]
+symbols = ["PrismModel", "FoundationClosed"]
+behavior = "behavior_prism_model"
 
 # ─── Mapping: DecimalTranscendental (Phase 9) ──────────────────────────
 # Closed-arithmetic + transcendental supertrait bounded onto
