@@ -450,6 +450,62 @@ pub trait FoundationClosed: __sdk_seal::Sealed {
     fn arena_slice() -> &'static [crate::enforcement::Term];
 }
 
+/// Trait — `ConstrainedTypeShape` impls used as a `PrismModel::Input`
+/// MUST implement this trait so [`run_route`] can serialize the
+/// runtime input value into the `CompileUnit` binding table per wiki
+/// ADR-023.
+/// # Implementation contract
+/// [`into_binding_bytes`] writes the canonical content-addressable byte
+/// sequence for the value into the caller-provided buffer and returns
+/// the written length. The serialization MUST be deterministic — two
+/// values that compare equal MUST produce byte sequences that compare
+/// equal — so the input's content fingerprint is a function of the
+/// value alone.
+/// [`MAX_BYTES`] is the maximum byte length any value of this shape can
+/// produce. [`run_route`] uses it to size the on-stack buffer and
+/// rejects inputs whose declared `MAX_BYTES` exceeds the foundation
+/// ceiling [`ROUTE_INPUT_BUFFER_BYTES`].
+/// # Sealing
+/// Sealed via [`__sdk_seal::Sealed`] (the same supertrait as
+/// [`FoundationClosed`] and [`PrismModel`]): foundation sanctions the
+/// identity-route impl on [`ConstrainedTypeInput`] directly; the SDK
+/// shape macros (`product_shape!`, `coproduct_shape!`,
+/// `cartesian_product_shape!`) emit the impl alongside the
+/// `ConstrainedTypeShape` impl. Application authors implementing a
+/// custom `ConstrainedTypeShape` use the `prism_model!` macro's input
+/// declaration to obtain the impl.
+pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
+    /// Maximum byte length any value of this shape can produce when
+    /// serialized via [`into_binding_bytes`]. Used by [`run_route`] to
+    /// size the on-stack buffer and reject inputs that would overflow.
+    const MAX_BYTES: usize;
+
+    /// Serialize this input value into the binding-table form. `out` is a
+    /// fixed-capacity buffer the call-site provides; the implementation
+    /// writes the canonical content-addressable byte sequence and returns
+    /// the written length.
+    /// # Errors
+    /// Returns [`crate::enforcement::ShapeViolation`] when the canonical
+    /// serialization cannot be produced (e.g., a coproduct tag is out of
+    /// range, a constraint cannot be witnessed) or when `out.len()` is
+    /// smaller than the bytes the value requires.
+    #[allow(clippy::wrong_self_convention)]
+    fn into_binding_bytes(
+        &self,
+        out: &mut [u8],
+    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation>;
+}
+
+/// Foundation-side ceiling for the on-stack buffer [`run_route`] uses to
+/// materialize an input value's canonical bytes per wiki ADR-023.
+/// On stable Rust 1.83 we cannot size the buffer with
+/// `[u8; <T as IntoBindingValue>::MAX_BYTES]` (that requires nightly
+/// `generic_const_exprs`). This foundation-fixed ceiling is the
+/// architecturally-equivalent stable-Rust form: inputs declaring
+/// `MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flow through the catamorphism;
+/// inputs declaring a larger `MAX_BYTES` are rejected at runtime.
+pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
+
 /// The application author's typed-iso contract: an `Input` feature type, an
 /// `Output` label type, and a type-level `Route` witness of the term tree
 /// mapping one to the other. Per the wiki's ADR-020 — "the model I am
@@ -494,7 +550,11 @@ where
 {
     /// Input feature type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary.
-    type Input: ConstrainedTypeShape;
+    /// Per wiki ADR-023, `Input` is also bound by [`IntoBindingValue`] so
+    /// [`run_route`] can serialize the runtime input value into the
+    /// `CompileUnit` binding table for `Term::Variable { name_index: 0 }`
+    /// (the route's input-parameter slot per ADR-022 D3 G2).
+    type Input: ConstrainedTypeShape + IntoBindingValue;
 
     /// Output label type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary that is also a [`crate::enforcement::GroundedShape`].
@@ -547,6 +607,57 @@ where
     // build a `Validated<CompileUnit, FinalPhase>` whose root_term is
     // exactly that arena, and dispatch to `run` (the catamorphism).
     let arena_slice = <M::Route as FoundationClosed>::arena_slice();
+    // ADR-023: serialize the runtime input value into a transient
+    // `Binding` for the route's input-parameter slot
+    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer
+    // ceiling is the foundation-side `ROUTE_INPUT_BUFFER_BYTES`
+    // (stable-Rust equivalent of nightly's
+    // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).
+    let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;
+    if max_bytes > ROUTE_INPUT_BUFFER_BYTES {
+        // Per ADR-023: inputs whose declared MAX_BYTES exceeds the
+        // foundation-side ceiling are rejected — the canonical content
+        // address cannot be derived without a buffer big enough for
+        // the value's full byte sequence.
+        return Err(PipelineFailure::ShapeViolation {
+            report: crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/RouteInputBufferShape",
+                constraint_iri: "https://uor.foundation/pipeline/RouteInputBufferShape/maxBytes",
+                property_iri: "https://uor.foundation/pipeline/inputMaxBytes",
+                expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+                min_count: 0,
+                max_count: ROUTE_INPUT_BUFFER_BYTES as u32,
+                kind: crate::ViolationKind::ValueCheck,
+            },
+        });
+    }
+    let mut buf = [0u8; ROUTE_INPUT_BUFFER_BYTES];
+    let written = input
+        .into_binding_bytes(&mut buf[..max_bytes])
+        .map_err(|report| PipelineFailure::ShapeViolation { report })?;
+    // Hash the canonical bytes through the application's selected
+    // `Hasher` (substitution axis A). The fold output is truncated to
+    // u64 for the `Binding.content_address` carrier, matching the
+    // `to_binding_entry` convention foundation already uses for static
+    // bindings (`ContentAddress::from_u64_fingerprint`).
+    let mut hasher = <A as crate::enforcement::Hasher>::initial();
+    hasher = hasher.fold_bytes(&buf[..written]);
+    let digest = hasher.finalize();
+    let content_address: u64 = u64::from_be_bytes([
+        digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+    ]);
+    // Build the transient binding for the route's input slot. The
+    // `name_index = 0` sentinel is the route-input slot per ADR-022 D3
+    // G2; `type_index = 0` is the foundation-conventional zero handle
+    // (the input's `ConstrainedTypeShape::IRI` is foundation-internal
+    // and not consumed by the binding-signature fold).
+    let transient_input = [crate::enforcement::Binding {
+        name_index: 0,
+        type_index: 0,
+        value_index: 0,
+        surface: <M::Input as ConstrainedTypeShape>::IRI,
+        content_address,
+    }];
     // Foundation defaults for unit-level parameters that are not part
     // of the Route's term-tree. The Witt-level ceiling and
     // thermodynamic budget come from the application's `HostBounds`
@@ -554,7 +665,6 @@ where
     // and a budget large enough to admit any in-bounds route avoids
     // false-positive solvency rejections. `target_domains` is
     // `Enumerative` because the arena is a finite term tree.
-    let _ = input;
     static TARGET_DOMAINS: &[crate::VerificationDomain] = &[crate::VerificationDomain::Enumerative];
     let level = match B::WITT_LEVEL_MAX_BITS {
         bits if bits >= 32 => crate::WittLevel::W32,
@@ -564,6 +674,7 @@ where
     };
     let unit = CompileUnitBuilder::new()
         .root_term(arena_slice)
+        .bindings(&transient_input)
         .witt_level_ceiling(level)
         .thermodynamic_budget(1024)
         .target_domains(TARGET_DOMAINS)
@@ -584,6 +695,17 @@ impl __sdk_seal::Sealed for ConstrainedTypeInput {}
 impl FoundationClosed for ConstrainedTypeInput {
     fn arena_slice() -> &'static [crate::enforcement::Term] {
         &[]
+    }
+}
+impl IntoBindingValue for ConstrainedTypeInput {
+    const MAX_BYTES: usize = 0;
+    fn into_binding_bytes(
+        &self,
+        _out: &mut [u8],
+    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation> {
+        // Identity input carries no bytes — the empty shape's canonical
+        // serialization is the empty byte sequence.
+        Ok(0)
     }
 }
 

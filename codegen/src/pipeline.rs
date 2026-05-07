@@ -1957,6 +1957,97 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
+    // IntoBindingValue — wiki ADR-023.
+    //
+    // Closes the architectural gap ADR-022 left open: how does an
+    // `M::Input` value supplied at runtime flow into the `CompileUnit`
+    // binding table? Foundation declares the trait every `M::Input`
+    // implements; `pipeline::run_route` calls `into_binding_bytes` to
+    // fill a stack buffer, hashes the result with the selected
+    // `Hasher` to derive a `ContentAddress`, and constructs a
+    // transient `Binding` for `Term::Variable { name_index: 0 }` (the
+    // route's input parameter slot per ADR-022 D3 G2).
+    //
+    // Sealed via `__sdk_seal::Sealed`: only foundation and the SDK
+    // shape macros emit impls. Closure-bound values flow through
+    // sanctioned constructors only, in the same spirit as the
+    // `FoundationClosed` and `PrismModel` seals.
+    f.doc_comment("Trait — `ConstrainedTypeShape` impls used as a `PrismModel::Input`");
+    f.doc_comment("MUST implement this trait so [`run_route`] can serialize the");
+    f.doc_comment("runtime input value into the `CompileUnit` binding table per wiki");
+    f.doc_comment("ADR-023.");
+    f.doc_comment("");
+    f.doc_comment("# Implementation contract");
+    f.doc_comment("");
+    f.doc_comment("[`into_binding_bytes`] writes the canonical content-addressable byte");
+    f.doc_comment("sequence for the value into the caller-provided buffer and returns");
+    f.doc_comment("the written length. The serialization MUST be deterministic — two");
+    f.doc_comment("values that compare equal MUST produce byte sequences that compare");
+    f.doc_comment("equal — so the input's content fingerprint is a function of the");
+    f.doc_comment("value alone.");
+    f.doc_comment("");
+    f.doc_comment("[`MAX_BYTES`] is the maximum byte length any value of this shape can");
+    f.doc_comment("produce. [`run_route`] uses it to size the on-stack buffer and");
+    f.doc_comment("rejects inputs whose declared `MAX_BYTES` exceeds the foundation");
+    f.doc_comment("ceiling [`ROUTE_INPUT_BUFFER_BYTES`].");
+    f.doc_comment("");
+    f.doc_comment("# Sealing");
+    f.doc_comment("");
+    f.doc_comment("Sealed via [`__sdk_seal::Sealed`] (the same supertrait as");
+    f.doc_comment("[`FoundationClosed`] and [`PrismModel`]): foundation sanctions the");
+    f.doc_comment("identity-route impl on [`ConstrainedTypeInput`] directly; the SDK");
+    f.doc_comment("shape macros (`product_shape!`, `coproduct_shape!`,");
+    f.doc_comment("`cartesian_product_shape!`) emit the impl alongside the");
+    f.doc_comment("`ConstrainedTypeShape` impl. Application authors implementing a");
+    f.doc_comment("custom `ConstrainedTypeShape` use the `prism_model!` macro's input");
+    f.doc_comment("declaration to obtain the impl.");
+    f.line("pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {");
+    f.indented_doc_comment("Maximum byte length any value of this shape can produce when");
+    f.indented_doc_comment("serialized via [`into_binding_bytes`]. Used by [`run_route`] to");
+    f.indented_doc_comment("size the on-stack buffer and reject inputs that would overflow.");
+    f.line("    const MAX_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("Serialize this input value into the binding-table form. `out` is a");
+    f.indented_doc_comment("fixed-capacity buffer the call-site provides; the implementation");
+    f.indented_doc_comment("writes the canonical content-addressable byte sequence and returns");
+    f.indented_doc_comment("the written length.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("# Errors");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Returns [`crate::enforcement::ShapeViolation`] when the canonical");
+    f.indented_doc_comment("serialization cannot be produced (e.g., a coproduct tag is out of");
+    f.indented_doc_comment("range, a constraint cannot be witnessed) or when `out.len()` is");
+    f.indented_doc_comment("smaller than the bytes the value requires.");
+    f.line("    #[allow(clippy::wrong_self_convention)]");
+    f.line("    fn into_binding_bytes(");
+    f.line("        &self,");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation>;");
+    f.line("}");
+    f.blank();
+
+    // ROUTE_INPUT_BUFFER_BYTES — foundation-side ceiling for the
+    // stack-allocated buffer `run_route` uses to materialize the input
+    // value's canonical bytes. ADR-023 specifies that `into_binding_bytes`
+    // writes into a buffer the call-site provides; on stable Rust 1.83
+    // we cannot size the buffer with `[u8; <T as IntoBindingValue>::MAX_BYTES]`
+    // (that needs nightly `generic_const_exprs`). The foundation-side
+    // ceiling is the architecturally-equivalent stable-Rust form: any
+    // input declaring `MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flows through
+    // the catamorphism; inputs declaring a larger MAX_BYTES are rejected
+    // at runtime by `run_route`.
+    f.doc_comment("Foundation-side ceiling for the on-stack buffer [`run_route`] uses to");
+    f.doc_comment("materialize an input value's canonical bytes per wiki ADR-023.");
+    f.doc_comment("");
+    f.doc_comment("On stable Rust 1.83 we cannot size the buffer with");
+    f.doc_comment("`[u8; <T as IntoBindingValue>::MAX_BYTES]` (that requires nightly");
+    f.doc_comment("`generic_const_exprs`). This foundation-fixed ceiling is the");
+    f.doc_comment("architecturally-equivalent stable-Rust form: inputs declaring");
+    f.doc_comment("`MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flow through the catamorphism;");
+    f.doc_comment("inputs declaring a larger `MAX_BYTES` are rejected at runtime.");
+    f.line("pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
+    f.blank();
+
     // PrismModel — the typed-iso contract.
     f.doc_comment("The application author's typed-iso contract: an `Input` feature type, an");
     f.doc_comment("`Output` label type, and a type-level `Route` witness of the term tree");
@@ -2008,7 +2099,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("{");
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment("foundation vocabulary.");
-    f.line("    type Input: ConstrainedTypeShape;");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Per wiki ADR-023, `Input` is also bound by [`IntoBindingValue`] so");
+    f.indented_doc_comment("[`run_route`] can serialize the runtime input value into the");
+    f.indented_doc_comment("`CompileUnit` binding table for `Term::Variable { name_index: 0 }`");
+    f.indented_doc_comment("(the route's input-parameter slot per ADR-022 D3 G2).");
+    f.line("    type Input: ConstrainedTypeShape + IntoBindingValue;");
     f.blank();
     f.indented_doc_comment("Output label type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment(
@@ -2081,6 +2177,62 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // build a `Validated<CompileUnit, FinalPhase>` whose root_term is");
     f.line("    // exactly that arena, and dispatch to `run` (the catamorphism).");
     f.line("    let arena_slice = <M::Route as FoundationClosed>::arena_slice();");
+    f.line("    // ADR-023: serialize the runtime input value into a transient");
+    f.line("    // `Binding` for the route's input-parameter slot");
+    f.line("    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer");
+    f.line("    // ceiling is the foundation-side `ROUTE_INPUT_BUFFER_BYTES`");
+    f.line("    // (stable-Rust equivalent of nightly's");
+    f.line("    // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).");
+    f.line("    let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;");
+    f.line("    if max_bytes > ROUTE_INPUT_BUFFER_BYTES {");
+    f.line("        // Per ADR-023: inputs whose declared MAX_BYTES exceeds the");
+    f.line("        // foundation-side ceiling are rejected — the canonical content");
+    f.line("        // address cannot be derived without a buffer big enough for");
+    f.line("        // the value's full byte sequence.");
+    f.line("        return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/RouteInputBufferShape\",");
+    f.line(
+        "                constraint_iri: \"https://uor.foundation/pipeline/RouteInputBufferShape/maxBytes\",",
+    );
+    f.line("                property_iri: \"https://uor.foundation/pipeline/inputMaxBytes\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: 0,");
+    f.line("                max_count: ROUTE_INPUT_BUFFER_BYTES as u32,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            },");
+    f.line("        });");
+    f.line("    }");
+    f.line("    let mut buf = [0u8; ROUTE_INPUT_BUFFER_BYTES];");
+    f.line("    let written = input.into_binding_bytes(&mut buf[..max_bytes])");
+    f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
+    f.line("    // Hash the canonical bytes through the application's selected");
+    f.line("    // `Hasher` (substitution axis A). The fold output is truncated to");
+    f.line("    // u64 for the `Binding.content_address` carrier, matching the");
+    f.line("    // `to_binding_entry` convention foundation already uses for static");
+    f.line("    // bindings (`ContentAddress::from_u64_fingerprint`).");
+    f.line("    let mut hasher = <A as crate::enforcement::Hasher>::initial();");
+    f.line("    hasher = hasher.fold_bytes(&buf[..written]);");
+    f.line("    let digest = hasher.finalize();");
+    f.line("    let content_address: u64 =");
+    f.line("        u64::from_be_bytes([");
+    f.line("            digest[0], digest[1], digest[2], digest[3],");
+    f.line("            digest[4], digest[5], digest[6], digest[7],");
+    f.line("        ]);");
+    f.line("    // Build the transient binding for the route's input slot. The");
+    f.line("    // `name_index = 0` sentinel is the route-input slot per ADR-022 D3");
+    f.line("    // G2; `type_index = 0` is the foundation-conventional zero handle");
+    f.line("    // (the input's `ConstrainedTypeShape::IRI` is foundation-internal");
+    f.line("    // and not consumed by the binding-signature fold).");
+    f.line("    let transient_input = [crate::enforcement::Binding {");
+    f.line("        name_index: 0,");
+    f.line("        type_index: 0,");
+    f.line("        value_index: 0,");
+    f.line("        surface: <M::Input as ConstrainedTypeShape>::IRI,");
+    f.line("        content_address,");
+    f.line("    }];");
     f.line("    // Foundation defaults for unit-level parameters that are not part");
     f.line("    // of the Route's term-tree. The Witt-level ceiling and");
     f.line("    // thermodynamic budget come from the application's `HostBounds`");
@@ -2088,7 +2240,6 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // and a budget large enough to admit any in-bounds route avoids");
     f.line("    // false-positive solvency rejections. `target_domains` is");
     f.line("    // `Enumerative` because the arena is a finite term tree.");
-    f.line("    let _ = input;");
     f.line("    static TARGET_DOMAINS: &[crate::VerificationDomain] =");
     f.line("        &[crate::VerificationDomain::Enumerative];");
     f.line("    let level = match B::WITT_LEVEL_MAX_BITS {");
@@ -2099,6 +2250,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    };");
     f.line("    let unit = CompileUnitBuilder::new()");
     f.line("        .root_term(arena_slice)");
+    f.line("        .bindings(&transient_input)");
     f.line("        .witt_level_ceiling(level)");
     f.line("        .thermodynamic_budget(1024)");
     f.line("        .target_domains(TARGET_DOMAINS)");
@@ -2130,6 +2282,17 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("impl FoundationClosed for ConstrainedTypeInput {");
     f.line("    fn arena_slice() -> &'static [crate::enforcement::Term] {");
     f.line("        &[]");
+    f.line("    }");
+    f.line("}");
+    f.line("impl IntoBindingValue for ConstrainedTypeInput {");
+    f.line("    const MAX_BYTES: usize = 0;");
+    f.line("    fn into_binding_bytes(");
+    f.line("        &self,");
+    f.line("        _out: &mut [u8],");
+    f.line("    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation> {");
+    f.line("        // Identity input carries no bytes — the empty shape's canonical");
+    f.line("        // serialization is the empty byte sequence.");
+    f.line("        Ok(0)");
     f.line("    }");
     f.line("}");
     f.blank();

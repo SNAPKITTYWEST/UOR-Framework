@@ -109,6 +109,25 @@ The body is consumed at macro time and never executes as Rust at runtime; the ma
 
 `forward()` is the catamorphism into `pipeline::run_route`'s runtime carrier (per ADR-019); together with the trace-witnessed anamorphism through [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) it forms the verifiable round-trip ADR-021 names as a normative architectural property.
 
+## `IntoBindingValue` — runtime input flow (wiki ADR-023)
+
+ADR-023 closes the architectural gap ADR-022 left open: how does an `M::Input` value supplied at runtime flow into the `CompileUnit` binding table? Foundation declares [`pipeline::IntoBindingValue`](foundation/src/pipeline.rs) as the trait every `M::Input` MUST implement. `pipeline::run_route` calls `into_binding_bytes` to fill a stack buffer (sized by the foundation-fixed [`pipeline::ROUTE_INPUT_BUFFER_BYTES`](foundation/src/pipeline.rs) ceiling), hashes the result through the application's selected `Hasher`, and constructs a transient `Binding` for the route's input slot (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2).
+
+The trait surface:
+
+```rust
+pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
+    const MAX_BYTES: usize;
+    fn into_binding_bytes(&self, out: &mut [u8]) -> Result<usize, ShapeViolation>;
+}
+```
+
+- The seal supertrait is the same `__sdk_seal::Sealed` that gates `FoundationClosed` and `PrismModel` (ADR-022 D1) — only foundation and the SDK shape macros emit impls.
+- Foundation sanctions the identity-route impl on `ConstrainedTypeInput` directly (`MAX_BYTES = 0`, `into_binding_bytes` returns `Ok(0)`).
+- The SDK shape macros (`product_shape!`, `coproduct_shape!`, `cartesian_product_shape!`) emit the `IntoBindingValue` impl alongside the `ConstrainedTypeShape` impl, so application authors using shape macros write nothing.
+
+`PrismModel::Input` carries the bound: `type Input: ConstrainedTypeShape + IntoBindingValue`. ADR-018's substitution-axis discipline carries through here too — `ROUTE_INPUT_BUFFER_BYTES` is the stable-Rust 1.83 equivalent of nightly's `[u8; <T as IntoBindingValue>::MAX_BYTES]` form: stable Rust cannot size a buffer with a generic associated constant (that requires `generic_const_exprs`), so the foundation-fixed ceiling caps the stack buffer; inputs declaring `MAX_BYTES > ROUTE_INPUT_BUFFER_BYTES` are rejected at runtime by `run_route`.
+
 ## V&V framework alignment (wiki ADR-021)
 
 ADR-021 names the four V&V Decisions Prism resolves under the hylomorphism framing:

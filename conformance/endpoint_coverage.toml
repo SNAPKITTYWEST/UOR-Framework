@@ -74,6 +74,7 @@ symbols = [
     "GroundingProgramRun",
     "ConstrainedTypeShape",
     "FoundationClosed",
+    "IntoBindingValue",
     "PrismModel",
 ]
 
@@ -452,6 +453,22 @@ behavior = "behavior_host_bounds"
 [coverage.prism_model]
 symbols = ["PrismModel", "FoundationClosed"]
 behavior = "behavior_prism_model"
+
+# ─── Mapping: IntoBindingValue (wiki ADR-023) ──────────────────────────
+# ADR-023 closes the architectural gap ADR-022 left open: how does an
+# `M::Input` value supplied at runtime flow into the `CompileUnit`
+# binding table? Foundation declares `IntoBindingValue` as the trait
+# every `M::Input` must implement. `pipeline::run_route` calls
+# `into_binding_bytes` to fill a buffer (sized by the foundation-fixed
+# `ROUTE_INPUT_BUFFER_BYTES` ceiling per stable-Rust 1.83 stable
+# const-generic limits), hashes the result through the application's
+# selected `Hasher`, and constructs a transient `Binding` for the
+# route's input slot (`Term::Variable { name_index: 0 }` per ADR-022
+# D3 G2). The trait is sealed via the same `__sdk_seal::Sealed`
+# supertrait as `FoundationClosed` and `PrismModel`.
+[coverage.into_binding_value]
+symbols = ["IntoBindingValue", "ROUTE_INPUT_BUFFER_BYTES"]
+behavior = "behavior_into_binding_value"
 
 # ─── Mapping: DecimalTranscendental (Phase 9) ──────────────────────────
 # Closed-arithmetic + transcendental supertrait bounded onto

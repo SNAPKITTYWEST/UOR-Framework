@@ -180,6 +180,23 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
             };
         }
 
+        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
+        // impl alongside `ConstrainedTypeShape`. The shape struct is a
+        // zero-sized type-level marker, so the canonical byte sequence is
+        // empty (MAX_BYTES = 0) — applications that need to carry runtime
+        // input data declare a custom `ConstrainedTypeShape` and write a
+        // bespoke `IntoBindingValue` impl.
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
+        }
+
         impl #name {
             /// Mint a verified [`PartitionProductWitness`] for this shape's
             /// operand pair. The numeric invariants (Euler characteristics,
@@ -415,6 +432,20 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
             };
         }
 
+        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
+        // impl alongside `ConstrainedTypeShape` (zero-sized marker; canonical
+        // byte sequence is empty).
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
+        }
+
         impl #name {
             /// Mint a verified [`PartitionCoproductWitness`] for this shape's
             /// operand pair. See `product_shape!`'s `mint_product_witness`
@@ -565,6 +596,20 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
         impl ::uor_foundation::pipeline::CartesianProductShape for #name {
             type Left = #l;
             type Right = #r;
+        }
+
+        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
+        // impl alongside `ConstrainedTypeShape` (zero-sized marker; canonical
+        // byte sequence is empty).
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
         }
 
         impl #name {
