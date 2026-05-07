@@ -408,6 +408,7 @@ symbols = [
     "run",
     "run_const",
     "run_parallel",
+    "run_route",
     "run_stream",
     "run_interactive",
     "preflight_budget_solvency",
@@ -495,6 +496,7 @@ symbols = [
     "replay",
     "resolver",
     "__test_helpers",
+    "__sdk_seal",
     "transcendentals",
 ]
 

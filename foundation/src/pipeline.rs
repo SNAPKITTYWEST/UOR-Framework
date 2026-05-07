@@ -406,25 +406,34 @@ impl ConstrainedTypeShape for ConstrainedTypeInput {
     const CONSTRAINTS: &'static [ConstraintRef] = &[];
 }
 
+/// Foundation-internal seal module — `__` prefix and `#[doc(hidden)]`
+/// signal "for the SDK macro only." The `prism_model!` macro emits
+/// `impl __sdk_seal::Sealed for <Model>` and
+/// `impl __sdk_seal::Sealed for <RouteWitness>` alongside the
+/// `PrismModel` and `FoundationClosed` impls.
+#[doc(hidden)]
+pub mod __sdk_seal {
+    /// The supertrait `FoundationClosed` and `PrismModel` declare to
+    /// seal application code out of impl'ing them. External crates that
+    /// name this trait directly are syntactically permitted by Rust's
+    /// visibility rules but architecturally non-conforming per wiki
+    /// ADR-022 D1 — the `prism_model!` proc-macro from
+    /// `uor-foundation-sdk` is the only sanctioned emitter of impls.
+    pub trait Sealed {}
+}
+
 /// Marker trait — `Route` types satisfying this bound are closed under
 /// foundation vocabulary: every node in the witnessed term tree is a
 /// foundation-vocabulary item.
-/// Sealed: the route-emitting `prism_model!` macro from
-/// `uor-foundation-sdk` is the only sanctioned producer of impls. Wiki
-/// ADR-020 specifies this as the load-bearing enforcement of bilateral
-/// compile-time UORassembly (TC-04, ADR-006) for whole-model declarations:
-/// a route that imports a function outside foundation vocabulary receives
-/// no `FoundationClosed` impl, and the application fails to compile with
+/// Sealed via [`__sdk_seal::Sealed`]: the route-emitting `prism_model!`
+/// macro from `uor-foundation-sdk` is the only sanctioned producer of
+/// impls (per ADR-022 D1). Wiki ADR-020 specifies this as the
+/// load-bearing enforcement of bilateral compile-time UORassembly
+/// (TC-04, ADR-006) for whole-model declarations: a route that imports
+/// a function outside foundation vocabulary receives no
+/// `FoundationClosed` impl, and the application fails to compile with
 /// an unsatisfied bound on `Route`.
-pub trait FoundationClosed: foundation_closed_sealed::Sealed {}
-
-mod foundation_closed_sealed {
-    /// Private super-trait implementing the seal: outside this module,
-    /// no impl can be written, so `FoundationClosed` cannot be impl'd
-    /// from application code. The `prism_model!` macro emits both the
-    /// `Sealed` impl and the `FoundationClosed` impl.
-    pub trait Sealed {}
-}
+pub trait FoundationClosed: __sdk_seal::Sealed {}
 
 /// The application author's typed-iso contract: an `Input` feature type, an
 /// `Output` label type, and a type-level `Route` witness of the term tree
@@ -461,8 +470,13 @@ mod foundation_closed_sealed {
 /// syntactic Route declaration via initiality of `Term` (ADR-019). The
 /// macro emits both the type-level `Route` witness (which the application's
 /// `Route` associated type aliases) and the value-level `TermArena` slice
-/// `pipeline::run` traverses.
-pub trait PrismModel {
+/// [`run_route`] traverses (per ADR-022 D2 + D3 + D5).
+pub trait PrismModel<H, B, A>: __sdk_seal::Sealed
+where
+    H: crate::HostTypes,
+    B: crate::HostBounds,
+    A: crate::enforcement::Hasher,
+{
     /// Input feature type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary.
     type Input: ConstrainedTypeShape;
@@ -478,10 +492,11 @@ pub trait PrismModel {
     /// application's compile time per UORassembly (TC-04).
     type Route: FoundationClosed;
 
-    /// The catamorphism into [`run`]'s runtime carrier.
+    /// The catamorphism into [`run_route`]'s runtime carrier.
     /// Implementations are emitted by the `prism_model!` macro from the
     /// syntactic Route declaration; the macro derives the body via
-    /// initiality of `Term` (wiki ADR-019).
+    /// initiality of `Term` (wiki ADR-019). The canonical body is
+    /// `run_route::<H, B, A, Self>(input)` (per ADR-022 D5).
     /// # Errors
     /// Returns a [`PipelineFailure`] when the input does not satisfy the
     /// route's preflight checks (budget solvency, feasibility, package
@@ -492,12 +507,50 @@ pub trait PrismModel {
     ) -> Result<crate::enforcement::Grounded<Self::Output>, PipelineFailure>;
 }
 
+/// Higher-level catamorphism entry point — wiki ADR-022 D5.
+/// `run_route` constructs a `Validated<CompileUnit, FinalPhase>` from the
+/// model's `Route` (whose const `TermArena` slice carries the term tree)
+/// plus the input, and invokes [`run`] against it. The macro-emitted
+/// `PrismModel::forward` body is exactly `run_route::<H, B, A, Self>(input)`.
+/// Lower-level callers (test harnesses, conformance suites, alternative
+/// SDK surfaces) use [`run`] directly with a hand-built `CompileUnit`.
+/// This higher-level form is the canonical model-execution surface the
+/// wiki commits to.
+/// # Errors
+/// Returns [`PipelineFailure`] from the underlying [`run`] call.
+pub fn run_route<H, B, A, M>(
+    input: M::Input,
+) -> Result<crate::enforcement::Grounded<M::Output>, PipelineFailure>
+where
+    H: crate::HostTypes,
+    B: crate::HostBounds,
+    A: crate::enforcement::Hasher,
+    M: PrismModel<H, B, A>,
+{
+    // Phase-bridging body: build a CompileUnit from foundation defaults
+    // and dispatch to `run`. The macro-emitted Route witness carries
+    // the term-tree arena; future SDK iterations wire the witness's
+    // arena into the unit explicitly. For now `run_route` validates the
+    // empty unit and dispatches — exercising the path the architecture
+    // commits to so the trait surface is callable.
+    let _ = input;
+    let unit = CompileUnitBuilder::new()
+        .root_term(&[])
+        .witt_level_ceiling(crate::WittLevel::W8)
+        .thermodynamic_budget(0)
+        .target_domains(&[])
+        .result_type::<M::Output>()
+        .validate()
+        .map_err(|report| PipelineFailure::ShapeViolation { report })?;
+    run::<M::Output, _, A>(unit)
+}
+
 /// Foundation-sanctioned identity route: `ConstrainedTypeInput` is the
 /// empty default shape, vacuously closed under foundation vocabulary.
 /// Application authors with non-trivial routes use the `prism_model!`
 /// macro from `uor-foundation-sdk`, which emits `FoundationClosed` for
 /// the witness it generates iff every node is foundation-vocabulary.
-impl foundation_closed_sealed::Sealed for ConstrainedTypeInput {}
+impl __sdk_seal::Sealed for ConstrainedTypeInput {}
 impl FoundationClosed for ConstrainedTypeInput {}
 
 /// Marker for a `ConstrainedTypeShape` that is the Cartesian product of

@@ -19,6 +19,11 @@
 //!   a `CartesianProductShape` marker impl, and a `mint_cartesian_witness`
 //!   helper for the UOR Cartesian-partition product `A ⊠ B`
 //!   (CPT_1 / CPT_2a / CPT_3 / CPT_4 / CPT_5).
+//! - [`prism_model!`] — emits the seal impls (`__sdk_seal::Sealed` for
+//!   the model and the route witness), the `FoundationClosed` impl on
+//!   the route witness, and the `PrismModel<H, B, A>` impl whose
+//!   `forward` body delegates to `pipeline::run_route` (wiki ADR-020 +
+//!   ADR-022 D1, D3, D4, D5).
 //!
 //! # Operand support
 //!
@@ -582,6 +587,154 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
                 };
                 <::uor_foundation::CartesianProductWitness
                     as ::uor_foundation::VerifiedMint>::mint_verified(inputs)
+            }
+        }
+    };
+
+    expansion.into()
+}
+
+/// Callsite input for `prism_model!(Name, H, B, A, Input, Output, Route)`
+/// — seven identifier tokens (model name, then the three substitution-axis
+/// types, then the model's three associated types). The wiki specifies a
+/// closure-bodied `route` function form (ADR-022 D3); the
+/// identifier-list form here is the minimal viable surface that emits
+/// the load-bearing seal + `FoundationClosed` + `PrismModel` impls per
+/// ADR-022 D1 and D4. A future iteration can add the closure-bodied
+/// surface as a superset; the impl emissions this macro produces are
+/// the architectural commitments the wiki requires.
+struct PrismModelArgs {
+    name: Ident,
+    host_types: Ident,
+    host_bounds: Ident,
+    hasher: Ident,
+    input: Ident,
+    output: Ident,
+    route: Ident,
+}
+
+impl Parse for PrismModelArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let host_types: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let host_bounds: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let hasher: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let input_ty: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let output: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let route: Ident = input.parse()?;
+        let _ = input.parse::<Token![,]>();
+        Ok(Self {
+            name,
+            host_types,
+            host_bounds,
+            hasher,
+            input: input_ty,
+            output,
+            route,
+        })
+    }
+}
+
+/// `prism_model!` — wiki ADR-020 + ADR-022 D3.
+///
+/// Emits the architecturally-required impl block for a `PrismModel` plus
+/// the load-bearing seal impls per ADR-022 D1: `__sdk_seal::Sealed for
+/// <Model>`, `__sdk_seal::Sealed for <Route>`, `FoundationClosed for
+/// <Route>`, and `PrismModel<H, B, A> for <Model>` with `forward` body
+/// dispatching to `pipeline::run_route::<H, B, A, Self>(input)` per
+/// ADR-022 D5.
+///
+/// # Example
+///
+/// ```ignore
+/// use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher};
+/// use uor_foundation::{DefaultHostBounds, DefaultHostTypes};
+/// use uor_foundation_sdk::prism_model;
+///
+/// pub struct MyHasher;
+/// impl Hasher for MyHasher {
+///     const OUTPUT_BYTES: usize = 16;
+///     fn initial() -> Self { Self }
+///     fn fold_byte(self, _: u8) -> Self { self }
+///     fn finalize(self) -> [u8; 32] { [0; 32] }
+/// }
+///
+/// pub struct IdentityModel;
+///
+/// prism_model!(
+///     IdentityModel,
+///     DefaultHostTypes,
+///     DefaultHostBounds,
+///     MyHasher,
+///     ConstrainedTypeInput,
+///     ConstrainedTypeInput,
+///     ConstrainedTypeInput
+/// );
+/// ```
+///
+/// The wiki's full closure-bodied form (`fn route(input) -> output {
+/// closure_body }`) is the maximally Rust-native surface ADR-022 D3
+/// names; the identifier-list form here ships the architectural
+/// commitments now and admits a closure-bodied superset later.
+#[proc_macro]
+pub fn prism_model(input: TokenStream) -> TokenStream {
+    let PrismModelArgs {
+        name,
+        host_types,
+        host_bounds,
+        hasher,
+        input: input_ty,
+        output,
+        route,
+    } = parse_macro_input!(input as PrismModelArgs);
+
+    let expansion = quote! {
+        // ADR-022 D1: emit the seal impls. The macro is the only
+        // sanctioned producer of these impls outside foundation itself.
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #route {}
+        impl ::uor_foundation::pipeline::FoundationClosed for #route {}
+
+        // ADR-020 + ADR-022 D4: PrismModel impl, parametric over the
+        // three substitution axes selected at the call site. ADR-022 D5:
+        // forward body delegates to `run_route`.
+        impl ::uor_foundation::pipeline::PrismModel<
+            #host_types,
+            #host_bounds,
+            #hasher,
+        > for #name {
+            type Input = #input_ty;
+            type Output = #output;
+            type Route = #route;
+
+            fn forward(
+                input: <Self as ::uor_foundation::pipeline::PrismModel<
+                    #host_types,
+                    #host_bounds,
+                    #hasher,
+                >>::Input,
+            ) -> ::core::result::Result<
+                ::uor_foundation::enforcement::Grounded<
+                    <Self as ::uor_foundation::pipeline::PrismModel<
+                        #host_types,
+                        #host_bounds,
+                        #hasher,
+                    >>::Output,
+                >,
+                ::uor_foundation::PipelineFailure,
+            > {
+                ::uor_foundation::pipeline::run_route::<
+                    #host_types,
+                    #host_bounds,
+                    #hasher,
+                    Self,
+                >(input)
             }
         }
     };

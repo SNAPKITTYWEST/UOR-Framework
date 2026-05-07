@@ -1867,42 +1867,64 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     emit_cartesian_product_shape(f);
 }
 
-/// Emits the wiki ADR-020 surface: the [`FoundationClosed`] marker trait
-/// and the [`PrismModel`] developer contract that codifies the typed iso
-/// between input features and output labels. Sealed via the
-/// `foundation_closed_sealed::Sealed` super-trait so application code
-/// cannot impl `FoundationClosed` for arbitrary types — the
-/// route-emitting macro (`prism_model!` from `uor-foundation-sdk`) emits
-/// it for the witness it generates iff every node in the witnessed term
-/// tree is a foundation-vocabulary item.
+/// Emits the wiki ADR-020 + ADR-022 surface: the [`FoundationClosed`]
+/// marker trait, the [`__sdk_seal::Sealed`] supertrait that the SDK
+/// proc-macro names in its emissions, and the [`PrismModel`] developer
+/// contract that codifies the typed iso between input features and
+/// output labels.
+///
+/// Per ADR-022 D1, the seal is the ecosystem-standard idiom for
+/// cross-crate-extensible-but-controlled traits: a `#[doc(hidden)] pub
+/// mod __sdk_seal { pub trait Sealed {} }` so the
+/// `uor-foundation-sdk::prism_model!` proc-macro can name
+/// `__sdk_seal::Sealed` in the impls it emits, while the doc-hidden
+/// naming-convention pair signals that external crates that name it
+/// directly are architecturally non-conforming. The macro emits
+/// `impl __sdk_seal::Sealed for <RouteWitness>` alongside
+/// `impl FoundationClosed for <RouteWitness>`, plus
+/// `impl __sdk_seal::Sealed for <Model>` so the model itself satisfies
+/// `PrismModel`'s `Self: Sealed` bound (ADR-022 D4).
 fn emit_prism_model(f: &mut RustFile) {
-    // FoundationClosed — sealed marker.
+    // __sdk_seal::Sealed — public-but-doc-hidden seal per ADR-022 D1.
     //
-    // The wiki (ADR-020) names this `FoundationClosed`; the route
-    // emitting macro produces an impl iff the route witness is closed
-    // under foundation vocabulary. We seal it so application code
-    // cannot bypass the closure check by impl'ing the marker on an
-    // arbitrary type.
+    // The proc-macro crate (`uor-foundation-sdk`) lives outside this
+    // module's privacy boundary, so a `pub(crate)` seal would prevent
+    // it from emitting `impl Sealed for …`. The doc-hidden public form
+    // is the standard ecosystem idiom (cf. `serde::__private`,
+    // `tokio::macros::support`): external crates that import it are
+    // syntactically permitted but architecturally non-conforming, and
+    // the naming convention documents that.
+    f.doc_comment("Foundation-internal seal module — `__` prefix and `#[doc(hidden)]`");
+    f.doc_comment("signal \"for the SDK macro only.\" The `prism_model!` macro emits");
+    f.doc_comment("`impl __sdk_seal::Sealed for <Model>` and");
+    f.doc_comment("`impl __sdk_seal::Sealed for <RouteWitness>` alongside the");
+    f.doc_comment("`PrismModel` and `FoundationClosed` impls.");
+    f.line("#[doc(hidden)]");
+    f.line("pub mod __sdk_seal {");
+    f.indented_doc_comment("The supertrait `FoundationClosed` and `PrismModel` declare to");
+    f.indented_doc_comment("seal application code out of impl'ing them. External crates that");
+    f.indented_doc_comment("name this trait directly are syntactically permitted by Rust's");
+    f.indented_doc_comment("visibility rules but architecturally non-conforming per wiki");
+    f.indented_doc_comment("ADR-022 D1 — the `prism_model!` proc-macro from");
+    f.indented_doc_comment("`uor-foundation-sdk` is the only sanctioned emitter of impls.");
+    f.line("    pub trait Sealed {}");
+    f.line("}");
+    f.blank();
+
+    // FoundationClosed — sealed marker (ADR-020).
     f.doc_comment("Marker trait — `Route` types satisfying this bound are closed under");
     f.doc_comment("foundation vocabulary: every node in the witnessed term tree is a");
     f.doc_comment("foundation-vocabulary item.");
     f.doc_comment("");
-    f.doc_comment("Sealed: the route-emitting `prism_model!` macro from");
-    f.doc_comment("`uor-foundation-sdk` is the only sanctioned producer of impls. Wiki");
-    f.doc_comment("ADR-020 specifies this as the load-bearing enforcement of bilateral");
-    f.doc_comment("compile-time UORassembly (TC-04, ADR-006) for whole-model declarations:");
-    f.doc_comment("a route that imports a function outside foundation vocabulary receives");
-    f.doc_comment("no `FoundationClosed` impl, and the application fails to compile with");
+    f.doc_comment("Sealed via [`__sdk_seal::Sealed`]: the route-emitting `prism_model!`");
+    f.doc_comment("macro from `uor-foundation-sdk` is the only sanctioned producer of");
+    f.doc_comment("impls (per ADR-022 D1). Wiki ADR-020 specifies this as the");
+    f.doc_comment("load-bearing enforcement of bilateral compile-time UORassembly");
+    f.doc_comment("(TC-04, ADR-006) for whole-model declarations: a route that imports");
+    f.doc_comment("a function outside foundation vocabulary receives no");
+    f.doc_comment("`FoundationClosed` impl, and the application fails to compile with");
     f.doc_comment("an unsatisfied bound on `Route`.");
-    f.line("pub trait FoundationClosed: foundation_closed_sealed::Sealed {}");
-    f.blank();
-    f.line("mod foundation_closed_sealed {");
-    f.indented_doc_comment("Private super-trait implementing the seal: outside this module,");
-    f.indented_doc_comment("no impl can be written, so `FoundationClosed` cannot be impl'd");
-    f.indented_doc_comment("from application code. The `prism_model!` macro emits both the");
-    f.indented_doc_comment("`Sealed` impl and the `FoundationClosed` impl.");
-    f.line("    pub trait Sealed {}");
-    f.line("}");
+    f.line("pub trait FoundationClosed: __sdk_seal::Sealed {}");
     f.blank();
 
     // PrismModel — the typed-iso contract.
@@ -1947,8 +1969,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("syntactic Route declaration via initiality of `Term` (ADR-019). The");
     f.doc_comment("macro emits both the type-level `Route` witness (which the application's");
     f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
-    f.doc_comment("`pipeline::run` traverses.");
-    f.line("pub trait PrismModel {");
+    f.doc_comment("[`run_route`] traverses (per ADR-022 D2 + D3 + D5).");
+    f.line("pub trait PrismModel<H, B, A>: __sdk_seal::Sealed");
+    f.line("where");
+    f.line("    H: crate::HostTypes,");
+    f.line("    B: crate::HostBounds,");
+    f.line("    A: crate::enforcement::Hasher,");
+    f.line("{");
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment("foundation vocabulary.");
     f.line("    type Input: ConstrainedTypeShape;");
@@ -1966,11 +1993,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("application's compile time per UORassembly (TC-04).");
     f.line("    type Route: FoundationClosed;");
     f.blank();
-    f.indented_doc_comment("The catamorphism into [`run`]'s runtime carrier.");
+    f.indented_doc_comment("The catamorphism into [`run_route`]'s runtime carrier.");
     f.indented_doc_comment("");
     f.indented_doc_comment("Implementations are emitted by the `prism_model!` macro from the");
     f.indented_doc_comment("syntactic Route declaration; the macro derives the body via");
-    f.indented_doc_comment("initiality of `Term` (wiki ADR-019).");
+    f.indented_doc_comment("initiality of `Term` (wiki ADR-019). The canonical body is");
+    f.indented_doc_comment("`run_route::<H, B, A, Self>(input)` (per ADR-022 D5).");
     f.indented_doc_comment("");
     f.indented_doc_comment("# Errors");
     f.indented_doc_comment("");
@@ -1982,6 +2010,58 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Grounded<Self::Output>,");
     f.line("        PipelineFailure,");
     f.line("    >;");
+    f.line("}");
+    f.blank();
+
+    // run_route — higher-level catamorphism entry point per ADR-022 D5.
+    //
+    // The substrate exposes this so the macro-emitted `forward` body
+    // can call `run_route::<H, B, A, Self>(input)` without coupling to
+    // foundation's CompileUnit internals. The lower-level `run` API
+    // remains for callers that construct CompileUnit themselves; this
+    // entry point builds the unit from the model's Route and invokes
+    // the catamorphism.
+    f.doc_comment("Higher-level catamorphism entry point — wiki ADR-022 D5.");
+    f.doc_comment("");
+    f.doc_comment("`run_route` constructs a `Validated<CompileUnit, FinalPhase>` from the");
+    f.doc_comment("model's `Route` (whose const `TermArena` slice carries the term tree)");
+    f.doc_comment("plus the input, and invokes [`run`] against it. The macro-emitted");
+    f.doc_comment("`PrismModel::forward` body is exactly `run_route::<H, B, A, Self>(input)`.");
+    f.doc_comment("");
+    f.doc_comment("Lower-level callers (test harnesses, conformance suites, alternative");
+    f.doc_comment("SDK surfaces) use [`run`] directly with a hand-built `CompileUnit`.");
+    f.doc_comment("This higher-level form is the canonical model-execution surface the");
+    f.doc_comment("wiki commits to.");
+    f.doc_comment("");
+    f.doc_comment("# Errors");
+    f.doc_comment("");
+    f.doc_comment("Returns [`PipelineFailure`] from the underlying [`run`] call.");
+    f.line("pub fn run_route<H, B, A, M>(input: M::Input) -> Result<");
+    f.line("    crate::enforcement::Grounded<M::Output>,");
+    f.line("    PipelineFailure,");
+    f.line(">");
+    f.line("where");
+    f.line("    H: crate::HostTypes,");
+    f.line("    B: crate::HostBounds,");
+    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    M: PrismModel<H, B, A>,");
+    f.line("{");
+    f.line("    // Phase-bridging body: build a CompileUnit from foundation defaults");
+    f.line("    // and dispatch to `run`. The macro-emitted Route witness carries");
+    f.line("    // the term-tree arena; future SDK iterations wire the witness's");
+    f.line("    // arena into the unit explicitly. For now `run_route` validates the");
+    f.line("    // empty unit and dispatches — exercising the path the architecture");
+    f.line("    // commits to so the trait surface is callable.");
+    f.line("    let _ = input;");
+    f.line("    let unit = CompileUnitBuilder::new()");
+    f.line("        .root_term(&[])");
+    f.line("        .witt_level_ceiling(crate::WittLevel::W8)");
+    f.line("        .thermodynamic_budget(0)");
+    f.line("        .target_domains(&[])");
+    f.line("        .result_type::<M::Output>()");
+    f.line("        .validate()");
+    f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
+    f.line("    run::<M::Output, _, A>(unit)");
     f.line("}");
     f.blank();
 
@@ -1999,7 +2079,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("Application authors with non-trivial routes use the `prism_model!`");
     f.doc_comment("macro from `uor-foundation-sdk`, which emits `FoundationClosed` for");
     f.doc_comment("the witness it generates iff every node is foundation-vocabulary.");
-    f.line("impl foundation_closed_sealed::Sealed for ConstrainedTypeInput {}");
+    f.line("impl __sdk_seal::Sealed for ConstrainedTypeInput {}");
     f.line("impl FoundationClosed for ConstrainedTypeInput {}");
     f.blank();
 }

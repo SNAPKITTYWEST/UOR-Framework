@@ -1728,6 +1728,38 @@ impl<const CAP: usize> TermArena<CAP> {
     pub fn as_slice(&self) -> &[Option<Term>] {
         &self.nodes[..self.len as usize]
     }
+
+    /// Wiki ADR-022 D2: const constructor that copies a static term slice
+    /// into the arena. Used by the `prism_model!` proc-macro to emit a
+    /// `const ROUTE: TermArena<CAP> = TermArena::from_slice(ROUTE_SLICE)`
+    /// declaration alongside the model — the `const ROUTE_SLICE` carrying
+    /// the term tree, this `from_slice` wrapping it into the arena form
+    /// [`crate::pipeline::run_route`] consumes.
+    /// `CAP` MUST be at least `slice.len()`; if the slice exceeds the
+    /// arena's capacity the trailing terms are silently dropped (the
+    /// `prism_model!` macro emits an arena sized to fit the route's term
+    /// count plus headroom, so this case is unreachable from the macro's
+    /// output).
+    #[inline]
+    #[must_use]
+    pub const fn from_slice(slice: &'static [Term]) -> Self {
+        let mut nodes: [Option<Term>; CAP] = [None; CAP];
+        let mut i = 0usize;
+        while i < slice.len() && i < CAP {
+            nodes[i] = Some(slice[i]);
+            i += 1;
+        }
+        // Cap at min(slice.len(), CAP) so a too-large slice doesn't
+        // overrun. The macro emits arena CAP >= slice.len() so the
+        // truncation branch is unreachable in practice.
+        #[allow(clippy::cast_possible_truncation)]
+        let len = if slice.len() > CAP {
+            CAP as u32
+        } else {
+            slice.len() as u32
+        };
+        Self { nodes, len }
+    }
 }
 
 impl<const CAP: usize> Default for TermArena<CAP> {

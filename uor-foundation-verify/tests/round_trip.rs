@@ -1,7 +1,23 @@
-//! v0.2.2 T5 round-trip verification tests.
+//! Trace-replay round-trip — wiki ADR-021 V&V Decision 2.
 //!
-//! Exercises the `verify_trace` façade end-to-end via test-helpers-constructed
-//! Traces. Each test asserts a concrete outcome on the re-derived
+//! Per the UOR-Framework wiki ADR-021, the trace-replay round-trip is
+//! "elevated to a first-class IEEE 1012 V&V activity, not a behavior test
+//! fixture: the reading is normative — round-trip closure is an
+//! architectural property the implementation MUST satisfy." This file is
+//! the normative test of that property.
+//!
+//! ADR-021 frames Prism's V&V structure as a hylomorphism between two
+//! agents: `prism` (here: `uor-foundation`'s pipeline) is the V agent
+//! producing the catamorphism's output `Grounded<T>`; `prism-verify`
+//! (here: `uor-foundation-verify`) is the IV&V agent producing the
+//! anamorphism's output `Certified<GroundingCertificate>`. The trace is
+//! the artifact crossing the V/IV&V boundary. The verifier cannot cheat
+//! by re-running the catamorphism — `verify_trace`'s contract is to
+//! walk the trace structurally, without invoking the application
+//! author's deciders or any cryptographic hasher (TC-05). This is
+//! independence-by-construction (ADR-021 Decision 3).
+//!
+//! Each test in this file asserts a concrete outcome on the re-derived
 //! `Certified<GroundingCertificate>` or the rejection path:
 //!
 //! - empty traces are rejected

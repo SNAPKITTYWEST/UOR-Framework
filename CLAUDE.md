@@ -52,12 +52,17 @@ There are no free-standing `FINGERPRINT_MIN_BYTES` / `FINGERPRINT_MAX_BYTES` / `
 
 Initiality and uniqueness of the catamorphism hold *within each fixed choice of the three substitution axes* (`HostTypes`, `HostBounds`, `Hasher`). ADR-018's capacity-completeness — "the indexing of carriers is total over `HostBounds`" — is the categorical statement that every capacity-bounded width is part of the index. Closure (ADR-013) and zero-cost runtime (TC-01) are two halves of the same theorem: closure is the precondition that makes F's signature complete; completeness lets the catamorphism be discharged at the application's compile time, with no runtime indirection.
 
-## `PrismModel` — the application author's typed iso (wiki ADR-020)
+## `PrismModel` — the application author's typed iso (wiki ADR-020 + ADR-022)
 
-[`pipeline::PrismModel`](foundation/src/pipeline.rs) codifies the application author's typed-iso contract:
+[`pipeline::PrismModel`](foundation/src/pipeline.rs) codifies the application author's typed-iso contract. ADR-022 D4 parameterizes the trait over the three substitution axes (the H-indexed family of carriers, ADR-019 Consequences):
 
 ```rust
-pub trait PrismModel {
+pub trait PrismModel<H, B, A>: __sdk_seal::Sealed
+where
+    H: HostTypes,
+    B: HostBounds,
+    A: Hasher,
+{
     type Input: ConstrainedTypeShape;
     type Output: ConstrainedTypeShape + GroundedShape;
     type Route: FoundationClosed;
@@ -65,9 +70,28 @@ pub trait PrismModel {
 }
 ```
 
-`Route` is a type-level witness of the term tree mapping `Input` to `Output`; the `FoundationClosed` bound enforces closure under foundation vocabulary at the application's compile time per UORassembly (TC-04, ADR-006). [`pipeline::FoundationClosed`](foundation/src/pipeline.rs) is sealed via a private super-trait — only foundation itself sanctions impls (e.g., `ConstrainedTypeInput` as the identity route) and the `prism_model!` proc-macro from [`uor-foundation-sdk`](uor-foundation-sdk/) emits impls on the witness it generates iff every node is a foundation-vocabulary item. A hand-rolled composition that escapes foundation vocabulary fails to compile with an unsatisfied bound on `Route`.
+`Route` is a type-level witness of the term tree mapping `Input` to `Output`; the `FoundationClosed` bound enforces closure under foundation vocabulary at the application's compile time per UORassembly (TC-04, ADR-006).
 
-`forward()` is the catamorphism into [`pipeline::run`](foundation/src/pipeline.rs)'s runtime carrier (per ADR-019); together with the trace-witnessed anamorphism through [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) it forms the verifiable round-trip described in the wiki. Application authors do not write `forward`'s body — the `prism_model!` macro derives it from the syntactic Route declaration via initiality of `Term`.
+ADR-022 D1: the seal is [`pipeline::__sdk_seal::Sealed`](foundation/src/pipeline.rs) — `#[doc(hidden)] pub mod __sdk_seal { pub trait Sealed {} }`. The doc-hidden naming-convention pair is the ecosystem-standard idiom for cross-crate-extensible-but-controlled traits; the [`prism_model!`](uor-foundation-sdk/src/lib.rs) macro from `uor-foundation-sdk` emits `impl __sdk_seal::Sealed for <Model>`, `impl __sdk_seal::Sealed for <RouteWitness>`, `impl FoundationClosed for <RouteWitness>`, and `impl PrismModel<H, B, A> for <Model>` together. Foundation sanctions the identity-route impl on `ConstrainedTypeInput` directly; non-trivial routes go through the macro.
+
+ADR-022 D5: [`pipeline::run_route<H, B, A, M>(input)`](foundation/src/pipeline.rs) is the canonical catamorphism call-site. The macro-emitted `forward` body is exactly `run_route::<H, B, A, Self>(input)`. The lower-level [`pipeline::run`](foundation/src/pipeline.rs) remains for callers (test harnesses, conformance suites, alternative SDK surfaces) that construct the `CompileUnit` themselves.
+
+ADR-022 D2: [`enforcement::TermArena<CAP>::from_slice`](foundation/src/enforcement.rs) is the const constructor the macro emits (`const ROUTE: TermArena<CAP> = TermArena::from_slice(ROUTE_SLICE)`), so the route declaration is fully `const` and the catamorphism is monomorphized at the application's compile time.
+
+`forward()` is the catamorphism into `pipeline::run_route`'s runtime carrier (per ADR-019); together with the trace-witnessed anamorphism through [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) it forms the verifiable round-trip ADR-021 names as a normative architectural property.
+
+## V&V framework alignment (wiki ADR-021)
+
+ADR-021 names the four V&V Decisions Prism resolves under the hylomorphism framing:
+
+| Decision | Resolution |
+|---|---|
+| 1. Context of Use | "UOR Framework as a production substrate for compiled prism applications, with the catamorphism + anamorphism pair providing internal round-trip verification." |
+| 2. External validation referent | The published UOR Foundation mathematics (Witt-tower theory) governs spec faithfulness via Oberkampf-Roy + the [`lean4/`](lean4/) zero-`sorry` corpus. The trace-replay round-trip is the **internal** referent — a normative architectural property, not a test fixture. |
+| 3. Independence (V vs IV&V) | Structural and built-in: `uor-foundation`'s pipeline is the V agent (catamorphism); [`uor-foundation-verify`](uor-foundation-verify/) is the IV&V agent (anamorphism via [`certify_from_trace`](foundation/src/enforcement.rs)). The trace is the artifact crossing the boundary. |
+| 4. Integrity Level | Per consumer class: IL 1 (toy demos) → IL 3 (Bitcoin PoW substrate) → IL 3-4 (FHE) → IL 4 (safety-of-life, out of scope). Foundation floor is IL 3. |
+
+The normative round-trip property is exercised by [`uor-foundation-verify/tests/round_trip.rs`](uor-foundation-verify/tests/round_trip.rs), whose head-comment explicitly names it as ADR-021's V&V Decision 2 instantiation. The eight wiki validators (V1–V8), the Lean 4 corpus, the conformance suite, and the V/IV&V agent split realize the framework directly — ADR-021 names them rather than introducing new mechanisms.
 
 ## Workspace layout
 

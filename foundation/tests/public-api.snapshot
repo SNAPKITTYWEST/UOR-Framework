@@ -339,10 +339,12 @@ foundation/src/pipeline.rs: fn run_inhabitance
 foundation/src/pipeline.rs: fn run_interactive
 foundation/src/pipeline.rs: fn run_parallel
 foundation/src/pipeline.rs: fn run_reduction_stages
+foundation/src/pipeline.rs: fn run_route
 foundation/src/pipeline.rs: fn run_stream
 foundation/src/pipeline.rs: fn run_tower_completeness
 foundation/src/pipeline.rs: fn runtime_timing
 foundation/src/pipeline.rs: fn validate_constrained_type
+foundation/src/pipeline.rs: mod __sdk_seal
 foundation/src/pipeline.rs: struct CommutatorState
 foundation/src/pipeline.rs: struct InteractionDeclaration
 foundation/src/pipeline.rs: struct InteractionDriver
