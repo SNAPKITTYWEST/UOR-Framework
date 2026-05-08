@@ -725,11 +725,18 @@ where
 }
 
 /// Maximum byte width any single `TermValue` carries during evaluation.
-/// Foundation-fixed at 32 bytes — covers the full Witt-level family up to
-/// `W32`'s 32-bit width and the `Hasher`'s 32-byte digest output. Larger
-/// intermediate values are not architecturally permitted at the
-/// term-evaluation level.
-pub const TERM_VALUE_MAX_BYTES: usize = 32;
+/// Foundation-fixed at the maximum of the input/output buffer ceilings so a
+/// TermValue can carry the catamorphism's evaluation result (per ADR-028) and
+/// the input bytes a Variable/HasherProjection consumes (per ADR-023). On stable
+/// Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`
+/// as a `const` expression in array-length position without `generic_const_exprs`,
+/// so foundation pins the value at the architectural maximum (currently 4096 — the
+/// symmetric value the input/output ceilings already commit to).
+/// Stack usage during the catamorphism's recursive descent scales as
+/// `tree_depth × TERM_VALUE_MAX_BYTES`. ADR-024's compile-time inlining bounds
+/// tree depth by the source's grammar tree depth (verb fragments are inlined at
+/// compile time, no cross-fragment runtime recursion), keeping stack usage finite.
+pub const TERM_VALUE_MAX_BYTES: usize = 4096;
 
 /// Wiki ADR-029: a single Term variant's evaluated value, carried as a
 /// fixed-capacity byte buffer with an active-prefix length. The
@@ -739,8 +746,8 @@ pub const TERM_VALUE_MAX_BYTES: usize = 32;
 pub struct TermValue {
     /// Fixed-capacity byte buffer (zero-padded beyond `len`).
     bytes: [u8; TERM_VALUE_MAX_BYTES],
-    /// Active prefix length.
-    len: u8,
+    /// Active prefix length. `u16` admits the architectural ceiling (4096 < 65536).
+    len: u16,
 }
 
 impl TermValue {
@@ -769,7 +776,7 @@ impl TermValue {
         }
         Self {
             bytes: buf,
-            len: copy_len as u8,
+            len: copy_len as u16,
         }
     }
 
@@ -900,7 +907,7 @@ where
             }
             Ok(TermValue {
                 bytes: buf,
-                len: target_width as u8,
+                len: target_width as u16,
             })
         }
         crate::enforcement::Term::Project {

@@ -47,10 +47,19 @@ impl Hasher for ZeroHasher {
 fn evaluator_surface_resolves_at_crate_root() {
     // The function exists at the foundation public path.
     let _: fn(&[Term], &[u8]) -> _ = evaluate_term_tree::<ZeroHasher>;
-    // Pin the constant carries a sensible, > 0 width. Must hold the
-    // hasher's 32-byte digest plus arithmetic operands; the foundation
-    // commits to 32 bytes per ADR-029's per-value ceiling.
-    assert_eq!(TERM_VALUE_MAX_BYTES, 32);
+    // Pin the constant: TERM_VALUE_MAX_BYTES must be at least the maximum
+    // of ROUTE_INPUT_BUFFER_BYTES and ROUTE_OUTPUT_BUFFER_BYTES so a
+    // TermValue can carry both input bytes (ADR-023) and the catamorphism's
+    // evaluation result (ADR-028) without truncation.
+    assert_eq!(TERM_VALUE_MAX_BYTES, 4096);
+    assert_eq!(
+        TERM_VALUE_MAX_BYTES,
+        uor_foundation::pipeline::ROUTE_INPUT_BUFFER_BYTES,
+    );
+    assert_eq!(
+        TERM_VALUE_MAX_BYTES,
+        uor_foundation::pipeline::ROUTE_OUTPUT_BUFFER_BYTES,
+    );
 }
 
 #[test]

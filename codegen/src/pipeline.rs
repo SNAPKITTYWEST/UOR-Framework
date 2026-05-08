@@ -2341,11 +2341,27 @@ fn emit_prism_model(f: &mut RustFile) {
     // substitution-axis-realized verb form.
     f.doc_comment("Maximum byte width any single `TermValue` carries during evaluation.");
     f.doc_comment("");
-    f.doc_comment("Foundation-fixed at 32 bytes — covers the full Witt-level family up to");
-    f.doc_comment("`W32`'s 32-bit width and the `Hasher`'s 32-byte digest output. Larger");
-    f.doc_comment("intermediate values are not architecturally permitted at the");
-    f.doc_comment("term-evaluation level.");
-    f.line("pub const TERM_VALUE_MAX_BYTES: usize = 32;");
+    f.doc_comment("Foundation-fixed at the maximum of the input/output buffer ceilings so a");
+    f.doc_comment("TermValue can carry the catamorphism's evaluation result (per ADR-028) and");
+    f.doc_comment("the input bytes a Variable/HasherProjection consumes (per ADR-023). On stable");
+    f.doc_comment(
+        "Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`",
+    );
+    f.doc_comment(
+        "as a `const` expression in array-length position without `generic_const_exprs`,",
+    );
+    f.doc_comment(
+        "so foundation pins the value at the architectural maximum (currently 4096 — the",
+    );
+    f.doc_comment("symmetric value the input/output ceilings already commit to).");
+    f.doc_comment("");
+    f.doc_comment("Stack usage during the catamorphism's recursive descent scales as");
+    f.doc_comment("`tree_depth × TERM_VALUE_MAX_BYTES`. ADR-024's compile-time inlining bounds");
+    f.doc_comment("tree depth by the source's grammar tree depth (verb fragments are inlined at");
+    f.doc_comment(
+        "compile time, no cross-fragment runtime recursion), keeping stack usage finite.",
+    );
+    f.line("pub const TERM_VALUE_MAX_BYTES: usize = 4096;");
     f.blank();
     f.doc_comment("Wiki ADR-029: a single Term variant's evaluated value, carried as a");
     f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
@@ -2355,8 +2371,10 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("pub struct TermValue {");
     f.indented_doc_comment("Fixed-capacity byte buffer (zero-padded beyond `len`).");
     f.line("    bytes: [u8; TERM_VALUE_MAX_BYTES],");
-    f.indented_doc_comment("Active prefix length.");
-    f.line("    len: u8,");
+    f.indented_doc_comment(
+        "Active prefix length. `u16` admits the architectural ceiling (4096 < 65536).",
+    );
+    f.line("    len: u16,");
     f.line("}");
     f.blank();
     f.line("impl TermValue {");
@@ -2380,7 +2398,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            buf[i] = bytes[i];");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        Self { bytes: buf, len: copy_len as u8 }");
+    f.line("        Self { bytes: buf, len: copy_len as u16 }");
     f.line("    }");
     f.blank();
     f.indented_doc_comment("Returns the active byte prefix.");
@@ -2518,7 +2536,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                buf[pad + i] = src[i];");
     f.line("                i += 1;");
     f.line("            }");
-    f.line("            Ok(TermValue { bytes: buf, len: target_width as u8 })");
+    f.line("            Ok(TermValue { bytes: buf, len: target_width as u16 })");
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
