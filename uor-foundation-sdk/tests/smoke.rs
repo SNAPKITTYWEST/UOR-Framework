@@ -590,6 +590,158 @@ fn prism_model_emits_term_arena_for_g10_let_binding() {
 }
 
 // =====================================================================
+// Closure-body grammar G6 (match), G7 (recurse), G8 (unfold), G9 (?).
+
+prism_model! {
+    pub struct TryPropagateModel;
+    pub struct TryPropagateRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for TryPropagateModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = TryPropagateRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            succ(input)?
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_try_term_for_g9_postfix_question() {
+    let arena = <TryPropagateRoute as FoundationClosed>::arena_slice();
+    // `succ(input)?` → [Variable, Application(Succ), Try{body=1, handler=u32::MAX}]
+    assert_eq!(arena.len(), 3);
+    match arena[2] {
+        Term::Try {
+            body_index,
+            handler_index,
+        } => {
+            assert_eq!(body_index, 1);
+            assert_eq!(handler_index, u32::MAX);
+        }
+        other => panic!("expected Try at index 2, got {other:?}"),
+    }
+}
+
+prism_model! {
+    pub struct RecurseModel;
+    pub struct RecurseRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for RecurseModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = RecurseRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            recurse(input, 0, |self_call| succ(self_call))
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_recurse_term_for_g7_form() {
+    let arena = <RecurseRoute as FoundationClosed>::arena_slice();
+    // The arena ends with Term::Recurse pointing at the measure, base, and step roots.
+    let last = arena.last().expect("non-empty arena");
+    assert!(matches!(last, Term::Recurse { .. }));
+}
+
+prism_model! {
+    pub struct UnfoldModel;
+    pub struct UnfoldRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for UnfoldModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = UnfoldRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            unfold(input, |state| succ(state))
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_unfold_term_for_g8_form() {
+    let arena = <UnfoldRoute as FoundationClosed>::arena_slice();
+    assert!(matches!(arena.last(), Some(Term::Unfold { .. })));
+}
+
+prism_model! {
+    pub struct FoldNUnrolledModel;
+    pub struct FoldNUnrolledRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for FoldNUnrolledModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = FoldNUnrolledRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            fold_n(3, input, |state, idx| add(state, idx))
+        }
+    }
+}
+
+#[test]
+fn prism_model_unrolls_fold_n_for_const_count_below_threshold() {
+    let arena = <FoldNUnrolledRoute as FoundationClosed>::arena_slice();
+    // fold_n(3, input, |state, idx| add(state, idx)) unrolls into:
+    //   iter 0: add(input, 0)
+    //   iter 1: add(<iter 0 result>, 1)
+    //   iter 2: add(<iter 1 result>, 2)
+    // The arena ends with the iter-2 Application(Add).
+    assert!(matches!(
+        arena.last(),
+        Some(Term::Application {
+            operator: PrimitiveOp::Add,
+            ..
+        })
+    ));
+    // Three Application(Add) entries — one per iteration.
+    let add_count = arena
+        .iter()
+        .filter(|t| {
+            matches!(
+                t,
+                Term::Application {
+                    operator: PrimitiveOp::Add,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        add_count, 3,
+        "fold_n(3, …) unrolls into 3 Application(Add) chains"
+    );
+}
+
+prism_model! {
+    pub struct MatchModel;
+    pub struct MatchRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for MatchModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = MatchRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            match input {
+                0 => 1,
+                _ => succ(input),
+            }
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_match_term_for_g6_form() {
+    let arena = <MatchRoute as FoundationClosed>::arena_slice();
+    let last = arena.last().expect("non-empty arena");
+    match last {
+        Term::Match { arms, .. } => {
+            // Two arms × 2 entries each = 4 entries in the arms span.
+            assert_eq!(
+                arms.len, 4,
+                "expected 4 arms entries (2 arms × pattern+body)"
+            );
+        }
+        other => panic!("expected Term::Match as root, got {other:?}"),
+    }
+}
+
+// =====================================================================
 // `use_verbs!` smoke test.
 
 mod inner_verb_module {

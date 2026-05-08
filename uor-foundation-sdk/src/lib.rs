@@ -872,6 +872,32 @@ enum TermSpec {
         operand_index: u32,
         target_witt: proc_macro2::TokenStream,
     },
+    /// `Term::Try { body_index, handler_index: u32::MAX }` — wiki
+    /// ADR-022 D3 G9. The postfix `?` operator on a sub-expression.
+    /// Foundation's catamorphism interprets the `u32::MAX` sentinel as
+    /// "propagate the failure unchanged through `PipelineFailure`".
+    Try { body_index: u32 },
+    /// `Term::Recurse { measure_index, base_index, step_index }` — wiki
+    /// ADR-022 D3 G7. Bounded recursion guarded by a descent measure.
+    Recurse {
+        measure_index: u32,
+        base_index: u32,
+        step_index: u32,
+    },
+    /// `Term::Unfold { seed_index, step_index }` — wiki ADR-022 D3 G8.
+    /// Anamorphism step.
+    Unfold { seed_index: u32, step_index: u32 },
+    /// `Term::Match { scrutinee_index, arms }` — wiki ADR-022 D3 G6.
+    /// Arms alternate (pattern, body) per the convention foundation's
+    /// catamorphism reads to dispatch.
+    Match {
+        scrutinee_index: u32,
+        arms_start: u32,
+        arms_len: u32,
+    },
+    /// Wildcard pattern sentinel — wiki ADR-022 D3 G6 (and G9 default
+    /// handler). Lowers to `Term::Variable { name_index: u32::MAX }`.
+    WildcardSentinel,
 }
 
 /// Per-scope binding table the closure-body parser maintains. Maps a
@@ -960,10 +986,185 @@ fn emit_term_for_expr(
         syn::Expr::Paren(paren_expr) => {
             emit_term_for_expr(&paren_expr.expr, route_input, arena, scope)
         }
+        // ADR-022 D3 G9: postfix `?` operator. Emits Term::Try with the
+        // default-propagation handler (`u32::MAX`) — the catamorphism
+        // propagates the body's failure unchanged through PipelineFailure.
+        syn::Expr::Try(try_expr) => {
+            let body_root = emit_term_for_expr(&try_expr.expr, route_input, arena, scope)?;
+            let idx = arena.len();
+            arena.push(TermSpec::Try { body_index: body_root as u32 });
+            Ok(idx)
+        }
+        // ADR-022 D3 G6: `match <scrutinee> { <pat> => <arm>, …, _ => <default> }`.
+        syn::Expr::Match(match_expr) => emit_term_for_match(match_expr, route_input, arena, scope),
         other => Err(syn::Error::new_spanned(
             other,
-            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, `let`-introduced bindings, and macro-vocabulary function calls — PrimitiveOps, hash, lift, project, plus implementation verbs)",
+            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, `let`-introduced bindings, postfix `?`, `match`, and macro-vocabulary function calls — PrimitiveOps, hash, lift, project, recurse, unfold, plus implementation verbs)",
         )),
+    }
+}
+
+/// Handle `match <scrutinee> { <lit_pat> => <body>, …, _ => <default> }`
+/// per wiki ADR-022 D3 G6. Each arm's pattern is an atomic term
+/// (Literal or WildcardSentinel); each arm's body is an arbitrary
+/// expression whose sub-tree lives in the arena. The wiki specifies the
+/// arms span as a contiguous block of `2 * num_arms` terms alternating
+/// (pattern, body); the body in that span is a *copy of the body's root
+/// term* so the catamorphism's evaluator can dispatch by reading
+/// `arena[start + 2k]` (pattern) and `arena[start + 2k + 1]` (body
+/// root). The body's sub-tree lives at lower indices.
+fn emit_term_for_match(
+    match_expr: &syn::ExprMatch,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
+) -> Result<usize> {
+    let scrutinee_root = emit_term_for_expr(&match_expr.expr, route_input, arena, scope)?;
+    if match_expr.arms.is_empty() {
+        return Err(syn::Error::new_spanned(
+            match_expr,
+            "closure violation: `match` (G6) must have at least one arm; non-exhaustive matches are closure violations",
+        ));
+    }
+    let last_arm = &match_expr.arms[match_expr.arms.len() - 1];
+    let last_is_wildcard = matches!(last_arm.pat, syn::Pat::Wild(_));
+    if !last_is_wildcard {
+        return Err(syn::Error::new_spanned(
+            &last_arm.pat,
+            "closure violation: `match` (G6) MUST end with a wildcard arm `_ => <default>`; non-exhaustive matches are closure violations",
+        ));
+    }
+
+    // First pass: emit each arm's body sub-tree, recording the pattern
+    // spec and body-root arena index. The pattern is atomic so we
+    // construct the spec inline rather than reserving an arena slot.
+    let mut arm_pairs: Vec<(TermSpec, usize)> = Vec::with_capacity(match_expr.arms.len());
+    for arm in &match_expr.arms {
+        if arm.guard.is_some() {
+            return Err(syn::Error::new_spanned(
+                arm,
+                "closure violation: match arm guards are not in the closure-body grammar (G6)",
+            ));
+        }
+        let pattern_spec = match &arm.pat {
+            syn::Pat::Lit(lit_pat) => {
+                if let syn::Lit::Int(int_lit) = &lit_pat.lit {
+                    let value: u64 = int_lit.base10_parse().map_err(|e| {
+                        syn::Error::new(
+                            int_lit.span(),
+                            format!("integer literal out of u64 range: {e}"),
+                        )
+                    })?;
+                    TermSpec::Literal(value)
+                } else {
+                    return Err(syn::Error::new_spanned(
+                        lit_pat,
+                        "closure violation: match patterns must be integer literals or `_` (G6)",
+                    ));
+                }
+            }
+            syn::Pat::Wild(_) => TermSpec::WildcardSentinel,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: match patterns must be integer literals or `_` (G6)",
+                ));
+            }
+        };
+        let body_root = emit_term_for_expr(&arm.body, route_input, arena, scope)?;
+        arm_pairs.push((pattern_spec, body_root));
+    }
+
+    // Second pass: emit the contiguous arms span with alternating
+    // (pattern, body_root_copy). The body_root_copy duplicates the
+    // TermSpec at the body's root so the arms span is exactly
+    // `2 * num_arms` terms — the layout the catamorphism's evaluator
+    // expects per ADR-029's `Term::Match` fold rule.
+    let arms_start = arena.len();
+    for (pattern_spec, body_root_idx) in arm_pairs {
+        arena.push(pattern_spec);
+        let body_copy = clone_term_spec(&arena[body_root_idx]);
+        arena.push(body_copy);
+    }
+    let arms_len = arena.len() - arms_start;
+    let idx = arena.len();
+    arena.push(TermSpec::Match {
+        scrutinee_index: scrutinee_root as u32,
+        arms_start: arms_start as u32,
+        arms_len: arms_len as u32,
+    });
+    Ok(idx)
+}
+
+/// Duplicate a `TermSpec`. Used when emitting `match` arm-spans where
+/// the body's root term must be copied into the arms range alongside
+/// its pattern.
+fn clone_term_spec(spec: &TermSpec) -> TermSpec {
+    match spec {
+        TermSpec::Literal(v) => TermSpec::Literal(*v),
+        TermSpec::Variable => TermSpec::Variable,
+        TermSpec::Application {
+            operator,
+            args_start,
+            args_len,
+        } => TermSpec::Application {
+            operator: operator.clone(),
+            args_start: *args_start,
+            args_len: *args_len,
+        },
+        TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
+            input_index: *input_index,
+        },
+        TermSpec::VerbReference {
+            input_index,
+            fragment_path,
+        } => TermSpec::VerbReference {
+            input_index: *input_index,
+            fragment_path: fragment_path.clone(),
+        },
+        TermSpec::Lift {
+            operand_index,
+            target_witt,
+        } => TermSpec::Lift {
+            operand_index: *operand_index,
+            target_witt: target_witt.clone(),
+        },
+        TermSpec::Project {
+            operand_index,
+            target_witt,
+        } => TermSpec::Project {
+            operand_index: *operand_index,
+            target_witt: target_witt.clone(),
+        },
+        TermSpec::Try { body_index } => TermSpec::Try {
+            body_index: *body_index,
+        },
+        TermSpec::Recurse {
+            measure_index,
+            base_index,
+            step_index,
+        } => TermSpec::Recurse {
+            measure_index: *measure_index,
+            base_index: *base_index,
+            step_index: *step_index,
+        },
+        TermSpec::Unfold {
+            seed_index,
+            step_index,
+        } => TermSpec::Unfold {
+            seed_index: *seed_index,
+            step_index: *step_index,
+        },
+        TermSpec::Match {
+            scrutinee_index,
+            arms_start,
+            arms_len,
+        } => TermSpec::Match {
+            scrutinee_index: *scrutinee_index,
+            arms_start: *arms_start,
+            arms_len: *arms_len,
+        },
+        TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
     }
 }
 
@@ -1172,7 +1373,9 @@ fn emit_term_for_call(
         | "tree_fold"
         | "first_admit"
         | "partition_product"
-        | "partition_coproduct" => false,
+        | "partition_coproduct"
+        | "recurse"
+        | "unfold" => false,
         _ => true,
     };
     if verb_resolution {
@@ -1196,6 +1399,218 @@ fn emit_term_for_call(
         arena.push(TermSpec::VerbReference {
             input_index: input_root as u32,
             fragment_path,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-026 G14: `fold_n(n, init, |state, idx| step)`. Lowers to an
+    // unrolled `Term::Application`-style chain when `n` is a const
+    // literal at or below `pipeline::FOLD_UNROLL_THRESHOLD`; lowers to
+    // `Term::Recurse` otherwise.
+    if func_ident == "fold_n" {
+        if call.args.len() != 3 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `fold_n` (G14) expects 3 arguments (count, init, step closure), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        // The count must be a const expression. The macro recognises
+        // const integer literals (the unroll path) and any other
+        // expression (the Term::Recurse path, with the count's tree as
+        // the descent measure).
+        let count_lit: Option<u64> = match &call.args[0] {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(int_lit),
+                ..
+            }) => int_lit.base10_parse::<u64>().ok(),
+            _ => None,
+        };
+        let init_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
+        let step_closure = match &call.args[2] {
+            syn::Expr::Closure(c) => c,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `fold_n`'s third argument must be a closure `|state, idx| <step_expr>` (G14)",
+                ));
+            }
+        };
+        if step_closure.inputs.len() != 2 {
+            return Err(syn::Error::new_spanned(
+                step_closure,
+                "closure violation: `fold_n`'s step closure expects exactly 2 parameters (state, idx) per G14",
+            ));
+        }
+        let state_ident = match &step_closure.inputs[0] {
+            syn::Pat::Ident(p) => p.ident.clone(),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `fold_n`'s state parameter must be a plain identifier (G14)",
+                ));
+            }
+        };
+        let idx_ident = match &step_closure.inputs[1] {
+            syn::Pat::Ident(p) => p.ident.clone(),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `fold_n`'s idx parameter must be a plain identifier (G14)",
+                ));
+            }
+        };
+        // Unroll path: const literal at or below threshold.
+        const FOLD_UNROLL_THRESHOLD: u64 = 8;
+        if let Some(n) = count_lit {
+            if n <= FOLD_UNROLL_THRESHOLD {
+                let mut state_root = init_root;
+                for i in 0..n {
+                    let idx_root = arena.len();
+                    arena.push(TermSpec::Literal(i));
+                    let mut iter_scope = scope.clone();
+                    iter_scope.shadow_check(&state_ident)?;
+                    iter_scope.shadow_check(&idx_ident)?;
+                    iter_scope.push(state_ident.clone(), state_root);
+                    iter_scope.push(idx_ident.clone(), idx_root);
+                    state_root = emit_term_for_expr(
+                        &step_closure.body,
+                        route_input,
+                        arena,
+                        &mut iter_scope,
+                    )?;
+                }
+                return Ok(state_root);
+            }
+        }
+        // Recurse path: count is parametric or exceeds the threshold.
+        // Lower to Term::Recurse with the count's tree as descent measure,
+        // init as base, and the step body as the step subtree.
+        let measure_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let mut step_scope = scope.clone();
+        step_scope.shadow_check(&state_ident)?;
+        step_scope.shadow_check(&idx_ident)?;
+        // Bind state to the recursive-call placeholder (the Recurse node
+        // we're about to push); idx binds to the measure.
+        let recurse_idx_placeholder = arena.len() + 1; // body emits before Recurse
+        step_scope.push(state_ident, recurse_idx_placeholder);
+        step_scope.push(idx_ident, measure_root);
+        let step_root =
+            emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
+        let idx = arena.len();
+        arena.push(TermSpec::Recurse {
+            measure_index: measure_root as u32,
+            base_index: init_root as u32,
+            step_index: step_root as u32,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-022 D3 G7: `recurse(measure, base, |self_ident| step)`.
+    if func_ident == "recurse" {
+        if call.args.len() != 3 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `recurse` (G7) expects 3 arguments (measure, base, step closure), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let measure_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let base_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
+        // Third arg is a closure `|self_ident| step`.
+        let step_closure = match &call.args[2] {
+            syn::Expr::Closure(c) => c,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `recurse`'s third argument must be a closure `|self_ident| <step_expr>` (G7)",
+                ));
+            }
+        };
+        if step_closure.inputs.len() != 1 {
+            return Err(syn::Error::new_spanned(
+                step_closure,
+                "closure violation: `recurse`'s step closure expects exactly 1 parameter (the recursive-call placeholder, G7)",
+            ));
+        }
+        let self_ident = match &step_closure.inputs[0] {
+            syn::Pat::Ident(p) => p.ident.clone(),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `recurse`'s step parameter must be a plain identifier (G7)",
+                ));
+            }
+        };
+        // The step body resolves `self_ident` references through the
+        // binding scope; we register a fresh binding pointing at the
+        // current arena position (which will be the Recurse node) so
+        // self-references emit Variable lookups that the catamorphism
+        // interprets as recursive calls per ADR-029 Recurse fold rule.
+        let mut step_scope = scope.clone();
+        step_scope.shadow_check(&self_ident)?;
+        let recurse_idx_placeholder = arena.len() + 1; // body emits before the Recurse node
+        step_scope.push(self_ident, recurse_idx_placeholder);
+        let step_root =
+            emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
+        let idx = arena.len();
+        arena.push(TermSpec::Recurse {
+            measure_index: measure_root as u32,
+            base_index: base_root as u32,
+            step_index: step_root as u32,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-022 D3 G8: `unfold(seed, |state_ident| step)`.
+    if func_ident == "unfold" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `unfold` (G8) expects 2 arguments (seed, step closure), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let seed_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let step_closure = match &call.args[1] {
+            syn::Expr::Closure(c) => c,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `unfold`'s second argument must be a closure `|state_ident| <step_expr>` (G8)",
+                ));
+            }
+        };
+        if step_closure.inputs.len() != 1 {
+            return Err(syn::Error::new_spanned(
+                step_closure,
+                "closure violation: `unfold`'s step closure expects exactly 1 parameter (the state placeholder, G8)",
+            ));
+        }
+        let state_ident = match &step_closure.inputs[0] {
+            syn::Pat::Ident(p) => p.ident.clone(),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `unfold`'s step parameter must be a plain identifier (G8)",
+                ));
+            }
+        };
+        let mut step_scope = scope.clone();
+        step_scope.shadow_check(&state_ident)?;
+        step_scope.push(state_ident, seed_root);
+        let step_root =
+            emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
+        let idx = arena.len();
+        arena.push(TermSpec::Unfold {
+            seed_index: seed_root as u32,
+            step_index: step_root as u32,
         });
         return Ok(idx);
     }
@@ -1240,12 +1655,7 @@ fn emit_term_for_call(
         // that need these forms supply their own SDK macros that desugar
         // into the substrate primitives; the substrate macro reserves the
         // identifiers so they cannot be re-used as `verb!` names.
-        "parallel"
-        | "fold_n"
-        | "tree_fold"
-        | "first_admit"
-        | "partition_product"
-        | "partition_coproduct" => {
+        "parallel" | "tree_fold" | "first_admit" | "partition_product" | "partition_coproduct" => {
             return Err(syn::Error::new(
                 func_ident.span(),
                 format!(
@@ -1338,6 +1748,35 @@ fn emit_term_for_call(
                     operand_index: *operand_index,
                     target_witt: target_witt.clone(),
                 },
+                TermSpec::Try { body_index } => TermSpec::Try {
+                    body_index: *body_index,
+                },
+                TermSpec::Recurse {
+                    measure_index,
+                    base_index,
+                    step_index,
+                } => TermSpec::Recurse {
+                    measure_index: *measure_index,
+                    base_index: *base_index,
+                    step_index: *step_index,
+                },
+                TermSpec::Unfold {
+                    seed_index,
+                    step_index,
+                } => TermSpec::Unfold {
+                    seed_index: *seed_index,
+                    step_index: *step_index,
+                },
+                TermSpec::Match {
+                    scrutinee_index,
+                    arms_start,
+                    arms_len,
+                } => TermSpec::Match {
+                    scrutinee_index: *scrutinee_index,
+                    arms_start: *arms_start,
+                    arms_len: *arms_len,
+                },
+                TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
             };
             arena.push(dup);
         }
@@ -1430,6 +1869,67 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     }
                 }
             }
+            TermSpec::Try { body_index } => {
+                let i = *body_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Try {
+                        body_index: #i,
+                        handler_index: u32::MAX,
+                    }
+                }
+            }
+            TermSpec::Recurse {
+                measure_index,
+                base_index,
+                step_index,
+            } => {
+                let m = *measure_index;
+                let b = *base_index;
+                let s = *step_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Recurse {
+                        measure_index: #m,
+                        base_index: #b,
+                        step_index: #s,
+                    }
+                }
+            }
+            TermSpec::Unfold {
+                seed_index,
+                step_index,
+            } => {
+                let s = *seed_index;
+                let st = *step_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Unfold {
+                        seed_index: #s,
+                        step_index: #st,
+                    }
+                }
+            }
+            TermSpec::Match {
+                scrutinee_index,
+                arms_start,
+                arms_len,
+            } => {
+                let s = *scrutinee_index;
+                let st = *arms_start;
+                let l = *arms_len;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Match {
+                        scrutinee_index: #s,
+                        arms: ::uor_foundation::enforcement::TermList {
+                            start: #st,
+                            len: #l,
+                        },
+                    }
+                }
+            }
+            TermSpec::WildcardSentinel => quote! {
+                ::uor_foundation::enforcement::Term::Variable {
+                    name_index: u32::MAX,
+                }
+            },
         })
         .collect()
 }
