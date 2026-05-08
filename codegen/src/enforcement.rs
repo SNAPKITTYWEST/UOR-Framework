@@ -3378,9 +3378,7 @@ fn generate_minting_session(f: &mut RustFile, ontology: &Ontology) {
 
     f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `Datum`.");
     f.doc_comment("");
-    f.doc_comment(
-        "Takes host bytes that have already passed the author's `Grounding` impl and",
-    );
+    f.doc_comment("Takes host bytes that have already passed the author's `Grounding` impl and");
     f.doc_comment("mints them into a sealed `Datum` at the supplied Witt level. The bytes are");
     f.doc_comment("decoded according to the level's byte width.");
     f.doc_comment("");
@@ -3394,18 +3392,10 @@ fn generate_minting_session(f: &mut RustFile, ontology: &Ontology) {
     f.line("    let expected_bytes = (level.witt_length() / 8) as usize;");
     f.line("    if bytes.len() != expected_bytes {");
     f.line("        return Err(ShapeViolation {");
-    f.line(
-        "            shape_iri: \"https://uor.foundation/u/Datum\",",
-    );
-    f.line(
-        "            constraint_iri: \"https://uor.foundation/u/DatumByteWidth\",",
-    );
-    f.line(
-        "            property_iri: \"https://uor.foundation/u/datumBytes\",",
-    );
-    f.line(
-        "            expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
-    );
+    f.line("            shape_iri: \"https://uor.foundation/u/Datum\",");
+    f.line("            constraint_iri: \"https://uor.foundation/u/DatumByteWidth\",");
+    f.line("            property_iri: \"https://uor.foundation/u/datumBytes\",");
+    f.line("            expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",");
     f.line("            min_count: expected_bytes as u32,");
     f.line("            max_count: expected_bytes as u32,");
     f.line("            kind: crate::ViolationKind::CardinalityViolation,");
@@ -3419,18 +3409,10 @@ fn generate_minting_session(f: &mut RustFile, ontology: &Ontology) {
         ));
     }
     f.line("        _ => return Err(ShapeViolation {");
-    f.line(
-        "            shape_iri: \"https://uor.foundation/u/Datum\",",
-    );
-    f.line(
-        "            constraint_iri: \"https://uor.foundation/u/DatumLevel\",",
-    );
-    f.line(
-        "            property_iri: \"https://uor.foundation/u/datumLevel\",",
-    );
-    f.line(
-        "            expected_range: \"https://uor.foundation/schema/WittLevel\",",
-    );
+    f.line("            shape_iri: \"https://uor.foundation/u/Datum\",");
+    f.line("            constraint_iri: \"https://uor.foundation/u/DatumLevel\",");
+    f.line("            property_iri: \"https://uor.foundation/u/datumLevel\",");
+    f.line("            expected_range: \"https://uor.foundation/schema/WittLevel\",");
     f.line("            min_count: 1,");
     f.line("            max_count: 1,");
     f.line("            kind: crate::ViolationKind::ValueCheck,");
@@ -3445,18 +3427,16 @@ fn generate_minting_session(f: &mut RustFile, ontology: &Ontology) {
     f.doc_comment("Takes three coordinate values that satisfy the Triad shape constraint and");
     f.doc_comment("mints them into a sealed `Triad<L>` at the level marker `L`.");
     f.line("#[must_use]");
-    f.line(
-        "pub const fn mint_triad<L>(stratum: u64, spectrum: u64, address: u64) -> Triad<L> {",
-    );
+    f.line("pub const fn mint_triad<L>(stratum: u64, spectrum: u64, address: u64) -> Triad<L> {");
     f.line("    Triad::new(stratum, spectrum, address)");
     f.line("}");
     f.blank();
 
-    f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `Derivation`.");
-    f.doc_comment("");
     f.doc_comment(
-        "Takes the precursor's step count + Witt level + content fingerprint and mints",
+        "Wiki ADR-016 mint primitive: cross-crate construction surface for `Derivation`.",
     );
+    f.doc_comment("");
+    f.doc_comment("Takes the precursor's step count + Witt level + content fingerprint and mints");
     f.doc_comment("a sealed `Derivation` carrying the typed transition witness.");
     f.line("#[must_use]");
     f.line("pub const fn mint_derivation(");

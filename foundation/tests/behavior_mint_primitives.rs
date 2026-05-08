@@ -25,7 +25,10 @@ fn mint_datum_succeeds_for_well_sized_w8_bytes() {
 fn mint_datum_rejects_byte_width_mismatch() {
     // W16 expects 2 bytes; passing 1 byte fails.
     let result = mint_datum(WittLevel::W16, &[0x42]);
-    assert!(result.is_err(), "byte-width mismatch must surface ShapeViolation");
+    assert!(
+        result.is_err(),
+        "byte-width mismatch must surface ShapeViolation"
+    );
 }
 
 #[test]
