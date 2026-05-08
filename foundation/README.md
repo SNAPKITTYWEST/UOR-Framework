@@ -16,7 +16,7 @@ typed Rust traits. Import and implement.
 
 ```toml
 [dependencies]
-uor-foundation = "0.3.2"
+uor-foundation = "0.3.3"
 ```
 
 ### HostTypes (target §4.1 W10)
