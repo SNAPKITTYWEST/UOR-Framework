@@ -502,7 +502,7 @@ symbols = ["FOLD_UNROLL_THRESHOLD"]
 behavior = "behavior_fold_unroll_threshold"
 
 # Wiki ADR-024 verb-graph acyclicity is enforced at compile time. The
-# foundation const-fn helpers `shift_term` and `splice_term_fragment`
+# foundation const-fn helpers `shift_term` and `inline_verb_fragment`
 # (in foundation/src/enforcement.rs) implement the inlining; they are
 # `pub const fn` items captured by the rolled-up `const fn` snapshot
 # entry rather than as named symbols. The `verb!` macro performs the

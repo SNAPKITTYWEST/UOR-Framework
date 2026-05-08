@@ -2447,11 +2447,13 @@ fn emit_prism_model(f: &mut RustFile) {
     //
     // Wiki ADR-024 commits verb-graph acyclicity at compile time: the
     // `prism_model!` macro inlines verb-emitted term-tree fragments
-    // into the calling route's arena via `splice_term_fragment` at
-    // const-eval time. The catamorphism therefore walks a flat,
-    // structurally-bounded arena — runtime depth equals compile-time
-    // tree depth, no separate guard is required. The Term enum carries
-    // exactly the ten variants ADR-029 enumerates.
+    // into the calling route's arena via `inline_verb_fragment` at
+    // const-eval time (substituting Variable(0) with the caller's
+    // argument and shifting non-Variable indices). The catamorphism
+    // therefore walks a flat, structurally-bounded arena — runtime
+    // depth equals compile-time tree depth, no separate guard is
+    // required. The Term enum carries exactly the ten variants ADR-029
+    // enumerates.
     f.line("fn evaluate_term_at<A>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    idx: usize,");

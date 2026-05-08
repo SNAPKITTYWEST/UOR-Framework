@@ -415,7 +415,7 @@ fn output_shape_qualifies_as_prism_model_output() {
 // (`<name>(input)`). When `prism_model!` invokes the verb by name in
 // a route's closure body, the macro inlines the verb's fragment into
 // the host arena at compile time via foundation's
-// `splice_term_fragment` const-fn helper — verb-graph acyclicity is
+// `inline_verb_fragment` const-fn helper — verb-graph acyclicity is
 // a compile-time commitment, not a runtime guard.
 
 use uor_foundation_sdk::verb;
@@ -445,7 +445,7 @@ fn verb_macro_emits_term_arena_const() {
 #[test]
 fn verb_macro_const_is_publicly_visible() {
     // The `pub const VERB_TERMS_SMOKE_SUCC` is exported so prism_model!
-    // can reference it when inlining via splice_term_fragment (ADR-024).
+    // can reference it when inlining via inline_verb_fragment (ADR-024).
     let arena = VERB_TERMS_SMOKE_SUCC;
     assert_eq!(arena.len(), 2);
 }

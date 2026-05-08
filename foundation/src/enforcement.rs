@@ -1871,7 +1871,7 @@ pub enum Term {
 }
 
 /// Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index
-/// fields of `term` by `offset`. Used by [`splice_term_fragment`] to
+/// fields of `term` by `offset`. Used by [`inline_verb_fragment`] to
 /// inline a verb's term-tree fragment into a host arena at compile time.
 /// `Term::Variable`'s `name_index` is a binding-name reference (not an
 /// arena index) and is preserved unchanged. `Term::Try`'s `handler_index`
@@ -1947,24 +1947,40 @@ pub const fn shift_term(term: Term, offset: u32) -> Term {
     }
 }
 
-/// Wiki ADR-024 compile-time verb splicing helper.
-/// Copies the `fragment` slice into `buf` starting at `len`, shifting each
-/// term's arena-index fields by `len` so the fragment's internal references
-/// remain consistent within the host arena. Returns the new length.
-/// Used by `prism_model!`-emitted const-fn arena builders to inline a verb's
-/// `&'static [Term]` fragment at the host's current length per ADR-024.
+/// Wiki ADR-024 compile-time verb-fragment inlining helper.
+/// Copies the verb `fragment` slice into `buf` starting at `len` while applying
+/// two simultaneous transformations per term so the verb body becomes part of
+/// the calling route's flat arena: Variable(0) substitution (the verb's `input`
+/// parameter binds to the caller's argument expression by replacing each
+/// `Variable { name_index: 0 }` with a copy of `buf[arg_root_idx]`), and arena-
+/// index shifting (every non-Variable(0) term has its arena-index fields shifted
+/// by `len` so internal references resolve correctly within the host).
+/// The combined transformation realises ADR-024's compile-time inlining: the
+/// verb body lands in the host arena with its `input` bound to the caller's
+/// argument expression — verb-graph acyclicity is checked at const-eval time,
+/// no `Term::VerbReference` variant or runtime depth guard is required.
 /// # Panics
-/// Panics at const-eval time if `len + fragment.len() > CAP`.
+/// Panics at const-eval time if `len + fragment.len() > CAP` or if
+/// `arg_root_idx as usize >= len`.
 #[must_use]
-pub const fn splice_term_fragment<const CAP: usize>(
+pub const fn inline_verb_fragment<const CAP: usize>(
     mut buf: [Term; CAP],
     mut len: usize,
     fragment: &[Term],
+    arg_root_idx: u32,
 ) -> ([Term; CAP], usize) {
     let offset = len as u32;
+    // Capture a copy of the caller's argument root term; `Variable { name_index: 0 }`
+    // occurrences in the fragment are replaced by this copy per ADR-024.
+    let arg_root_term = buf[arg_root_idx as usize];
     let mut i = 0;
     while i < fragment.len() {
-        buf[len] = shift_term(fragment[i], offset);
+        let term = fragment[i];
+        let new_term = match term {
+            Term::Variable { name_index: 0 } => arg_root_term,
+            other => shift_term(other, offset),
+        };
+        buf[len] = new_term;
         len += 1;
         i += 1;
     }

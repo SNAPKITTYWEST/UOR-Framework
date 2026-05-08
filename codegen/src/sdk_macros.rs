@@ -886,7 +886,7 @@ enum TermSpec {
     /// Compile-time verb splice — wiki ADR-024.
     ///
     /// Inlines the verb's `&'static [Term]` fragment into the host
-    /// arena at expansion time via `splice_term_fragment` (with each
+    /// arena at expansion time via `inline_verb_fragment` (with each
     /// internal arena index shifted by the host's current length) plus
     /// substitution: every `Term::Variable { name_index: 0 }` in the
     /// fragment is replaced by the host arena's term at `arg_root_idx`.
@@ -1287,8 +1287,10 @@ fn emit_term_for_block(
 
 /// Map a function-call expression to a `Term::Application` (G3),
 /// `Term::Lift` (G4), `Term::Project` (G5), `Term::HasherProjection`
-/// (G19), or `Term::VerbReference` (ADR-024 verb invocation). Rejects
-/// anything else as a closure violation.
+/// (G19), `Term::Recurse` (G7), `Term::Unfold` (G8), or — for
+/// non-reserved identifiers — a `TermSpec::VerbSplice` that the
+/// `prism_model!` const-fn arena builder inlines at compile time per
+/// ADR-024. Rejects anything else as a closure violation.
 fn emit_term_for_call(
     call: &syn::ExprCall,
     route_input: &Ident,
@@ -1371,10 +1373,12 @@ fn emit_term_for_call(
 
     // ADR-024 verb invocation: any non-reserved, non-PrimitiveOp
     // identifier in call position is treated as a verb call. The macro
-    // emits `Term::VerbReference { fragment: VERB_TERMS_<NAME> }` and
-    // relies on Rust's name resolution to either find the `verb!`-
-    // emitted const in scope or surface a clear "cannot find value"
-    // error at the verb-call span.
+    // records a `TermSpec::VerbSplice` referencing `VERB_TERMS_<NAME>`;
+    // when the route emits its arena, `render_const_fn_arena_builder`
+    // inlines the verb's fragment at compile time via foundation's
+    // `inline_verb_fragment` const-fn helper. Rust's name resolution
+    // surfaces "cannot find value" at the verb-call span if the
+    // referenced const isn't in scope.
     let verb_resolution = match func_ident.to_string().as_str() {
         // Exclude all reserved + PrimitiveOp identifiers from verb
         // resolution; these have dedicated handling below.
@@ -1818,7 +1822,7 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                 // when an arena contains a VerbSplice the caller falls
                 // back to `render_const_fn_arena_builder` which inlines
                 // the verb fragment via foundation's const-fn helper
-                // `splice_term_fragment` at const-eval time per
+                // `inline_verb_fragment` at const-eval time per
                 // ADR-024. Reaching this branch indicates a logic bug
                 // in the macro's emission selection.
                 quote! {
@@ -2041,7 +2045,7 @@ fn render_atomic_term_in_builder(
 ///
 ///   - allocates a fixed-capacity `[Term; CAP]` buffer
 ///   - emits each TermSpec as either a direct `buf[len] = Term::...; len += 1;`
-///     (for atomic specs) or a `splice_term_fragment` call (for verb splices)
+///     (for atomic specs) or a `inline_verb_fragment` call (for verb splices)
 ///   - tracks each spec's result position via `pos_<N>` const-let bindings
 ///     so subsequent specs reference verb-spliced positions correctly
 ///   - returns `(buf, len)` and exposes `&buf[..len]` as the route's
@@ -2065,18 +2069,21 @@ fn render_const_fn_arena_builder(arena: &[TermSpec]) -> proc_macro2::TokenStream
         let pos_id = &spec_pos[i];
         match spec {
             TermSpec::VerbSplice { arg_root_idx, fragment_path } => {
+                // The caller's argument expression's root position is
+                // captured in `pos_<arg_root_idx>`. inline_verb_fragment
+                // substitutes Variable(0) in the verb's body with a copy
+                // of `buf[arg_pos]` and shifts non-Variable(0) terms by
+                // the host's current length per ADR-024.
                 let arg_pos = &spec_pos[*arg_root_idx as usize];
-                let _ = arg_pos; // currently passed through via Variable(0) substitution
                 stmts.push(quote! {
-                    let __pre = len;
-                    let __spliced = ::uor_foundation::enforcement::splice_term_fragment(
+                    let __spliced = ::uor_foundation::enforcement::inline_verb_fragment(
                         buf,
                         len,
                         #fragment_path,
+                        (#arg_pos) as u32,
                     );
                     buf = __spliced.0;
                     len = __spliced.1;
-                    let _ = __pre;
                     let #pos_id: usize = len - 1;
                 });
             }
@@ -2188,7 +2195,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
 
         // ADR-022 D2 + ADR-024: const term-tree slice. Macro-time-built,
         // with verb fragments inlined at compile time per ADR-024 (the
-        // catamorphism walks a flat arena — no VerbReference variant,
+        // catamorphism walks a flat arena over the ten Term variants —
         // no runtime depth guard). `pipeline::run_route` reads the
         // slice via `FoundationClosed::arena_slice`.
         #[allow(non_upper_case_globals, dead_code)]
@@ -2540,7 +2547,7 @@ pub fn verb(input: TokenStream) -> TokenStream {
         // at compile time per wiki ADR-024. The const is `pub` so
         // `prism_model!` invocations in downstream crates (after
         // `use_verbs!` re-export) can name it when emitting calls to
-        // foundation's `splice_term_fragment` const-fn helper.
+        // foundation's `inline_verb_fragment` const-fn helper.
         #[allow(non_upper_case_globals, dead_code)]
         #fn_vis const #const_name: &[::uor_foundation::enforcement::Term] =
             #verb_fragment_expr;

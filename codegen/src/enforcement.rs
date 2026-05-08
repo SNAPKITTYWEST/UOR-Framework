@@ -2024,13 +2024,13 @@ fn generate_term_ast(f: &mut RustFile) {
     // commitment, not a runtime guard. The catamorphism walks a flat
     // arena (the ten Term variants above); verb-emitted term-tree
     // fragments are spliced into the calling route's arena at compile
-    // time via the const-fn helper `splice_term_fragment` below. The
+    // time via the const-fn helper `inline_verb_fragment` below. The
     // `prism_model!` macro emits a const-eval-time arena builder when
     // a route invokes a verb; the splicing shifts internal arena
     // indices by the host arena's current length so the inlined
     // fragment remains internally consistent within the host.
     f.doc_comment("Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index");
-    f.doc_comment("fields of `term` by `offset`. Used by [`splice_term_fragment`] to");
+    f.doc_comment("fields of `term` by `offset`. Used by [`inline_verb_fragment`] to");
     f.doc_comment("inline a verb's term-tree fragment into a host arena at compile time.");
     f.doc_comment("");
     f.doc_comment("`Term::Variable`'s `name_index` is a binding-name reference (not an");
@@ -2087,27 +2087,68 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    f.doc_comment("Wiki ADR-024 compile-time verb splicing helper.");
+    f.doc_comment("Wiki ADR-024 compile-time verb-fragment inlining helper.");
     f.doc_comment("");
-    f.doc_comment("Copies the `fragment` slice into `buf` starting at `len`, shifting each");
-    f.doc_comment("term's arena-index fields by `len` so the fragment's internal references");
-    f.doc_comment("remain consistent within the host arena. Returns the new length.");
-    f.doc_comment("Used by `prism_model!`-emitted const-fn arena builders to inline a verb's");
-    f.doc_comment("`&'static [Term]` fragment at the host's current length per ADR-024.");
+    f.doc_comment(
+        "Copies the verb `fragment` slice into `buf` starting at `len` while applying",
+    );
+    f.doc_comment(
+        "two simultaneous transformations per term so the verb body becomes part of",
+    );
+    f.doc_comment(
+        "the calling route's flat arena: Variable(0) substitution (the verb's `input`",
+    );
+    f.doc_comment(
+        "parameter binds to the caller's argument expression by replacing each",
+    );
+    f.doc_comment(
+        "`Variable { name_index: 0 }` with a copy of `buf[arg_root_idx]`), and arena-",
+    );
+    f.doc_comment(
+        "index shifting (every non-Variable(0) term has its arena-index fields shifted",
+    );
+    f.doc_comment(
+        "by `len` so internal references resolve correctly within the host).",
+    );
+    f.doc_comment("");
+    f.doc_comment(
+        "The combined transformation realises ADR-024's compile-time inlining: the",
+    );
+    f.doc_comment(
+        "verb body lands in the host arena with its `input` bound to the caller's",
+    );
+    f.doc_comment(
+        "argument expression — verb-graph acyclicity is checked at const-eval time,",
+    );
+    f.doc_comment(
+        "no `Term::VerbReference` variant or runtime depth guard is required.",
+    );
     f.doc_comment("");
     f.doc_comment("# Panics");
     f.doc_comment("");
-    f.doc_comment("Panics at const-eval time if `len + fragment.len() > CAP`.");
+    f.doc_comment("Panics at const-eval time if `len + fragment.len() > CAP` or if");
+    f.doc_comment("`arg_root_idx as usize >= len`.");
     f.line("#[must_use]");
-    f.line("pub const fn splice_term_fragment<const CAP: usize>(");
+    f.line("pub const fn inline_verb_fragment<const CAP: usize>(");
     f.line("    mut buf: [Term; CAP],");
     f.line("    mut len: usize,");
     f.line("    fragment: &[Term],");
+    f.line("    arg_root_idx: u32,");
     f.line(") -> ([Term; CAP], usize) {");
     f.line("    let offset = len as u32;");
+    f.line(
+        "    // Capture a copy of the caller's argument root term; `Variable { name_index: 0 }`",
+    );
+    f.line("    // occurrences in the fragment are replaced by this copy per ADR-024.");
+    f.line("    let arg_root_term = buf[arg_root_idx as usize];");
     f.line("    let mut i = 0;");
     f.line("    while i < fragment.len() {");
-    f.line("        buf[len] = shift_term(fragment[i], offset);");
+    f.line("        let term = fragment[i];");
+    f.line("        let new_term = match term {");
+    f.line("            Term::Variable { name_index: 0 } => arg_root_term,");
+    f.line("            other => shift_term(other, offset),");
+    f.line("        };");
+    f.line("        buf[len] = new_term;");
     f.line("        len += 1;");
     f.line("        i += 1;");
     f.line("    }");
