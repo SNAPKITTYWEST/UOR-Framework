@@ -3930,6 +3930,214 @@ pub(crate) fn validate_and_mint_tuple<const N: usize>(
     validate_and_mint_coord(grounded.coords[0].clone(), shape, session)
 }
 
+/// Wiki ADR-016 mint primitive: cross-crate construction surface for `Datum`.
+/// Takes host bytes that have already passed the author's `Grounding` impl and
+/// mints them into a sealed `Datum` at the supplied Witt level. The bytes are
+/// decoded according to the level's byte width.
+/// # Errors
+/// Returns [`ShapeViolation`] if `bytes.len()` doesn't match the level's byte width
+/// or if the level is unsupported.
+pub fn mint_datum(level: crate::WittLevel, bytes: &[u8]) -> Result<Datum, ShapeViolation> {
+    let expected_bytes = (level.witt_length() / 8) as usize;
+    if bytes.len() != expected_bytes {
+        return Err(ShapeViolation {
+            shape_iri: "https://uor.foundation/u/Datum",
+            constraint_iri: "https://uor.foundation/u/DatumByteWidth",
+            property_iri: "https://uor.foundation/u/datumBytes",
+            expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+            min_count: expected_bytes as u32,
+            max_count: expected_bytes as u32,
+            kind: crate::ViolationKind::CardinalityViolation,
+        });
+    }
+    let inner = match level.witt_length() {
+        8 => {
+            let mut buf = [0u8; 1];
+            let mut i = 0;
+            while i < 1 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W8(buf)
+        }
+        16 => {
+            let mut buf = [0u8; 2];
+            let mut i = 0;
+            while i < 2 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W16(buf)
+        }
+        24 => {
+            let mut buf = [0u8; 3];
+            let mut i = 0;
+            while i < 3 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W24(buf)
+        }
+        32 => {
+            let mut buf = [0u8; 4];
+            let mut i = 0;
+            while i < 4 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W32(buf)
+        }
+        40 => {
+            let mut buf = [0u8; 5];
+            let mut i = 0;
+            while i < 5 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W40(buf)
+        }
+        48 => {
+            let mut buf = [0u8; 6];
+            let mut i = 0;
+            while i < 6 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W48(buf)
+        }
+        56 => {
+            let mut buf = [0u8; 7];
+            let mut i = 0;
+            while i < 7 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W56(buf)
+        }
+        64 => {
+            let mut buf = [0u8; 8];
+            let mut i = 0;
+            while i < 8 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W64(buf)
+        }
+        72 => {
+            let mut buf = [0u8; 9];
+            let mut i = 0;
+            while i < 9 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W72(buf)
+        }
+        80 => {
+            let mut buf = [0u8; 10];
+            let mut i = 0;
+            while i < 10 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W80(buf)
+        }
+        88 => {
+            let mut buf = [0u8; 11];
+            let mut i = 0;
+            while i < 11 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W88(buf)
+        }
+        96 => {
+            let mut buf = [0u8; 12];
+            let mut i = 0;
+            while i < 12 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W96(buf)
+        }
+        104 => {
+            let mut buf = [0u8; 13];
+            let mut i = 0;
+            while i < 13 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W104(buf)
+        }
+        112 => {
+            let mut buf = [0u8; 14];
+            let mut i = 0;
+            while i < 14 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W112(buf)
+        }
+        120 => {
+            let mut buf = [0u8; 15];
+            let mut i = 0;
+            while i < 15 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W120(buf)
+        }
+        128 => {
+            let mut buf = [0u8; 16];
+            let mut i = 0;
+            while i < 16 {
+                buf[i] = bytes[i];
+                i += 1;
+            }
+            DatumInner::W128(buf)
+        }
+        _ => {
+            return Err(ShapeViolation {
+                shape_iri: "https://uor.foundation/u/Datum",
+                constraint_iri: "https://uor.foundation/u/DatumLevel",
+                property_iri: "https://uor.foundation/u/datumLevel",
+                expected_range: "https://uor.foundation/schema/WittLevel",
+                min_count: 1,
+                max_count: 1,
+                kind: crate::ViolationKind::ValueCheck,
+            })
+        }
+    };
+    Ok(Datum { inner })
+}
+
+/// Wiki ADR-016 mint primitive: cross-crate construction surface for `Triad<L>`.
+/// Takes three coordinate values that satisfy the Triad shape constraint and
+/// mints them into a sealed `Triad<L>` at the level marker `L`.
+#[must_use]
+pub const fn mint_triad<L>(stratum: u64, spectrum: u64, address: u64) -> Triad<L> {
+    Triad::new(stratum, spectrum, address)
+}
+
+/// Wiki ADR-016 mint primitive: cross-crate construction surface for `Derivation`.
+/// Takes the precursor's step count + Witt level + content fingerprint and mints
+/// a sealed `Derivation` carrying the typed transition witness.
+#[must_use]
+pub const fn mint_derivation(
+    step_count: u32,
+    witt_level_bits: u16,
+    content_fingerprint: ContentFingerprint,
+) -> Derivation {
+    Derivation::new(step_count, witt_level_bits, content_fingerprint)
+}
+
+/// Wiki ADR-016 mint primitive: cross-crate construction surface for `FreeRank`.
+/// Takes a natural-number rank witness (total site capacity at the Witt level plus
+/// the number of currently pinned sites) and mints it into a sealed `FreeRank`.
+#[must_use]
+pub const fn mint_freerank(total: u32, pinned: u32) -> FreeRank {
+    FreeRank::new(total, pinned)
+}
+
 /// Evaluate a binary ring operation at compile time.
 /// One helper is emitted per `schema:WittLevel` individual. The `uor!`
 /// proc macro delegates to these helpers; it never performs ring

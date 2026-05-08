@@ -3363,6 +3363,122 @@ fn generate_minting_session(f: &mut RustFile, ontology: &Ontology) {
     f.line("    validate_and_mint_coord(grounded.coords[0].clone(), shape, session)");
     f.line("}");
     f.blank();
+
+    // ─────────────────────────────────────────────────────────────────
+    // Wiki ADR-016: cross-crate construction surface for the four
+    // UOR-domain sealed types. The architectural commitment is that
+    // `prism`'s pipeline is the sole sanctioned caller of these
+    // primitives (a normative commitment, not a Rust-language access
+    // restriction). With prism merged into `uor-foundation`, the
+    // primitives delegate to the existing `pub(crate)` constructors —
+    // the named `pub fn` wrappers preserve the wiki's named surface so
+    // the architectural commitment is observable at the crate's
+    // public API.
+    // ─────────────────────────────────────────────────────────────────
+
+    f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `Datum`.");
+    f.doc_comment("");
+    f.doc_comment(
+        "Takes host bytes that have already passed the author's `Grounding` impl and",
+    );
+    f.doc_comment("mints them into a sealed `Datum` at the supplied Witt level. The bytes are");
+    f.doc_comment("decoded according to the level's byte width.");
+    f.doc_comment("");
+    f.doc_comment("# Errors");
+    f.doc_comment("");
+    f.doc_comment(
+        "Returns [`ShapeViolation`] if `bytes.len()` doesn't match the level's byte width",
+    );
+    f.doc_comment("or if the level is unsupported.");
+    f.line("pub fn mint_datum(level: crate::WittLevel, bytes: &[u8]) -> Result<Datum, ShapeViolation> {");
+    f.line("    let expected_bytes = (level.witt_length() / 8) as usize;");
+    f.line("    if bytes.len() != expected_bytes {");
+    f.line("        return Err(ShapeViolation {");
+    f.line(
+        "            shape_iri: \"https://uor.foundation/u/Datum\",",
+    );
+    f.line(
+        "            constraint_iri: \"https://uor.foundation/u/DatumByteWidth\",",
+    );
+    f.line(
+        "            property_iri: \"https://uor.foundation/u/datumBytes\",",
+    );
+    f.line(
+        "            expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("            min_count: expected_bytes as u32,");
+    f.line("            max_count: expected_bytes as u32,");
+    f.line("            kind: crate::ViolationKind::CardinalityViolation,");
+    f.line("        });");
+    f.line("    }");
+    f.line("    let inner = match level.witt_length() {");
+    for (local, n, _) in &levels {
+        let n_bytes = n / 8;
+        f.line(&format!(
+            "        {n} => {{ let mut buf = [0u8; {n_bytes}]; let mut i = 0; while i < {n_bytes} {{ buf[i] = bytes[i]; i += 1; }} DatumInner::{local}(buf) }},"
+        ));
+    }
+    f.line("        _ => return Err(ShapeViolation {");
+    f.line(
+        "            shape_iri: \"https://uor.foundation/u/Datum\",",
+    );
+    f.line(
+        "            constraint_iri: \"https://uor.foundation/u/DatumLevel\",",
+    );
+    f.line(
+        "            property_iri: \"https://uor.foundation/u/datumLevel\",",
+    );
+    f.line(
+        "            expected_range: \"https://uor.foundation/schema/WittLevel\",",
+    );
+    f.line("            min_count: 1,");
+    f.line("            max_count: 1,");
+    f.line("            kind: crate::ViolationKind::ValueCheck,");
+    f.line("        }),");
+    f.line("    };");
+    f.line("    Ok(Datum { inner })");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `Triad<L>`.");
+    f.doc_comment("");
+    f.doc_comment("Takes three coordinate values that satisfy the Triad shape constraint and");
+    f.doc_comment("mints them into a sealed `Triad<L>` at the level marker `L`.");
+    f.line("#[must_use]");
+    f.line(
+        "pub const fn mint_triad<L>(stratum: u64, spectrum: u64, address: u64) -> Triad<L> {",
+    );
+    f.line("    Triad::new(stratum, spectrum, address)");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `Derivation`.");
+    f.doc_comment("");
+    f.doc_comment(
+        "Takes the precursor's step count + Witt level + content fingerprint and mints",
+    );
+    f.doc_comment("a sealed `Derivation` carrying the typed transition witness.");
+    f.line("#[must_use]");
+    f.line("pub const fn mint_derivation(");
+    f.line("    step_count: u32,");
+    f.line("    witt_level_bits: u16,");
+    f.line("    content_fingerprint: ContentFingerprint,");
+    f.line(") -> Derivation {");
+    f.line("    Derivation::new(step_count, witt_level_bits, content_fingerprint)");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Wiki ADR-016 mint primitive: cross-crate construction surface for `FreeRank`.");
+    f.doc_comment("");
+    f.doc_comment(
+        "Takes a natural-number rank witness (total site capacity at the Witt level plus",
+    );
+    f.doc_comment("the number of currently pinned sites) and mints it into a sealed `FreeRank`.");
+    f.line("#[must_use]");
+    f.line("pub const fn mint_freerank(total: u32, pinned: u32) -> FreeRank {");
+    f.line("    FreeRank::new(total, pinned)");
+    f.line("}");
+    f.blank();
 }
 
 fn generate_const_ring_eval(f: &mut RustFile, ontology: &Ontology) {

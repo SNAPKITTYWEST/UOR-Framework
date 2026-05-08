@@ -31,6 +31,7 @@ foundation/src/enforcement.rs: fn fold_stream_digest
 foundation/src/enforcement.rs: fn fold_stream_step_digest
 foundation/src/enforcement.rs: fn fold_unit_digest
 foundation/src/enforcement.rs: fn mint_cohomology_class
+foundation/src/enforcement.rs: fn mint_datum
 foundation/src/enforcement.rs: fn mint_homology_class
 foundation/src/enforcement.rs: fn primitive_simplicial_nerve_betti
 foundation/src/enforcement.rs: mod __test_helpers

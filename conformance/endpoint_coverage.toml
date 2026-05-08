@@ -501,6 +501,16 @@ behavior = "behavior_route_output_payload"
 symbols = ["FOLD_UNROLL_THRESHOLD"]
 behavior = "behavior_fold_unroll_threshold"
 
+# ─── Mapping: ADR-016 four UOR-domain mint primitives ──────────────────
+# ADR-016 commits foundation to public mint primitives that are the
+# cross-crate construction surface for the four UOR-domain sealed
+# types. `mint_datum` is the only non-const fn (the others are
+# `pub const fn` rolled into the `const fn` snapshot scanner-artifact
+# entry). All four delegate to the existing `pub(crate)` constructors.
+[coverage.mint_primitives]
+symbols = ["mint_datum"]
+behavior = "behavior_mint_primitives"
+
 # Wiki ADR-024 verb-graph acyclicity is enforced at compile time. The
 # foundation const-fn helpers `shift_term` and `inline_verb_fragment`
 # (in foundation/src/enforcement.rs) implement the inlining; they are
