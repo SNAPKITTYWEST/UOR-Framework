@@ -789,6 +789,152 @@ uor_foundation_sdk::use_verbs! {
     };
 }
 
+// =====================================================================
+// Closure-body grammar G13 (parallel), G15 (tree_fold), G16 (first_admit).
+
+prism_model! {
+    pub struct ParallelComposeModel;
+    pub struct ParallelComposeRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ParallelComposeModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = ParallelComposeRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            parallel(succ(input), pred(input))
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_parallel_term_for_g13_form() {
+    let arena = <ParallelComposeRoute as FoundationClosed>::arena_slice();
+    // `parallel(succ(input), pred(input))` lowers to a binary
+    // Application(Or, [succ(input), pred(input)]) — the partition-product
+    // structural combine per ADR-026 G13.
+    let last = arena.last().expect("non-empty arena");
+    match last {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Or));
+            assert_eq!(args.len, 2, "parallel emits 2-arg structural combine");
+        }
+        other => panic!("expected Application(Or) as parallel root, got {other:?}"),
+    }
+}
+
+prism_model! {
+    pub struct TreeFoldModel;
+    pub struct TreeFoldRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for TreeFoldModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = TreeFoldRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            tree_fold(add, [1, 2, 3, 4])
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_tree_fold_pairwise_chain_for_g15_form() {
+    let arena = <TreeFoldRoute as FoundationClosed>::arena_slice();
+    // tree_fold(add, [1, 2, 3, 4]) → balanced tree of depth 2:
+    //   add(add(1, 2), add(3, 4))
+    // Three Application(Add) entries (two leaf-level + one root).
+    let add_count = arena
+        .iter()
+        .filter(|t| {
+            matches!(
+                t,
+                Term::Application {
+                    operator: PrimitiveOp::Add,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        add_count, 3,
+        "tree_fold(add, [a,b,c,d]) → 3 Application(Add) entries"
+    );
+    // Last term is the root reducer Application.
+    assert!(matches!(
+        arena.last(),
+        Some(Term::Application {
+            operator: PrimitiveOp::Add,
+            ..
+        })
+    ));
+}
+
+prism_model! {
+    pub struct FirstAdmitModel;
+    pub struct FirstAdmitRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for FirstAdmitModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = FirstAdmitRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            first_admit(W8, |i| succ(i))
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_recurse_term_for_g16_first_admit() {
+    let arena = <FirstAdmitRoute as FoundationClosed>::arena_slice();
+    // first_admit(W8, |i| succ(i)) → Term::Recurse with measure (Literal),
+    // base (Literal(0)), and step (predicate body).
+    let last = arena.last().expect("non-empty arena");
+    assert!(matches!(last, Term::Recurse { .. }));
+}
+
+// =====================================================================
+// `partition_product!` and `partition_coproduct!` smoke tests
+// — wiki ADR-026 G17/G18 architectural-name macros (variadic, named
+// stable-Rust form per CLAUDE.md mapping).
+
+use uor_foundation_sdk::{partition_coproduct, partition_product};
+
+partition_product!(LeafAPpLeafB, LeafA, LeafB);
+
+#[test]
+fn partition_product_macro_matches_pt3_canonical_join() {
+    // partition_product!(N, A, B) emits the same structure as
+    // product_shape!(N, A, B) — PT_3 canonical-joined CONSTRAINTS,
+    // SITE_COUNT = A::SITE_COUNT + B::SITE_COUNT.
+    assert_eq!(<LeafAPpLeafB as ConstrainedTypeShape>::SITE_BUDGET, 5);
+    assert_eq!(<LeafAPpLeafB as ConstrainedTypeShape>::SITE_COUNT, 5);
+    assert!(<LeafAPpLeafB as ConstrainedTypeShape>::IRI.starts_with("urn:uor:product:"));
+}
+
+partition_coproduct!(LeafAPcLeafB, LeafA, LeafB);
+
+#[test]
+fn partition_coproduct_macro_matches_st10_structure() {
+    assert_eq!(<LeafAPcLeafB as ConstrainedTypeShape>::SITE_BUDGET, 3);
+    assert_eq!(<LeafAPcLeafB as ConstrainedTypeShape>::SITE_COUNT, 4);
+    assert!(<LeafAPcLeafB as ConstrainedTypeShape>::IRI.starts_with("urn:uor:coproduct:"));
+}
+
+#[test]
+fn partition_product_macro_emits_grounded_shape_and_into_binding_value() {
+    fn _accepts<T: ConstrainedTypeShape + GroundedShape + IntoBindingValue>() {}
+    _accepts::<LeafAPpLeafB>();
+    _accepts::<LeafAPcLeafB>();
+}
+
+// Variadic 3-operand form folds left-associatively.
+partition_product!(LeafThreeWayPp, LeafA, LeafB, LeafA);
+
+#[test]
+fn partition_product_variadic_3_operands_folds_left_associatively() {
+    // ((A × B) × A) → SITE_COUNT = (2 + 3) + 2 = 7.
+    assert_eq!(<LeafThreeWayPp as ConstrainedTypeShape>::SITE_COUNT, 7);
+}
+
+// =====================================================================
+// `use_verbs!` smoke test (continued).
+
 #[test]
 fn use_verbs_re_exports_verb_const_and_accessor() {
     // The re-exported const matches the original module's const.

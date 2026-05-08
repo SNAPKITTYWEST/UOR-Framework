@@ -2089,40 +2089,18 @@ fn generate_term_ast(f: &mut RustFile) {
 
     f.doc_comment("Wiki ADR-024 compile-time verb-fragment inlining helper.");
     f.doc_comment("");
-    f.doc_comment(
-        "Copies the verb `fragment` slice into `buf` starting at `len` while applying",
-    );
-    f.doc_comment(
-        "two simultaneous transformations per term so the verb body becomes part of",
-    );
-    f.doc_comment(
-        "the calling route's flat arena: Variable(0) substitution (the verb's `input`",
-    );
-    f.doc_comment(
-        "parameter binds to the caller's argument expression by replacing each",
-    );
-    f.doc_comment(
-        "`Variable { name_index: 0 }` with a copy of `buf[arg_root_idx]`), and arena-",
-    );
-    f.doc_comment(
-        "index shifting (every non-Variable(0) term has its arena-index fields shifted",
-    );
-    f.doc_comment(
-        "by `len` so internal references resolve correctly within the host).",
-    );
+    f.doc_comment("Copies the verb `fragment` slice into `buf` starting at `len` while applying");
+    f.doc_comment("two simultaneous transformations per term so the verb body becomes part of");
+    f.doc_comment("the calling route's flat arena: Variable(0) substitution (the verb's `input`");
+    f.doc_comment("parameter binds to the caller's argument expression by replacing each");
+    f.doc_comment("`Variable { name_index: 0 }` with a copy of `buf[arg_root_idx]`), and arena-");
+    f.doc_comment("index shifting (every non-Variable(0) term has its arena-index fields shifted");
+    f.doc_comment("by `len` so internal references resolve correctly within the host).");
     f.doc_comment("");
-    f.doc_comment(
-        "The combined transformation realises ADR-024's compile-time inlining: the",
-    );
-    f.doc_comment(
-        "verb body lands in the host arena with its `input` bound to the caller's",
-    );
-    f.doc_comment(
-        "argument expression — verb-graph acyclicity is checked at const-eval time,",
-    );
-    f.doc_comment(
-        "no `Term::VerbReference` variant or runtime depth guard is required.",
-    );
+    f.doc_comment("The combined transformation realises ADR-024's compile-time inlining: the");
+    f.doc_comment("verb body lands in the host arena with its `input` bound to the caller's");
+    f.doc_comment("argument expression — verb-graph acyclicity is checked at const-eval time,");
+    f.doc_comment("no `Term::VerbReference` variant or runtime depth guard is required.");
     f.doc_comment("");
     f.doc_comment("# Panics");
     f.doc_comment("");

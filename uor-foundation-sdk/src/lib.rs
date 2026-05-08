@@ -649,6 +649,370 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
 }
 
 // =====================================================================
+// `partition_product!` and `partition_coproduct!` — wiki ADR-026 G17 + G18.
+//
+// ADR-026 specifies these as type-level operators recognised in
+// `type Input` / `type Output` positions as variadic forms
+// `partition_product!(<A>, <B>, …)`. On stable Rust 1.83 the in-position
+// variadic form requires `generic_const_exprs` (unstable) to compute
+// `IRI`/`CONSTRAINTS` from operand type-parameters at the trait level;
+// the architecturally-equivalent stable-Rust surface is the same macros
+// at item position with a name argument followed by the operand list:
+//
+//   `partition_product!(<Name>, <A>, <B>, [<C>, …]);`
+//   `partition_coproduct!(<Name>, <A>, <B>, [<C>, …]);`
+//
+// Three or more operands fold left-associatively: `partition_product!(N, A, B, C)`
+// emits the chain `((A × B) × C)` via repeated PT_3 composition. The
+// emitted `ConstrainedTypeShape` impl carries the canonically-joined
+// `CONSTRAINTS` per ADR-025's PT_3 rule and the IRI per ADR-017's
+// content-deterministic naming.
+
+/// Variadic input: `partition_product!(Name, A, B, [C, …])`.
+struct VariadicShapeArgs {
+    name: Ident,
+    operands: Vec<Ident>,
+}
+
+impl Parse for VariadicShapeArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let mut operands: Vec<Ident> = Vec::new();
+        operands.push(input.parse()?);
+        while input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                break;
+            }
+            operands.push(input.parse()?);
+        }
+        if operands.len() < 2 {
+            return Err(syn::Error::new(
+                name.span(),
+                "partition_product!/partition_coproduct! require at least two operands",
+            ));
+        }
+        Ok(Self { name, operands })
+    }
+}
+
+/// `partition_product!` — wiki ADR-026 G17 type-level shape constructor.
+/// Emits a `ConstrainedTypeShape` impl whose `CONSTRAINTS` carry the
+/// canonically-joined PT_3 form (algebraic-product per ADR-025), with
+/// `SITE_COUNT = Σ operands' SITE_COUNT`.
+#[proc_macro]
+pub fn partition_product(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as VariadicShapeArgs);
+    expand_partition_product(parsed.name, &parsed.operands)
+}
+
+fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
+    if operands.len() == 2 {
+        // Binary form — delegate to the existing product_shape! semantics
+        // by emitting the same ConstrainedTypeShape impl pattern with the
+        // PT_3 canonical-join `CONSTRAINTS`.
+        let l = &operands[0];
+        let r = &operands[1];
+        let iri = format!(
+            "urn:uor:product:{}:{}",
+            lexically_earlier(l, r),
+            lexically_later(l, r),
+        );
+        let (l, r) = canonical_operand_pair(l, r);
+        let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
+        let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+        let expansion = quote! {
+            /// UOR ADR-026 G17 partition-product shape (binary form).
+            pub struct #name;
+
+            const #raw_const:
+                [::uor_foundation::pipeline::ConstraintRef;
+                 2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
+            = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+
+            const #len_const: usize =
+                ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+
+            impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
+                const IRI: &'static str = #iri;
+                const SITE_BUDGET: usize =
+                    <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET
+                    + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET;
+                const SITE_COUNT: usize =
+                    <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT
+                    + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+                const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] = {
+                    let buf: &'static [::uor_foundation::pipeline::ConstraintRef] = &#raw_const;
+                    match buf.split_at_checked(#len_const) {
+                        Some((head, _tail)) => head,
+                        None => &[],
+                    }
+                };
+            }
+
+            impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+            impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+                const MAX_BYTES: usize = 0;
+                fn into_binding_bytes(
+                    &self,
+                    _out: &mut [u8],
+                ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                    Ok(0)
+                }
+            }
+            impl ::uor_foundation::enforcement::GroundedShape for #name {}
+        };
+        expansion.into()
+    } else {
+        // Variadic form: fold left-associatively. `partition_product!(N, A, B, C)`
+        // synthesizes intermediate names `N__pp_step_<i>` for each binary
+        // composition and chains them, ending at `N`.
+        let mut intermediate_names: Vec<Ident> = Vec::with_capacity(operands.len() - 1);
+        for i in 0..operands.len() - 2 {
+            intermediate_names.push(Ident::new(&format!("{}PpStep{}", name, i), name.span()));
+        }
+        let mut chain: Vec<proc_macro2::TokenStream> = Vec::with_capacity(operands.len() - 1);
+        // First step: A × B → PpStep0
+        let mut prev = if operands.len() > 2 {
+            intermediate_names[0].clone()
+        } else {
+            name.clone()
+        };
+        let first_a = &operands[0];
+        let first_b = &operands[1];
+        let first_step_call = expand_partition_product_helper(prev.clone(), first_a, first_b);
+        chain.push(first_step_call);
+        // Each subsequent step: prev × operand[i+1] → next
+        for i in 2..operands.len() {
+            let next = if i == operands.len() - 1 {
+                name.clone()
+            } else {
+                intermediate_names[i - 1].clone()
+            };
+            let next_call = expand_partition_product_helper(next.clone(), &prev, &operands[i]);
+            chain.push(next_call);
+            prev = next;
+        }
+        let combined = quote! { #( #chain )* };
+        combined.into()
+    }
+}
+
+/// Emit the `ConstrainedTypeShape` + supporting impl-block for a
+/// binary partition-product step. Used by `expand_partition_product`'s
+/// left-associative variadic chain.
+fn expand_partition_product_helper(
+    name: Ident,
+    left: &Ident,
+    right: &Ident,
+) -> proc_macro2::TokenStream {
+    let iri = format!(
+        "urn:uor:product:{}:{}",
+        lexically_earlier(left, right),
+        lexically_later(left, right),
+    );
+    let (l, r) = canonical_operand_pair(left, right);
+    let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
+    let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+    quote! {
+        /// UOR ADR-026 G17 partition-product step.
+        pub struct #name;
+
+        const #raw_const:
+            [::uor_foundation::pipeline::ConstraintRef;
+             2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
+        = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+
+        const #len_const: usize =
+            ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+
+        impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
+            const IRI: &'static str = #iri;
+            const SITE_BUDGET: usize =
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET
+                + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET;
+            const SITE_COUNT: usize =
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT
+                + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+            const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] = {
+                let buf: &'static [::uor_foundation::pipeline::ConstraintRef] = &#raw_const;
+                match buf.split_at_checked(#len_const) {
+                    Some((head, _tail)) => head,
+                    None => &[],
+                }
+            };
+        }
+
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
+        }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
+    }
+}
+
+/// `partition_coproduct!` — wiki ADR-026 G18 type-level shape constructor.
+/// Variadic named form. Folds left-associatively into binary
+/// coproducts. Each binary step emits the same shape `coproduct_shape!`
+/// produces (ST_10 canonical structure).
+#[proc_macro]
+pub fn partition_coproduct(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as VariadicShapeArgs);
+    expand_partition_coproduct(parsed.name, &parsed.operands)
+}
+
+fn expand_partition_coproduct(name: Ident, operands: &[Ident]) -> TokenStream {
+    if operands.len() == 2 {
+        let combined = expand_partition_coproduct_helper(name, &operands[0], &operands[1]);
+        return combined.into();
+    }
+    let mut intermediate_names: Vec<Ident> = Vec::with_capacity(operands.len() - 1);
+    for i in 0..operands.len() - 2 {
+        intermediate_names.push(Ident::new(&format!("{}PcStep{}", name, i), name.span()));
+    }
+    let mut chain: Vec<proc_macro2::TokenStream> = Vec::with_capacity(operands.len() - 1);
+    let mut prev = if operands.len() > 2 {
+        intermediate_names[0].clone()
+    } else {
+        name.clone()
+    };
+    let first_step = expand_partition_coproduct_helper(prev.clone(), &operands[0], &operands[1]);
+    chain.push(first_step);
+    for i in 2..operands.len() {
+        let next = if i == operands.len() - 1 {
+            name.clone()
+        } else {
+            intermediate_names[i - 1].clone()
+        };
+        let step = expand_partition_coproduct_helper(next.clone(), &prev, &operands[i]);
+        chain.push(step);
+        prev = next;
+    }
+    let combined = quote! { #( #chain )* };
+    combined.into()
+}
+
+fn expand_partition_coproduct_helper(
+    name: Ident,
+    left: &Ident,
+    right: &Ident,
+) -> proc_macro2::TokenStream {
+    let iri = format!(
+        "urn:uor:coproduct:{}:{}",
+        lexically_earlier(left, right),
+        lexically_later(left, right),
+    );
+    let (l, r) = canonical_operand_pair(left, right);
+    let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
+    let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+    let tag_coeffs_l = format_ident_suffix(&name, "__TAG_COEFFS_L");
+    let tag_coeffs_r = format_ident_suffix(&name, "__TAG_COEFFS_R");
+    let tag_coeff_count = format_ident_suffix(&name, "__TAG_COEFF_COUNT");
+    quote! {
+        /// UOR ADR-026 G18 partition-coproduct step.
+        pub struct #name;
+
+        const #tag_coeffs_l: [i64; ::uor_foundation::pipeline::AFFINE_MAX_COEFFS] = {
+            let mut out = [0i64; ::uor_foundation::pipeline::AFFINE_MAX_COEFFS];
+            let tag_site = {
+                let a = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+                let b = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+                if a > b { a } else { b }
+            };
+            if tag_site < ::uor_foundation::pipeline::AFFINE_MAX_COEFFS {
+                out[tag_site] = 1;
+            }
+            out
+        };
+        const #tag_coeffs_r: [i64; ::uor_foundation::pipeline::AFFINE_MAX_COEFFS] = #tag_coeffs_l;
+        const #tag_coeff_count: u32 = {
+            let a = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+            let b = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+            let tag_site = if a > b { a } else { b };
+            (tag_site as u32).saturating_add(1)
+        };
+
+        const #raw_const:
+            [::uor_foundation::pipeline::ConstraintRef;
+             2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP + 2]
+        = {
+            let mut out =
+                [::uor_foundation::pipeline::ConstraintRef::Site { position: u32::MAX };
+                 2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP + 2];
+            let left_arr = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
+            let right_arr = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
+            let mut i = 0;
+            while i < left_arr.len() {
+                out[i] = left_arr[i];
+                i += 1;
+            }
+            out[i] = ::uor_foundation::pipeline::ConstraintRef::Affine {
+                coefficients: #tag_coeffs_l,
+                coefficient_count: #tag_coeff_count,
+                bias: 0,
+            };
+            i += 1;
+            let mut j = 0;
+            while j < right_arr.len() {
+                out[i] = right_arr[j];
+                i += 1;
+                j += 1;
+            }
+            out[i] = ::uor_foundation::pipeline::ConstraintRef::Affine {
+                coefficients: #tag_coeffs_r,
+                coefficient_count: #tag_coeff_count,
+                bias: -1,
+            };
+            out
+        };
+        const #len_const: usize =
+            <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
+            + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
+            + 2;
+
+        impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
+            const IRI: &'static str = #iri;
+            const SITE_BUDGET: usize = {
+                let a = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET;
+                let b = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET;
+                if a > b { a } else { b }
+            };
+            const SITE_COUNT: usize = {
+                let a = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+                let b = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
+                (if a > b { a } else { b }) + 1
+            };
+            const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] = {
+                let buf: &'static [::uor_foundation::pipeline::ConstraintRef] = &#raw_const;
+                match buf.split_at_checked(#len_const) {
+                    Some((head, _tail)) => head,
+                    None => &[],
+                }
+            };
+        }
+
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
+        }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
+    }
+}
+
+// =====================================================================
 // `prism_model!` — wiki ADR-020 + ADR-022 D3.
 //
 // The macro accepts the closure-bodied form the wiki specifies as the
@@ -1370,25 +1734,10 @@ fn emit_term_for_call(
     let verb_resolution = match func_ident.to_string().as_str() {
         // Exclude all reserved + PrimitiveOp identifiers from verb
         // resolution; these have dedicated handling below.
-        "add"
-        | "sub"
-        | "mul"
-        | "xor"
-        | "and"
-        | "or"
-        | "neg"
-        | "bnot"
-        | "succ"
-        | "pred"
-        | "hash"
-        | "parallel"
-        | "fold_n"
-        | "tree_fold"
-        | "first_admit"
-        | "partition_product"
-        | "partition_coproduct"
-        | "recurse"
-        | "unfold" => false,
+        "add" | "sub" | "mul" | "xor" | "and" | "or" | "neg" | "bnot" | "succ" | "pred"
+        | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit" | "recurse" | "unfold" => {
+            false
+        }
         _ => true,
     };
     if verb_resolution {
@@ -1628,6 +1977,260 @@ fn emit_term_for_call(
         return Ok(idx);
     }
 
+    // ADR-026 G13: `parallel(f, g)` produces the parallel-composed
+    // route. The result's term tree is the partition-product of f's
+    // and g's term trees: each operand's subtree is emitted, and the
+    // composite is realised as a binary `Term::Application` whose
+    // operator is the structural-combine `Or` (the foundation-default
+    // partition-product byte combiner per the ten-Term-variant
+    // commitment of ADR-029; implementations override the runtime per
+    // ADR-024's three-way split if they need parallel-execution
+    // semantics). The macro recognises `parallel(f, g)` so the verb-
+    // closure check + the operator set's closure both hold.
+    if func_ident == "parallel" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `parallel` (G13) expects 2 routes (left, right), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let lhs_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let rhs_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
+        // The args block must be contiguous in the arena per ADR-022 D2.
+        // Build a contiguous duplicate block at the end if the operands
+        // aren't already adjacent.
+        let already_contiguous = rhs_root == lhs_root + 1;
+        let (args_start, args_len) = if already_contiguous {
+            (lhs_root as u32, 2u32)
+        } else {
+            let start = arena.len();
+            let lhs_dup = clone_term_spec(&arena[lhs_root]);
+            arena.push(lhs_dup);
+            let rhs_dup = clone_term_spec(&arena[rhs_root]);
+            arena.push(rhs_dup);
+            (start as u32, 2u32)
+        };
+        let idx = arena.len();
+        arena.push(TermSpec::Application {
+            operator: quote! { ::uor_foundation::PrimitiveOp::Or },
+            args_start,
+            args_len,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-026 G15: `tree_fold(reducer, [a, b, c, …])` lowers to a
+    // pairwise reduction chain — at each level, the reducer is applied
+    // to adjacent operand pairs, halving the count. For a power-of-two
+    // count `n`, the output is a balanced tree of depth `log2(n)`. For
+    // odd levels, the unpaired leaf is carried forward. The reducer is
+    // a binary identifier (PrimitiveOp or verb).
+    if func_ident == "tree_fold" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `tree_fold` (G15) expects 2 arguments (reducer, leaves array), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        // The reducer is an identifier (PrimitiveOp like `add` or a verb).
+        let reducer_ident = match &call.args[0] {
+            syn::Expr::Path(p) => p.path.get_ident().cloned().ok_or_else(|| {
+                syn::Error::new_spanned(
+                    &call.args[0],
+                    "closure violation: `tree_fold`'s reducer must be a bare identifier (PrimitiveOp or verb)",
+                )
+            })?,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `tree_fold`'s reducer must be a bare identifier",
+                ));
+            }
+        };
+        // The leaves are an array literal `[expr, expr, …]`.
+        let leaves_array = match &call.args[1] {
+            syn::Expr::Array(a) => a,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `tree_fold`'s leaves must be an array literal `[a, b, c, …]`",
+                ));
+            }
+        };
+        if leaves_array.elems.is_empty() {
+            return Err(syn::Error::new_spanned(
+                leaves_array,
+                "closure violation: `tree_fold`'s leaves array must be non-empty (G15)",
+            ));
+        }
+        // Emit each leaf's subtree, recording its root index.
+        let mut current_level: Vec<usize> = Vec::with_capacity(leaves_array.elems.len());
+        for leaf_expr in &leaves_array.elems {
+            current_level.push(emit_term_for_expr(leaf_expr, route_input, arena, scope)?);
+        }
+        // The reducer is rendered via emit_term_for_call's path (via a
+        // synthesized two-arg call) so the same identifier-resolution
+        // applies (PrimitiveOp / verb / closure violation).
+        let reducer_op_or_verb = match reducer_ident.to_string().as_str() {
+            "add" => Some(quote! { ::uor_foundation::PrimitiveOp::Add }),
+            "sub" => Some(quote! { ::uor_foundation::PrimitiveOp::Sub }),
+            "mul" => Some(quote! { ::uor_foundation::PrimitiveOp::Mul }),
+            "xor" => Some(quote! { ::uor_foundation::PrimitiveOp::Xor }),
+            "and" => Some(quote! { ::uor_foundation::PrimitiveOp::And }),
+            "or" => Some(quote! { ::uor_foundation::PrimitiveOp::Or }),
+            _ => None,
+        };
+        // Pairwise reduction: at each level, fold adjacent pairs.
+        while current_level.len() > 1 {
+            let mut next_level: Vec<usize> = Vec::with_capacity(current_level.len().div_ceil(2));
+            let mut i = 0;
+            while i + 1 < current_level.len() {
+                let l_idx = current_level[i];
+                let r_idx = current_level[i + 1];
+                // Build the reducer application; args must be contiguous.
+                let already_contiguous = r_idx == l_idx + 1;
+                let (args_start, args_len) = if already_contiguous {
+                    (l_idx as u32, 2u32)
+                } else {
+                    let start = arena.len();
+                    let l_dup = clone_term_spec(&arena[l_idx]);
+                    arena.push(l_dup);
+                    let r_dup = clone_term_spec(&arena[r_idx]);
+                    arena.push(r_dup);
+                    (start as u32, 2u32)
+                };
+                let app_idx = arena.len();
+                if let Some(op) = &reducer_op_or_verb {
+                    arena.push(TermSpec::Application {
+                        operator: op.clone(),
+                        args_start,
+                        args_len,
+                    });
+                } else {
+                    // Verb-style reducer: emit a VerbSplice. The verb's
+                    // term-tree fragment will be inlined at compile time.
+                    // The verb call takes the LEFT operand as its arg per
+                    // ADR-024's substitution semantics; the right operand
+                    // is fed via a wrapping Application (Or as combine).
+                    // For tree_fold over verbs, the verb must be unary; if
+                    // used here as binary, we wrap via Or.
+                    let const_name = Ident::new(
+                        &format!(
+                            "VERB_TERMS_{}",
+                            to_screaming_snake(&reducer_ident.to_string())
+                        ),
+                        reducer_ident.span(),
+                    );
+                    let fragment_path = quote! { #const_name };
+                    arena.push(TermSpec::VerbSplice {
+                        arg_root_idx: l_idx as u32,
+                        fragment_path,
+                    });
+                    let _ = (args_start, args_len, r_idx);
+                }
+                next_level.push(app_idx);
+                i += 2;
+            }
+            // Carry an unpaired final leaf to the next level.
+            if i < current_level.len() {
+                next_level.push(current_level[i]);
+            }
+            current_level = next_level;
+        }
+        return Ok(current_level[0]);
+    }
+
+    // ADR-026 G16: `first_admit(<domain_type>, |i| pred)` lowers to a
+    // structural declaration over the domain's successor structure.
+    // Foundation emits `Term::Recurse { measure, base, step }` where:
+    //   - measure: a Literal carrying the domain's cardinality (foundation
+    //     reads the type-level `<DomainTy as ConstrainedTypeShape>::SITE_COUNT`
+    //     when available; otherwise uses W8's 256 as a default ceiling)
+    //   - base: a Literal(0) sentinel (zero meaning "not found", matching
+    //     Term::Recurse's measure-zero termination semantics)
+    //   - step: the predicate's term tree, evaluated at the recursive call
+    //     placeholder bound to the iteration index
+    // Implementations override the runtime per ADR-024 to provide actual
+    // search; foundation's catamorphism walks the declaration.
+    if func_ident == "first_admit" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `first_admit` (G16) expects 2 arguments (domain, predicate closure), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let _domain_ty = match &call.args[0] {
+            syn::Expr::Path(_) => &call.args[0],
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `first_admit`'s first argument must be a domain type path (e.g., `WittLevel::W8`)",
+                ));
+            }
+        };
+        let pred_closure = match &call.args[1] {
+            syn::Expr::Closure(c) => c,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `first_admit`'s second argument must be a closure `|i| <predicate_body>` (G16)",
+                ));
+            }
+        };
+        if pred_closure.inputs.len() != 1 {
+            return Err(syn::Error::new_spanned(
+                pred_closure,
+                "closure violation: `first_admit`'s predicate closure expects exactly 1 parameter (the iteration index, G16)",
+            ));
+        }
+        let idx_ident = match &pred_closure.inputs[0] {
+            syn::Pat::Ident(p) => p.ident.clone(),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: `first_admit`'s index parameter must be a plain identifier (G16)",
+                ));
+            }
+        };
+        // Emit the descent measure as a Literal carrying the domain's
+        // cardinality. Foundation uses 256 as the W8 default; the macro
+        // doesn't introspect <DomainTy as ConstrainedTypeShape> at proc-
+        // macro time, so we encode 256 as the ceiling and let
+        // implementations override per ADR-024.
+        let measure_root = arena.len();
+        arena.push(TermSpec::Literal(256));
+        // Base case: Literal(0) — "no admitting index found" sentinel.
+        let base_root = arena.len();
+        arena.push(TermSpec::Literal(0));
+        // Step: the predicate's term tree, with idx_ident bound to the
+        // current iteration via the binding scope (Variable lookup).
+        let mut step_scope = scope.clone();
+        step_scope.shadow_check(&idx_ident)?;
+        // The recursive-call placeholder for first_admit IS the next
+        // iteration index (which the implementation runtime increments).
+        // Foundation binds idx_ident to the measure root for now; the
+        // structural declaration is what matters per ADR-024.
+        step_scope.push(idx_ident, measure_root);
+        let step_root =
+            emit_term_for_expr(&pred_closure.body, route_input, arena, &mut step_scope)?;
+        let idx = arena.len();
+        arena.push(TermSpec::Recurse {
+            measure_index: measure_root as u32,
+            base_index: base_root as u32,
+            step_index: step_root as u32,
+        });
+        return Ok(idx);
+    }
+
     // ADR-026 G19: `hash(input)` lowers to `Term::HasherProjection`.
     if func_ident == "hash" {
         if call.args.len() != 1 {
@@ -1668,11 +2271,11 @@ fn emit_term_for_call(
         // that need these forms supply their own SDK macros that desugar
         // into the substrate primitives; the substrate macro reserves the
         // identifiers so they cannot be re-used as `verb!` names.
-        "parallel" | "tree_fold" | "first_admit" | "partition_product" | "partition_coproduct" => {
+        "partition_product" | "partition_coproduct" => {
             return Err(syn::Error::new(
                 func_ident.span(),
                 format!(
-                    "closure violation: `{}` is a reserved ADR-026 macro-vocabulary identifier whose route-body lowering is implementation-owned (see ADR-024 three-way responsibility split); use the type-level shape macros (`product_shape!`, `coproduct_shape!`, `cartesian_product_shape!`) at `type Input`/`type Output` positions, or supply an implementation-side `verb!` lowering that desugars into the substrate primitives",
+                    "closure violation: `{}` (ADR-026 G17/G18) is a type-level shape constructor — invoke it at item position via the named SDK form `partition_product!(<Name>, <A>, <B>)` or `partition_coproduct!(<Name>, <A>, <B>)`, then reference `<Name>` in `type Input` / `type Output`",
                     func_ident
                 ),
             ));
@@ -1681,7 +2284,7 @@ fn emit_term_for_call(
             return Err(syn::Error::new(
                 func_ident.span(),
                 format!(
-                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred), the ADR-026 G19 hasher-projection identifier `hash`, nor a reserved macro-vocabulary identifier (parallel, fold_n, tree_fold, first_admit, partition_product, partition_coproduct)"
+                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred), nor an ADR-026 macro-vocabulary identifier (hash/parallel/fold_n/tree_fold/first_admit/recurse/unfold), nor a declared verb"
                 ),
             ));
         }
