@@ -501,6 +501,17 @@ behavior = "behavior_route_output_payload"
 symbols = ["FOLD_UNROLL_THRESHOLD"]
 behavior = "behavior_fold_unroll_threshold"
 
+# ─── Mapping: evaluation depth limit (wiki ADR-024) ────────────────────
+# ADR-024 commits the architecture to verb-graph acyclicity. The
+# `verb!` macro performs a local self-reference check at expansion
+# time; cross-verb cycles are caught at runtime by the catamorphism's
+# `EVALUATE_TERM_TREE_DEPTH_LIMIT` bound. Exceeding the bound surfaces
+# a typed `PipelineFailure::ShapeViolation` rather than overflowing the
+# host stack.
+[coverage.evaluation_depth_limit]
+symbols = ["EVALUATE_TERM_TREE_DEPTH_LIMIT"]
+behavior = "behavior_evaluation_depth_limit"
+
 # ─── Mapping: DecimalTranscendental (Phase 9) ──────────────────────────
 # Closed-arithmetic + transcendental supertrait bounded onto
 # `HostTypes::Decimal`. Default-host f64/f32 impls delegate to libm.

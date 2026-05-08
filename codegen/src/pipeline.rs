@@ -2439,8 +2439,28 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes)");
+    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes, 0)");
     f.line("}");
+    f.blank();
+
+    // Wiki ADR-024: foundation-fixed evaluation-depth ceiling. The
+    // catamorphism's recursive descent (Term::VerbReference, nested
+    // verb invocations, deeply-nested Application chains) is bounded
+    // by this constant; exceeding the bound surfaces a typed
+    // `PipelineFailure::ShapeViolation` rather than overflowing the
+    // host stack. The ceiling is the runtime expression of the
+    // verb-graph acyclicity commitment ADR-024 makes — cycles
+    // through non-`Recurse` operators bottom out at this depth and
+    // fail-fast.
+    f.doc_comment("Foundation-fixed evaluation-depth ceiling for the catamorphism");
+    f.doc_comment("(wiki ADR-024). Bounds the recursive descent of `evaluate_term_tree`");
+    f.doc_comment("through nested verb references, applications, and lift/project");
+    f.doc_comment("chains; exceeding the ceiling surfaces a typed");
+    f.doc_comment("`PipelineFailure::ShapeViolation` rather than overflowing the host");
+    f.doc_comment("stack. The runtime expression of the verb-graph acyclicity");
+    f.doc_comment("commitment ADR-024 makes — cycles through non-`Recurse` operators");
+    f.doc_comment("bottom out at this depth and fail-fast.");
+    f.line("pub const EVALUATE_TERM_TREE_DEPTH_LIMIT: usize = 256;");
     f.blank();
 
     // Per-variant evaluator — ADR-029.
@@ -2448,10 +2468,28 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    idx: usize,");
     f.line("    input_bytes: &[u8],");
+    f.line("    depth: usize,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::enforcement::Hasher,");
     f.line("{");
+    f.line("    if depth > EVALUATE_TERM_TREE_DEPTH_LIMIT {");
+    f.line("        return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/EvaluationDepthShape\",");
+    f.line(
+        "                constraint_iri: \"https://uor.foundation/pipeline/EvaluationDepthShape/maxDepth\",",
+    );
+    f.line("                property_iri: \"https://uor.foundation/pipeline/evaluationDepth\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: 0,");
+    f.line("                max_count: EVALUATE_TERM_TREE_DEPTH_LIMIT as u32,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            },");
+    f.line("        });");
+    f.line("    }");
     f.line("    if idx >= arena.len() {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
     f.line("            report: crate::enforcement::ShapeViolation {");
@@ -2489,11 +2527,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes)");
+    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, depth)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, depth + 1)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -2512,7 +2550,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, depth + 1)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -2525,7 +2563,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes)?;",
+        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, depth + 1)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -2541,13 +2579,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, depth + 1);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes)?;",
+        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes, depth + 1)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, depth + 1);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -2573,42 +2611,46 @@ fn emit_prism_model(f: &mut RustFile) {
         "        crate::enforcement::Term::Recurse { measure_index, base_index, step_index } => {",
     );
     f.line(
-        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes)?;",
+        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, depth + 1)?;",
     );
     f.line("            // Measure equals zero iff every byte in the measure value is zero.");
     f.line("            let is_zero = measure.bytes().iter().all(|&b| b == 0);");
     f.line("            if is_zero {");
-    f.line("                evaluate_term_at::<A>(arena, base_index as usize, input_bytes)");
+    f.line(
+        "                evaluate_term_at::<A>(arena, base_index as usize, input_bytes, depth + 1)",
+    );
     f.line("            } else {");
     f.line("                // Bounded recursion: evaluate one step. The Term::Recurse");
     f.line("                // structure encodes well-foundedness via the measure; deeper");
     f.line("                // unrolling is implementation-controlled (ADR-026 G14 maps");
     f.line("                // higher counts to recursion).");
-    f.line("                evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line(
+        "                evaluate_term_at::<A>(arena, step_index as usize, input_bytes, depth + 1)",
+    );
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::Unfold { seed_index, step_index } => {");
     f.line(
-        "            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes)?;",
+        "            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, depth + 1)?;",
     );
-    f.line("            evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line("            evaluate_term_at::<A>(arena, step_index as usize, input_bytes, depth + 1)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes) {");
+    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, depth + 1) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes)",
+        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, depth + 1)",
     );
     f.line("                    }");
     f.line("                }");
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::HasherProjection { input_index } => {");
-    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes)?;");
+    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, depth + 1)?;");
     f.line("            let mut hasher = <A as crate::enforcement::Hasher>::initial();");
     f.line("            hasher = hasher.fold_bytes(v.bytes());");
     f.line("            let digest = hasher.finalize();");
@@ -2619,6 +2661,22 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                TERM_VALUE_MAX_BYTES");
     f.line("            } else { A::OUTPUT_BYTES };");
     f.line("            Ok(TermValue::from_slice(&digest[..width]))");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::VerbReference { input_index, fragment } => {");
+    f.line("            // Wiki ADR-024: evaluate the verb's term-tree fragment recursively");
+    f.line("            // against the input value bound at `input_index`. The fragment is");
+    f.line("            // a separate `&'static [Term]` slice the verb's `verb!`-emitted");
+    f.line("            // const carries; the catamorphism evaluator's contract is the same");
+    f.line("            // shape against the fragment's own root-term-is-last convention.");
+    f.line(
+        "            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, depth + 1)?;",
+    );
+    f.line("            if fragment.is_empty() {");
+    f.line("                Ok(v)");
+    f.line("            } else {");
+    f.line("                let root_idx = fragment.len() - 1;");
+    f.line("                evaluate_term_at::<A>(fragment, root_idx, v.bytes(), depth + 1)");
+    f.line("            }");
     f.line("        }");
     f.line("    }");
     f.line("}");
@@ -2631,6 +2689,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    args_start: usize,");
     f.line("    args_len: usize,");
     f.line("    input_bytes: &[u8],");
+    f.line("    depth: usize,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::enforcement::Hasher,");
@@ -2666,7 +2725,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        });");
     f.line("    }");
     f.line("    if arity == 1 {");
-    f.line("        let v = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
+    f.line("        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, depth + 1)?;");
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
     f.line("            crate::PrimitiveOp::Neg => x.wrapping_neg(),");
@@ -2691,12 +2750,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                },");
     f.line("            }),");
     f.line("        };");
-    f.line("        let width = v.bytes().len().max(1);");
-    f.line("        let arr = u64_to_be_min(r, width);");
+    f.line("        let width = v.bytes().len().clamp(1, 8);");
+    f.line("        let arr = r.to_be_bytes();");
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    } else {");
-    f.line("        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
-    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes)?;");
+    f.line("        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, depth + 1)?;");
+    f.line(
+        "        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, depth + 1)?;",
+    );
     f.line("        let a = bytes_to_u64_be(lhs.bytes());");
     f.line("        let b = bytes_to_u64_be(rhs.bytes());");
     f.line("        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);");
@@ -2726,13 +2787,17 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }),");
     f.line("        };");
     f.line("        let width = if width > 8 { 8 } else { width };");
-    f.line("        let arr = u64_to_be_min(r, width);");
+    f.line("        let arr = r.to_be_bytes();");
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    }");
     f.line("}");
     f.blank();
 
-    // u64 <-> bytes helpers for primitive op evaluation.
+    // bytes_to_u64_be: big-endian byte-slice to u64 (low end of the
+    // slice is the high byte). Used by `apply_primitive_op` to fold
+    // operands into u64-width arithmetic regardless of the underlying
+    // Witt level (the caller restores the level's byte width via
+    // `arr[8 - width..]` slicing of the big-endian result).
     f.line("fn bytes_to_u64_be(bytes: &[u8]) -> u64 {");
     f.line("    let take = if bytes.len() > 8 { 8 } else { bytes.len() };");
     f.line("    let start = bytes.len() - take;");
@@ -2743,12 +2808,6 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        i += 1;");
     f.line("    }");
     f.line("    acc");
-    f.line("}");
-    f.blank();
-    f.line("fn u64_to_be_min(value: u64, width: usize) -> [u8; 8] {");
-    f.line("    // Big-endian byte representation; callers slice the trailing `width` bytes.");
-    f.line("    let _ = width;");
-    f.line("    value.to_be_bytes()");
     f.line("}");
     f.blank();
 

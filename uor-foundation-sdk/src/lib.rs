@@ -148,11 +148,13 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
             };
         }
 
-        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
-        // impl alongside `ConstrainedTypeShape`. The shape struct is a
-        // zero-sized type-level marker, so the canonical byte sequence is
-        // empty (MAX_BYTES = 0) — applications that need to carry runtime
-        // input data declare a custom `ConstrainedTypeShape` and write a
+        // Wiki ADR-023 + ADR-027: shape-derived shapes receive the four
+        // sealed-trait impls (`__sdk_seal::Sealed`, `IntoBindingValue`,
+        // `GroundedShape`, plus the `ConstrainedTypeShape` impl above).
+        // The shape struct is a zero-sized type-level marker, so the
+        // canonical byte sequence is empty (MAX_BYTES = 0); applications
+        // that need to carry runtime input data declare a custom
+        // `ConstrainedTypeShape` via the `output_shape!` macro and write a
         // bespoke `IntoBindingValue` impl.
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
         impl ::uor_foundation::pipeline::IntoBindingValue for #name {
@@ -164,6 +166,7 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
                 Ok(0)
             }
         }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
 
         impl #name {
             /// Mint a verified [`PartitionProductWitness`] for this shape's
@@ -400,9 +403,11 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
             };
         }
 
-        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
-        // impl alongside `ConstrainedTypeShape` (zero-sized marker; canonical
-        // byte sequence is empty).
+        // Wiki ADR-023 + ADR-027: shape-derived shapes receive the four
+        // sealed-trait impls so they qualify as both Input
+        // (`IntoBindingValue`) and Output (`GroundedShape` +
+        // `IntoBindingValue`) for `PrismModel` (zero-sized marker;
+        // canonical byte sequence is empty).
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
         impl ::uor_foundation::pipeline::IntoBindingValue for #name {
             const MAX_BYTES: usize = 0;
@@ -413,6 +418,7 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
                 Ok(0)
             }
         }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
 
         impl #name {
             /// Mint a verified [`PartitionCoproductWitness`] for this shape's
@@ -566,9 +572,11 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
             type Right = #r;
         }
 
-        // Wiki ADR-023: shape-derived inputs receive their `IntoBindingValue`
-        // impl alongside `ConstrainedTypeShape` (zero-sized marker; canonical
-        // byte sequence is empty).
+        // Wiki ADR-023 + ADR-027: shape-derived shapes receive the four
+        // sealed-trait impls so they qualify as both Input
+        // (`IntoBindingValue`) and Output (`GroundedShape` +
+        // `IntoBindingValue`) for `PrismModel` (zero-sized marker;
+        // canonical byte sequence is empty).
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
         impl ::uor_foundation::pipeline::IntoBindingValue for #name {
             const MAX_BYTES: usize = 0;
@@ -579,6 +587,7 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
                 Ok(0)
             }
         }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
 
         impl #name {
             /// Mint a verified [`CartesianProductWitness`] for this shape's
@@ -840,16 +849,81 @@ enum TermSpec {
     /// `Term::HasherProjection { input_index }` — wiki ADR-026 G19.
     /// The input subtree's root is at `input_index`.
     HasherProjection { input_index: u32 },
+    /// `Term::VerbReference { input_index, fragment }` — wiki ADR-024.
+    /// Splices a verb's term-tree fragment into the calling arena. The
+    /// fragment is named via the screaming-snake-case `VERB_TERMS_<N>`
+    /// const the `verb!` macro emits; we carry it as a token stream so
+    /// emission preserves the user's spelling for span reporting.
+    VerbReference {
+        input_index: u32,
+        fragment_path: proc_macro2::TokenStream,
+    },
+    /// `Term::Lift { operand_index, target }` — wiki ADR-022 D3 G4.
+    /// Canonical injection from the operand's Witt level to a strictly
+    /// higher target level (lossless zero-extension).
+    Lift {
+        operand_index: u32,
+        target_witt: proc_macro2::TokenStream,
+    },
+    /// `Term::Project { operand_index, target }` — wiki ADR-022 D3 G5.
+    /// Canonical surjection from the operand's Witt level to a strictly
+    /// lower target level (lossy truncation).
+    Project {
+        operand_index: u32,
+        target_witt: proc_macro2::TokenStream,
+    },
+}
+
+/// Per-scope binding table the closure-body parser maintains. Maps a
+/// `let`-introduced identifier to the arena index where that binding's
+/// value-tree's root lives, so identifier references inside the
+/// `let`'s scope resolve to that root. Per wiki ADR-022 D3 G10 the
+/// macro builds this incrementally as it descends through `let`
+/// statements; the route's input parameter is its own special case
+/// (`Term::Variable { name_index: 0 }`) and lives outside this table.
+#[derive(Default, Clone)]
+struct BindingScope {
+    bindings: Vec<(Ident, usize)>,
+}
+
+impl BindingScope {
+    fn lookup(&self, ident: &Ident) -> Option<usize> {
+        // Iterate in reverse so inner shadowing (G10 forbids it but the
+        // lookup works either way) finds the latest declaration.
+        self.bindings
+            .iter()
+            .rev()
+            .find(|(name, _)| name == ident)
+            .map(|(_, idx)| *idx)
+    }
+
+    fn shadow_check(&self, ident: &Ident) -> Result<()> {
+        if self.bindings.iter().any(|(name, _)| name == ident) {
+            return Err(syn::Error::new(
+                ident.span(),
+                format!(
+                    "closure violation: shadowing `{ident}` (ADR-022 D3 G10 forbids declaring two `let`s with the same identifier in the same scope)"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, ident: Ident, root_idx: usize) {
+        self.bindings.push((ident, root_idx));
+    }
 }
 
 /// Recursively walk a Rust expression and append the terms that compute
 /// it to `arena`, returning the index where this expression's *root*
 /// term lands. `route_input` is the name of the route's bound input
-/// parameter (mapped to `Term::Variable { name_index: 0 }`).
+/// parameter (mapped to `Term::Variable { name_index: 0 }`); `scope`
+/// carries `let`-introduced bindings (G10) the parser has accumulated.
 fn emit_term_for_expr(
     expr: &syn::Expr,
     route_input: &Ident,
     arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
 ) -> Result<usize> {
     match expr {
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(int_lit), .. }) => {
@@ -865,57 +939,266 @@ fn emit_term_for_expr(
             arena.push(TermSpec::Variable);
             Ok(idx)
         }
-        syn::Expr::Path(path_expr) => Err(syn::Error::new_spanned(
-            path_expr,
-            "closure violation: identifier is not a foundation-vocabulary name (only the route's `input` parameter is recognised as a variable reference)",
-        )),
-        syn::Expr::Call(call_expr) => emit_term_for_call(call_expr, route_input, arena),
-        syn::Expr::Block(block_expr) => {
-            // A `{ expr }` block — accept iff it has exactly one expression
-            // statement (the canonical closure-body shape after parsing).
-            let stmts = &block_expr.block.stmts;
-            if stmts.len() == 1 {
-                if let syn::Stmt::Expr(inner, _) = &stmts[0] {
-                    return emit_term_for_expr(inner, route_input, arena);
+        syn::Expr::Path(path_expr) => {
+            // ADR-022 D3 G10: a bare identifier may be a `let`-introduced
+            // binding from the surrounding scope. The macro splices the
+            // binding's value-tree root by emitting a duplicate path that
+            // shares the same arena root index — semantically identical
+            // because Term values are content-determined.
+            if let Some(name) = path_expr.path.get_ident() {
+                if let Some(root) = scope.lookup(name) {
+                    return Ok(root);
                 }
             }
             Err(syn::Error::new_spanned(
-                block_expr,
-                "closure violation: block expressions must contain exactly one expression statement",
+                path_expr,
+                "closure violation: identifier is not a foundation-vocabulary name (only the route's `input` parameter, `let`-introduced bindings, and reserved macro-vocabulary identifiers are recognised)",
             ))
         }
-        syn::Expr::Paren(paren_expr) => emit_term_for_expr(&paren_expr.expr, route_input, arena),
+        syn::Expr::Call(call_expr) => emit_term_for_call(call_expr, route_input, arena, scope),
+        syn::Expr::Block(block_expr) => emit_term_for_block(&block_expr.block, route_input, arena, scope),
+        syn::Expr::Paren(paren_expr) => {
+            emit_term_for_expr(&paren_expr.expr, route_input, arena, scope)
+        }
         other => Err(syn::Error::new_spanned(
             other,
-            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, and lowercase PrimitiveOp function calls — add, sub, mul, xor, and, or, neg, bnot, succ, pred)",
+            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, `let`-introduced bindings, and macro-vocabulary function calls — PrimitiveOps, hash, lift, project, plus implementation verbs)",
         )),
     }
 }
 
-/// Map a function-call expression to a `Term::Application`. Recognises
-/// the ten lowercase PrimitiveOp names and rejects anything else as a
-/// closure violation.
+/// Handle a `{ <stmts>; <tail_expr> }` block — wiki ADR-022 D3 G10 + G11.
+/// `let` statements bind identifiers to the `let`'s value-tree root; the
+/// final expression is the block's value.
+fn emit_term_for_block(
+    block: &syn::Block,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
+) -> Result<usize> {
+    if block.stmts.is_empty() {
+        return Err(syn::Error::new_spanned(
+            block,
+            "closure violation: block expressions must contain at least one statement (G11) — empty blocks are unreachable in the closure-body grammar",
+        ));
+    }
+    let mut local_scope = scope.clone();
+    let last = block.stmts.len() - 1;
+    for (i, stmt) in block.stmts.iter().enumerate() {
+        match stmt {
+            syn::Stmt::Local(local) => {
+                if i == last {
+                    return Err(syn::Error::new_spanned(
+                        stmt,
+                        "closure violation: block must end with an expression statement (G11), not a `let` binding",
+                    ));
+                }
+                let ident = match &local.pat {
+                    syn::Pat::Ident(pat_ident) => {
+                        if pat_ident.by_ref.is_some() || pat_ident.mutability.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                pat_ident,
+                                "closure violation: `let` binding patterns must be plain identifiers (no `ref`, no `mut`) per ADR-022 D3 G10",
+                            ));
+                        }
+                        if pat_ident.subpat.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                pat_ident,
+                                "closure violation: `let` binding patterns must be plain identifiers per ADR-022 D3 G10",
+                            ));
+                        }
+                        pat_ident.ident.clone()
+                    }
+                    other => {
+                        return Err(syn::Error::new_spanned(
+                            other,
+                            "closure violation: `let` binding patterns must be plain identifiers per ADR-022 D3 G10",
+                        ));
+                    }
+                };
+                local_scope.shadow_check(&ident)?;
+                let init = local.init.as_ref().ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        local,
+                        "closure violation: `let` bindings must have an initializer (`let <name> = <expr>;`)",
+                    )
+                })?;
+                if init.diverge.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        local,
+                        "closure violation: `let ... else` is not in the closure-body grammar (G10)",
+                    ));
+                }
+                let value_root =
+                    emit_term_for_expr(&init.expr, route_input, arena, &mut local_scope)?;
+                local_scope.push(ident, value_root);
+            }
+            syn::Stmt::Expr(inner, semi) => {
+                if i == last {
+                    if semi.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            stmt,
+                            "closure violation: block must end with a tail expression (G11), no trailing `;`",
+                        ));
+                    }
+                    return emit_term_for_expr(inner, route_input, arena, &mut local_scope);
+                }
+                return Err(syn::Error::new_spanned(
+                    stmt,
+                    "closure violation: only `let` statements may precede the block's tail expression (G10/G11)",
+                ));
+            }
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "closure violation: block statement is not in the closure-body grammar (G10/G11 admits only `let` and a final expression)",
+                ));
+            }
+        }
+    }
+    // Unreachable in well-typed flow — the loop always returns or errors.
+    Err(syn::Error::new_spanned(
+        block,
+        "closure violation: block lacks a tail expression (G11)",
+    ))
+}
+
+/// Map a function-call expression to a `Term::Application` (G3),
+/// `Term::Lift` (G4), `Term::Project` (G5), `Term::HasherProjection`
+/// (G19), or `Term::VerbReference` (ADR-024 verb invocation). Rejects
+/// anything else as a closure violation.
 fn emit_term_for_call(
     call: &syn::ExprCall,
     route_input: &Ident,
     arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
 ) -> Result<usize> {
-    // The function being called must be a bare identifier matching one
-    // of the recognised PrimitiveOp names.
+    // ADR-022 D3 G4 / G5: `lift::<W{n}>(operand)` and `project::<W{n}>(operand)`
+    // — the call target is a path with a generic Witt-level argument.
+    if let syn::Expr::Path(path_expr) = call.func.as_ref() {
+        let segments = &path_expr.path.segments;
+        if segments.len() == 1 {
+            let segment = &segments[0];
+            let last_ident = &segment.ident;
+            if last_ident == "lift" || last_ident == "project" {
+                let target_witt = match &segment.arguments {
+                    syn::PathArguments::AngleBracketed(args) if args.args.len() == 1 => {
+                        match &args.args[0] {
+                            syn::GenericArgument::Type(syn::Type::Path(tp)) => tp.path.clone(),
+                            other => {
+                                return Err(syn::Error::new_spanned(
+                                    other,
+                                    "closure violation: lift/project's generic argument must be a Witt-level type (e.g., `WittLevel::W32`)",
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(syn::Error::new_spanned(
+                            segment,
+                            format!(
+                                "closure violation: `{last_ident}` requires a generic Witt-level argument: `{last_ident}::<WittLevel::W{{n}}>(operand)`"
+                            ),
+                        ));
+                    }
+                };
+                if call.args.len() != 1 {
+                    return Err(syn::Error::new(
+                        last_ident.span(),
+                        format!(
+                            "closure violation: `{last_ident}` (G4/G5) expects 1 argument, got {}",
+                            call.args.len()
+                        ),
+                    ));
+                }
+                let operand_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+                let target_witt_ts = quote! { #target_witt };
+                let idx = arena.len();
+                let spec = if last_ident == "lift" {
+                    TermSpec::Lift {
+                        operand_index: operand_root as u32,
+                        target_witt: target_witt_ts,
+                    }
+                } else {
+                    TermSpec::Project {
+                        operand_index: operand_root as u32,
+                        target_witt: target_witt_ts,
+                    }
+                };
+                arena.push(spec);
+                return Ok(idx);
+            }
+        }
+    }
+
+    // All other call shapes require a bare identifier callee.
     let func_ident = match call.func.as_ref() {
         syn::Expr::Path(p) => p.path.get_ident().cloned().ok_or_else(|| {
             syn::Error::new_spanned(
                 &call.func,
-                "closure violation: call target must be a bare identifier matching a PrimitiveOp name",
+                "closure violation: call target must be a bare identifier matching a PrimitiveOp name, the `hash` verb form, or a declared verb identifier",
             )
         })?,
         other => {
             return Err(syn::Error::new_spanned(
                 other,
-                "closure violation: call target must be a bare identifier matching a PrimitiveOp name",
+                "closure violation: call target must be a bare identifier",
             ));
         }
     };
+
+    // ADR-024 verb invocation: any non-reserved, non-PrimitiveOp
+    // identifier in call position is treated as a verb call. The macro
+    // emits `Term::VerbReference { fragment: VERB_TERMS_<NAME> }` and
+    // relies on Rust's name resolution to either find the `verb!`-
+    // emitted const in scope or surface a clear "cannot find value"
+    // error at the verb-call span.
+    let verb_resolution = match func_ident.to_string().as_str() {
+        // Exclude all reserved + PrimitiveOp identifiers from verb
+        // resolution; these have dedicated handling below.
+        "add"
+        | "sub"
+        | "mul"
+        | "xor"
+        | "and"
+        | "or"
+        | "neg"
+        | "bnot"
+        | "succ"
+        | "pred"
+        | "hash"
+        | "parallel"
+        | "fold_n"
+        | "tree_fold"
+        | "first_admit"
+        | "partition_product"
+        | "partition_coproduct" => false,
+        _ => true,
+    };
+    if verb_resolution {
+        if call.args.len() != 1 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "verb invocation `{}` expects 1 argument (the verb's input value), got {}",
+                    func_ident,
+                    call.args.len()
+                ),
+            ));
+        }
+        let input_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let const_name = Ident::new(
+            &format!("VERB_TERMS_{}", to_screaming_snake(&func_ident.to_string())),
+            func_ident.span(),
+        );
+        let fragment_path = quote! { #const_name };
+        let idx = arena.len();
+        arena.push(TermSpec::VerbReference {
+            input_index: input_root as u32,
+            fragment_path,
+        });
+        return Ok(idx);
+    }
 
     // ADR-026 G19: `hash(input)` lowers to `Term::HasherProjection`.
     if func_ident == "hash" {
@@ -928,7 +1211,7 @@ fn emit_term_for_call(
                 ),
             ));
         }
-        let input_root = emit_term_for_expr(&call.args[0], route_input, arena)?;
+        let input_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
         let idx = arena.len();
         arena.push(TermSpec::HasherProjection {
             input_index: input_root as u32,
@@ -996,7 +1279,7 @@ fn emit_term_for_call(
     // Emit each arg's subtree and record its root index.
     let mut arg_root_indices: Vec<usize> = Vec::with_capacity(call.args.len());
     for arg in call.args.iter() {
-        arg_root_indices.push(emit_term_for_expr(arg, route_input, arena)?);
+        arg_root_indices.push(emit_term_for_expr(arg, route_input, arena, scope)?);
     }
 
     // ADR-022 D2: the args block must be CONTIGUOUS in the arena. If
@@ -1033,6 +1316,27 @@ fn emit_term_for_call(
                 },
                 TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
                     input_index: *input_index,
+                },
+                TermSpec::VerbReference {
+                    input_index,
+                    fragment_path,
+                } => TermSpec::VerbReference {
+                    input_index: *input_index,
+                    fragment_path: fragment_path.clone(),
+                },
+                TermSpec::Lift {
+                    operand_index,
+                    target_witt,
+                } => TermSpec::Lift {
+                    operand_index: *operand_index,
+                    target_witt: target_witt.clone(),
+                },
+                TermSpec::Project {
+                    operand_index,
+                    target_witt,
+                } => TermSpec::Project {
+                    operand_index: *operand_index,
+                    target_witt: target_witt.clone(),
                 },
             };
             arena.push(dup);
@@ -1090,6 +1394,42 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     }
                 }
             }
+            TermSpec::VerbReference {
+                input_index,
+                fragment_path,
+            } => {
+                let i = *input_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::VerbReference {
+                        input_index: #i,
+                        fragment: #fragment_path,
+                    }
+                }
+            }
+            TermSpec::Lift {
+                operand_index,
+                target_witt,
+            } => {
+                let i = *operand_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Lift {
+                        operand_index: #i,
+                        target: #target_witt,
+                    }
+                }
+            }
+            TermSpec::Project {
+                operand_index,
+                target_witt,
+            } => {
+                let i = *operand_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Project {
+                        operand_index: #i,
+                        target: #target_witt,
+                    }
+                }
+            }
         })
         .collect()
 }
@@ -1130,23 +1470,12 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
     } = parsed;
 
     // Walk the closure body — the macro-time mapping that ADR-020 / D3
-    // names. The body must be a single expression block; we accept the
-    // canonical Rust shape of `{ expr }` and treat the lone expression
-    // as the route's term tree.
-    let final_expr = match route_body.stmts.last() {
-        Some(syn::Stmt::Expr(e, _)) => e.clone(),
-        _ => {
-            return syn::Error::new_spanned(
-                &route_body,
-                "closure violation: route body must end with an expression statement (no `;`)",
-            )
-            .to_compile_error()
-            .into();
-        }
-    };
-
+    // names. The body is processed via the block handler so `let`
+    // bindings (G10) and the trailing tail expression (G11) are both
+    // recognised.
     let mut arena: Vec<TermSpec> = Vec::new();
-    if let Err(e) = emit_term_for_expr(&final_expr, &route_input_ident, &mut arena) {
+    let mut scope = BindingScope::default();
+    if let Err(e) = emit_term_for_block(&route_body, &route_input_ident, &mut arena, &mut scope) {
         return e.to_compile_error().into();
     }
     let term_specs = render_arena(&arena);
@@ -1467,22 +1796,33 @@ pub fn verb(input: TokenStream) -> TokenStream {
         body,
     } = parsed;
 
-    let final_expr = match body.stmts.last() {
-        Some(syn::Stmt::Expr(e, _)) => e.clone(),
-        _ => {
-            return syn::Error::new_spanned(
-                &body,
-                "closure violation: verb body must end with an expression statement (no `;`)",
-            )
-            .to_compile_error()
-            .into();
-        }
-    };
-
     let mut arena: Vec<TermSpec> = Vec::new();
-    if let Err(e) = emit_term_for_expr(&final_expr, &input_param, &mut arena) {
+    let mut scope = BindingScope::default();
+    if let Err(e) = emit_term_for_block(&body, &input_param, &mut arena, &mut scope) {
         return e.to_compile_error().into();
     }
+
+    // Wiki ADR-024 verb-closure check: a verb's body must not directly
+    // reference itself. Self-recursion is the local cycle the macro can
+    // detect at expansion time; cross-verb cycles fall back to the
+    // catamorphism's `EVALUATE_TERM_TREE_DEPTH_LIMIT` bound at runtime.
+    let self_const_name = format!("VERB_TERMS_{}", to_screaming_snake(&fn_name.to_string()));
+    for spec in &arena {
+        if let TermSpec::VerbReference { fragment_path, .. } = spec {
+            if fragment_path.to_string().trim() == self_const_name {
+                return syn::Error::new(
+                    fn_name.span(),
+                    format!(
+                        "verb-closure violation (ADR-024): `{}`'s body references itself directly; the verb-reference graph through non-`recurse` operators must be acyclic. Lift the recursion through `recurse(...)` (G7) instead.",
+                        fn_name
+                    ),
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    }
+
     let term_specs = render_arena(&arena);
 
     let const_name = Ident::new(
@@ -1494,8 +1834,11 @@ pub fn verb(input: TokenStream) -> TokenStream {
     let expansion = quote! {
         // Const term-tree fragment, fully-const, ready for the verb's
         // accessor or for `prism_model!` to splice into a route arena.
+        // The const is `pub` so `prism_model!` invocations in
+        // downstream crates (after `use_verbs!` re-export) can name it
+        // when emitting `Term::VerbReference { fragment: VERB_TERMS_<N> }`.
         #[allow(non_upper_case_globals, dead_code)]
-        const #const_name: &[::uor_foundation::enforcement::Term] = &[
+        #fn_vis const #const_name: &[::uor_foundation::enforcement::Term] = &[
             #( #term_specs ),*
         ];
 
@@ -1597,11 +1940,16 @@ pub fn use_verbs(input: TokenStream) -> TokenStream {
         verb_names,
     } = parsed;
 
-    let mut imports: Vec<proc_macro2::TokenStream> = Vec::with_capacity(verb_names.len() * 2);
+    let mut imports: Vec<proc_macro2::TokenStream> = Vec::with_capacity(verb_names.len() * 3);
     for name in &verb_names {
         let arena_name = Ident::new(&format!("{}_term_arena", name), name.span());
+        let const_name = Ident::new(
+            &format!("VERB_TERMS_{}", to_screaming_snake(&name.to_string())),
+            name.span(),
+        );
         imports.push(quote! { pub use #crate_path::#name; });
         imports.push(quote! { pub use #crate_path::#arena_name; });
+        imports.push(quote! { pub use #crate_path::#const_name; });
     }
 
     let expansion = quote! {

@@ -2017,6 +2017,19 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Index of the input term in the arena (the bytes to hash).");
     f.line("        input_index: u32,");
     f.line("    },");
+    f.indented_doc_comment("Layer-3 verb-reference splice (wiki ADR-024).");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("References a `verb!`-emitted term-tree fragment. The catamorphism");
+    f.indented_doc_comment("evaluates the fragment recursively against the input value bound at");
+    f.indented_doc_comment("`input_index`. Emitted by `prism_model!` when the closure body");
+    f.indented_doc_comment("invokes a verb declared via `verb!` or imported via `use_verbs!`.");
+    f.line("    VerbReference {");
+    f.line("        /// Index of the verb's input argument in the calling arena.");
+    f.line("        input_index: u32,");
+    f.line("        /// The verb's term-tree fragment, emitted as a `&'static [Term]`");
+    f.line("        /// const by `verb!` and referenced by the calling `prism_model!`.");
+    f.line("        fragment: &'static [Term],");
+    f.line("    },");
     f.line("}");
     f.blank();
 

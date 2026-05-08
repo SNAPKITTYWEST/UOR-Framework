@@ -363,3 +363,261 @@ fn prism_model_macro_satisfies_prism_model_bound() {
         core::any::type_name::<AddTwoLiteralsRoute>(),
     );
 }
+
+// =====================================================================
+// `output_shape!` smoke tests — wiki ADR-027.
+//
+// The macro emits the four sealed-trait impls (`__sdk_seal::Sealed`,
+// `ConstrainedTypeShape`, `GroundedShape`, `IntoBindingValue`) so a
+// custom Output shape qualifies as a `PrismModel::Output`.
+
+use uor_foundation::enforcement::GroundedShape;
+use uor_foundation::pipeline::IntoBindingValue;
+use uor_foundation_sdk::output_shape;
+
+output_shape! {
+    pub struct OutputHashSmoke;
+    impl ConstrainedTypeShape for OutputHashSmoke {
+        const IRI: &'static str = "https://example.org/sdk-smoke/OutputHash";
+        const SITE_COUNT: usize = 32;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+    }
+}
+
+#[test]
+fn output_shape_emits_constrained_type_shape_impl() {
+    assert_eq!(<OutputHashSmoke as ConstrainedTypeShape>::SITE_COUNT, 32);
+    assert!(<OutputHashSmoke as ConstrainedTypeShape>::IRI.contains("OutputHash"));
+}
+
+#[test]
+fn output_shape_emits_grounded_shape_impl() {
+    fn _accepts<T: GroundedShape>() {}
+    _accepts::<OutputHashSmoke>();
+}
+
+#[test]
+fn output_shape_emits_into_binding_value_with_max_bytes_equals_site_count() {
+    assert_eq!(<OutputHashSmoke as IntoBindingValue>::MAX_BYTES, 32);
+}
+
+#[test]
+fn output_shape_qualifies_as_prism_model_output() {
+    fn _accepts<T: ConstrainedTypeShape + GroundedShape + IntoBindingValue>() {}
+    _accepts::<OutputHashSmoke>();
+}
+
+// =====================================================================
+// `verb!` smoke tests — wiki ADR-024 Layer-3 implementation closure.
+//
+// The macro emits a const term-tree fragment (`VERB_TERMS_<NAME>`), a
+// public accessor (`<name>_term_arena`), and a marker function
+// (`<name>(input)`). The body is the same closure-body grammar
+// `prism_model!` accepts; the catamorphism evaluates the fragment via
+// `Term::VerbReference` when `prism_model!` invokes the verb by name.
+
+use uor_foundation_sdk::verb;
+
+verb! {
+    pub fn smoke_succ(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        succ(input)
+    }
+}
+
+#[test]
+fn verb_macro_emits_term_arena_const() {
+    let arena = smoke_succ_term_arena();
+    // `succ(input)` → [Variable, Application{Succ, [0..1]}]
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    match arena[1] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Succ));
+            assert_eq!(args.start, 0);
+            assert_eq!(args.len, 1);
+        }
+        other => panic!("expected Application(Succ) at index 1, got {other:?}"),
+    }
+}
+
+#[test]
+fn verb_macro_const_is_publicly_visible() {
+    // The `pub const VERB_TERMS_SMOKE_SUCC` is exported so prism_model!
+    // can reference it when emitting Term::VerbReference (ADR-024).
+    let arena = VERB_TERMS_SMOKE_SUCC;
+    assert_eq!(arena.len(), 2);
+}
+
+// `prism_model!` emits Term::VerbReference when the closure body
+// invokes a verb declared in the same module.
+prism_model! {
+    pub struct VerbInvokingModel;
+    pub struct VerbInvokingRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for VerbInvokingModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = VerbInvokingRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            smoke_succ(input)
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_verb_reference_for_local_verb_call() {
+    let arena = <VerbInvokingRoute as FoundationClosed>::arena_slice();
+    // `smoke_succ(input)` → [Variable, VerbReference{0, VERB_TERMS_SMOKE_SUCC}]
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    match arena[1] {
+        Term::VerbReference {
+            input_index,
+            fragment,
+        } => {
+            assert_eq!(input_index, 0);
+            // The fragment is the verb's term arena — same content as smoke_succ_term_arena.
+            assert_eq!(fragment.len(), VERB_TERMS_SMOKE_SUCC.len());
+        }
+        other => panic!("expected VerbReference at index 1, got {other:?}"),
+    }
+}
+
+// =====================================================================
+// Closure-body grammar extensions G4 (Lift), G5 (Project), G10 (let).
+
+use uor_foundation::WittLevel;
+
+prism_model! {
+    pub struct LiftToW16Model;
+    pub struct LiftToW16Route;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for LiftToW16Model {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = LiftToW16Route;
+        fn route(input: Self::Input) -> Self::Output {
+            lift::<WittLevel::W16>(input)
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_lift_term_for_g4_lift_form() {
+    let arena = <LiftToW16Route as FoundationClosed>::arena_slice();
+    // `lift::<W16>(input)` → [Variable, Lift { operand: 0, target: W16 }]
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    match arena[1] {
+        Term::Lift {
+            operand_index,
+            target,
+        } => {
+            assert_eq!(operand_index, 0);
+            assert!(
+                matches!(target, WittLevel::W16),
+                "expected target W16, got {target:?}",
+            );
+        }
+        other => panic!("expected Term::Lift at index 1, got {other:?}"),
+    }
+}
+
+prism_model! {
+    pub struct ProjectToW8Model;
+    pub struct ProjectToW8Route;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ProjectToW8Model {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = ProjectToW8Route;
+        fn route(input: Self::Input) -> Self::Output {
+            project::<WittLevel::W8>(input)
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_project_term_for_g5_project_form() {
+    let arena = <ProjectToW8Route as FoundationClosed>::arena_slice();
+    assert_eq!(arena.len(), 2);
+    match arena[1] {
+        Term::Project {
+            operand_index,
+            target,
+        } => {
+            assert_eq!(operand_index, 0);
+            assert!(matches!(target, WittLevel::W8));
+        }
+        other => panic!("expected Term::Project at index 1, got {other:?}"),
+    }
+}
+
+prism_model! {
+    pub struct LetBindingModel;
+    pub struct LetBindingRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for LetBindingModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = LetBindingRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            let two = 2;
+            add(two, 3)
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_term_arena_for_g10_let_binding() {
+    let arena = <LetBindingRoute as FoundationClosed>::arena_slice();
+    // `let two = 2; add(two, 3)` → [Literal(2), Literal(3), Application(Add, [0..2])]
+    // The let-binding doesn't emit its own Term node; references to
+    // `two` resolve to the Literal(2) root via the binding scope (G10).
+    assert_eq!(arena.len(), 3);
+    match arena[0] {
+        Term::Literal { value, .. } => assert_eq!(value, 2),
+        other => panic!("expected Literal(2) at index 0, got {other:?}"),
+    }
+    match arena[1] {
+        Term::Literal { value, .. } => assert_eq!(value, 3),
+        other => panic!("expected Literal(3) at index 1, got {other:?}"),
+    }
+    match arena[2] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Add));
+            assert_eq!(args.start, 0);
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application(Add) at index 2, got {other:?}"),
+    }
+}
+
+// =====================================================================
+// `use_verbs!` smoke test.
+
+mod inner_verb_module {
+    use uor_foundation::enforcement::ConstrainedTypeInput;
+    use uor_foundation_sdk::verb;
+
+    verb! {
+        pub fn inner_verb(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+            succ(input)
+        }
+    }
+}
+
+uor_foundation_sdk::use_verbs! {
+    from inner_verb_module {
+        inner_verb,
+    };
+}
+
+#[test]
+fn use_verbs_re_exports_verb_const_and_accessor() {
+    // The re-exported const matches the original module's const.
+    assert_eq!(
+        VERB_TERMS_INNER_VERB.len(),
+        inner_verb_module::VERB_TERMS_INNER_VERB.len(),
+    );
+    // The re-exported accessor returns the same fragment.
+    let arena = inner_verb_term_arena();
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+}

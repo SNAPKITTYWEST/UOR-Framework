@@ -1868,6 +1868,18 @@ pub enum Term {
         /// Index of the input term in the arena (the bytes to hash).
         input_index: u32,
     },
+    /// Layer-3 verb-reference splice (wiki ADR-024).
+    /// References a `verb!`-emitted term-tree fragment. The catamorphism
+    /// evaluates the fragment recursively against the input value bound at
+    /// `input_index`. Emitted by `prism_model!` when the closure body
+    /// invokes a verb declared via `verb!` or imported via `use_verbs!`.
+    VerbReference {
+        /// Index of the verb's input argument in the calling arena.
+        input_index: u32,
+        /// The verb's term-tree fragment, emitted as a `&'static [Term]`
+        /// const by `verb!` and referenced by the calling `prism_model!`.
+        fragment: &'static [Term],
+    },
 }
 
 /// A type declaration with constraint kinds.
