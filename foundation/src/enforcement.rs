@@ -1868,18 +1868,107 @@ pub enum Term {
         /// Index of the input term in the arena (the bytes to hash).
         input_index: u32,
     },
-    /// Layer-3 verb-reference splice (wiki ADR-024).
-    /// References a `verb!`-emitted term-tree fragment. The catamorphism
-    /// evaluates the fragment recursively against the input value bound at
-    /// `input_index`. Emitted by `prism_model!` when the closure body
-    /// invokes a verb declared via `verb!` or imported via `use_verbs!`.
-    VerbReference {
-        /// Index of the verb's input argument in the calling arena.
-        input_index: u32,
-        /// The verb's term-tree fragment, emitted as a `&'static [Term]`
-        /// const by `verb!` and referenced by the calling `prism_model!`.
-        fragment: &'static [Term],
-    },
+}
+
+/// Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index
+/// fields of `term` by `offset`. Used by [`splice_term_fragment`] to
+/// inline a verb's term-tree fragment into a host arena at compile time.
+/// `Term::Variable`'s `name_index` is a binding-name reference (not an
+/// arena index) and is preserved unchanged. `Term::Try`'s `handler_index`
+/// is preserved unchanged when it equals `u32::MAX` (the default-
+/// propagation sentinel per ADR-022 D3 G9).
+#[must_use]
+pub const fn shift_term(term: Term, offset: u32) -> Term {
+    match term {
+        Term::Literal { value, level } => Term::Literal { value, level },
+        // name_index is a binding-name reference, not an arena index.
+        Term::Variable { name_index } => Term::Variable { name_index },
+        Term::Application { operator, args } => Term::Application {
+            operator,
+            args: TermList {
+                start: args.start + offset,
+                len: args.len,
+            },
+        },
+        Term::Lift {
+            operand_index,
+            target,
+        } => Term::Lift {
+            operand_index: operand_index + offset,
+            target,
+        },
+        Term::Project {
+            operand_index,
+            target,
+        } => Term::Project {
+            operand_index: operand_index + offset,
+            target,
+        },
+        Term::Match {
+            scrutinee_index,
+            arms,
+        } => Term::Match {
+            scrutinee_index: scrutinee_index + offset,
+            arms: TermList {
+                start: arms.start + offset,
+                len: arms.len,
+            },
+        },
+        Term::Recurse {
+            measure_index,
+            base_index,
+            step_index,
+        } => Term::Recurse {
+            measure_index: measure_index + offset,
+            base_index: base_index + offset,
+            step_index: step_index + offset,
+        },
+        Term::Unfold {
+            seed_index,
+            step_index,
+        } => Term::Unfold {
+            seed_index: seed_index + offset,
+            step_index: step_index + offset,
+        },
+        Term::Try {
+            body_index,
+            handler_index,
+        } => Term::Try {
+            body_index: body_index + offset,
+            handler_index: if handler_index == u32::MAX {
+                u32::MAX
+            } else {
+                handler_index + offset
+            },
+        },
+        Term::HasherProjection { input_index } => Term::HasherProjection {
+            input_index: input_index + offset,
+        },
+    }
+}
+
+/// Wiki ADR-024 compile-time verb splicing helper.
+/// Copies the `fragment` slice into `buf` starting at `len`, shifting each
+/// term's arena-index fields by `len` so the fragment's internal references
+/// remain consistent within the host arena. Returns the new length.
+/// Used by `prism_model!`-emitted const-fn arena builders to inline a verb's
+/// `&'static [Term]` fragment at the host's current length per ADR-024.
+/// # Panics
+/// Panics at const-eval time if `len + fragment.len() > CAP`.
+#[must_use]
+pub const fn splice_term_fragment<const CAP: usize>(
+    mut buf: [Term; CAP],
+    mut len: usize,
+    fragment: &[Term],
+) -> ([Term; CAP], usize) {
+    let offset = len as u32;
+    let mut i = 0;
+    while i < fragment.len() {
+        buf[len] = shift_term(fragment[i], offset);
+        len += 1;
+        i += 1;
+    }
+    (buf, len)
 }
 
 /// A type declaration with constraint kinds.

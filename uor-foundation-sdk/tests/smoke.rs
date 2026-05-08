@@ -412,9 +412,11 @@ fn output_shape_qualifies_as_prism_model_output() {
 //
 // The macro emits a const term-tree fragment (`VERB_TERMS_<NAME>`), a
 // public accessor (`<name>_term_arena`), and a marker function
-// (`<name>(input)`). The body is the same closure-body grammar
-// `prism_model!` accepts; the catamorphism evaluates the fragment via
-// `Term::VerbReference` when `prism_model!` invokes the verb by name.
+// (`<name>(input)`). When `prism_model!` invokes the verb by name in
+// a route's closure body, the macro inlines the verb's fragment into
+// the host arena at compile time via foundation's
+// `splice_term_fragment` const-fn helper — verb-graph acyclicity is
+// a compile-time commitment, not a runtime guard.
 
 use uor_foundation_sdk::verb;
 
@@ -443,13 +445,14 @@ fn verb_macro_emits_term_arena_const() {
 #[test]
 fn verb_macro_const_is_publicly_visible() {
     // The `pub const VERB_TERMS_SMOKE_SUCC` is exported so prism_model!
-    // can reference it when emitting Term::VerbReference (ADR-024).
+    // can reference it when inlining via splice_term_fragment (ADR-024).
     let arena = VERB_TERMS_SMOKE_SUCC;
     assert_eq!(arena.len(), 2);
 }
 
-// `prism_model!` emits Term::VerbReference when the closure body
-// invokes a verb declared in the same module.
+// `prism_model!` inlines the verb's term-tree fragment into the host
+// arena at compile time when the closure body invokes a verb declared
+// in the same module (wiki ADR-024).
 prism_model! {
     pub struct VerbInvokingModel;
     pub struct VerbInvokingRoute;
@@ -464,21 +467,46 @@ prism_model! {
 }
 
 #[test]
-fn prism_model_emits_verb_reference_for_local_verb_call() {
+fn prism_model_inlines_verb_fragment_for_local_verb_call() {
     let arena = <VerbInvokingRoute as FoundationClosed>::arena_slice();
-    // `smoke_succ(input)` → [Variable, VerbReference{0, VERB_TERMS_SMOKE_SUCC}]
-    assert_eq!(arena.len(), 2);
-    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
-    match arena[1] {
-        Term::VerbReference {
-            input_index,
-            fragment,
-        } => {
-            assert_eq!(input_index, 0);
-            // The fragment is the verb's term arena — same content as smoke_succ_term_arena.
-            assert_eq!(fragment.len(), VERB_TERMS_SMOKE_SUCC.len());
+    // After ADR-024 reconciliation, the route's arena is fully flat:
+    // the verb's fragment is inlined at compile time. `smoke_succ(input)`
+    // builds:
+    //   [0] Variable(0)              (host's emission of `input`, the verb's argument)
+    //   [1] Variable(0)              (verb's body Variable, spliced + shifted)
+    //   [2] Application(Succ,[1..2]) (verb's body Application, with args.start shifted)
+    //
+    // The arena contains exactly 10-Term-variant nodes — no
+    // `Term::VerbReference` (eleventh variant was removed).
+    assert_eq!(arena.len(), 1 + VERB_TERMS_SMOKE_SUCC.len());
+    // No VerbReference in the arena: every entry is one of the ten
+    // ADR-029 variants.
+    for (i, t) in arena.iter().enumerate() {
+        match t {
+            Term::Literal { .. }
+            | Term::Variable { .. }
+            | Term::Application { .. }
+            | Term::Lift { .. }
+            | Term::Project { .. }
+            | Term::Match { .. }
+            | Term::Recurse { .. }
+            | Term::Unfold { .. }
+            | Term::Try { .. }
+            | Term::HasherProjection { .. } => {}
         }
-        other => panic!("expected VerbReference at index 1, got {other:?}"),
+        let _ = i;
+    }
+    // The verb's last term (Application(Succ)) is the route's tail —
+    // it sits at the arena's last position as the route's evaluation
+    // root. Its args.start references the spliced Variable at the
+    // host's offset (= 1, after the host's `input` emission).
+    match arena.last().expect("non-empty arena") {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Succ));
+            assert_eq!(args.start, 1u32, "verb's args.start shifted by host offset");
+            assert_eq!(args.len, 1);
+        }
+        other => panic!("expected Application(Succ) as arena tail, got {other:?}"),
     }
 }
 

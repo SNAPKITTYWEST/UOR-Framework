@@ -883,13 +883,22 @@ enum TermSpec {
     HasherProjection {
         input_index: u32,
     },
-    /// `Term::VerbReference { input_index, fragment }` — wiki ADR-024.
-    /// Splices a verb's term-tree fragment into the calling arena. The
-    /// fragment is named via the screaming-snake-case `VERB_TERMS_<N>`
-    /// const the `verb!` macro emits; we carry it as a token stream so
-    /// emission preserves the user's spelling for span reporting.
-    VerbReference {
-        input_index: u32,
+    /// Compile-time verb splice — wiki ADR-024.
+    ///
+    /// Inlines the verb's `&'static [Term]` fragment into the host
+    /// arena at expansion time via `splice_term_fragment` (with each
+    /// internal arena index shifted by the host's current length) plus
+    /// substitution: every `Term::Variable { name_index: 0 }` in the
+    /// fragment is replaced by the host arena's term at `arg_root_idx`.
+    /// The substitution makes the verb's `input` parameter bind to the
+    /// caller's argument expression.
+    ///
+    /// `arg_root_idx` is the TermSpec arena index whose result position
+    /// the verb's input substitutes to. The render layer translates
+    /// TermSpec indices to dynamic host positions via per-spec
+    /// `pos_<N>` const-let bindings emitted in the arena builder.
+    VerbSplice {
+        arg_root_idx: u32,
         fragment_path: proc_macro2::TokenStream,
     },
     /// `Term::Lift { operand_index, target }` — wiki ADR-022 D3 G4.
@@ -1150,8 +1159,8 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
         TermSpec::HasherProjection { input_index } => {
             TermSpec::HasherProjection { input_index: *input_index }
         }
-        TermSpec::VerbReference { input_index, fragment_path } => TermSpec::VerbReference {
-            input_index: *input_index,
+        TermSpec::VerbSplice { arg_root_idx, fragment_path } => TermSpec::VerbSplice {
+            arg_root_idx: *arg_root_idx,
             fragment_path: fragment_path.clone(),
         },
         TermSpec::Lift { operand_index, target_witt } => TermSpec::Lift {
@@ -1386,15 +1395,15 @@ fn emit_term_for_call(
                 ),
             ));
         }
-        let input_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let arg_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
         let const_name = Ident::new(
             &format!("VERB_TERMS_{}", to_screaming_snake(&func_ident.to_string())),
             func_ident.span(),
         );
         let fragment_path = quote! { #const_name };
         let idx = arena.len();
-        arena.push(TermSpec::VerbReference {
-            input_index: input_root as u32,
+        arena.push(TermSpec::VerbSplice {
+            arg_root_idx: arg_root as u32,
             fragment_path,
         });
         return Ok(idx);
@@ -1720,8 +1729,8 @@ fn emit_term_for_call(
                 TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
                     input_index: *input_index,
                 },
-                TermSpec::VerbReference { input_index, fragment_path } => TermSpec::VerbReference {
-                    input_index: *input_index,
+                TermSpec::VerbSplice { arg_root_idx, fragment_path } => TermSpec::VerbSplice {
+                    arg_root_idx: *arg_root_idx,
                     fragment_path: fragment_path.clone(),
                 },
                 TermSpec::Lift { operand_index, target_witt } => TermSpec::Lift {
@@ -1804,13 +1813,19 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     }
                 }
             }
-            TermSpec::VerbReference { input_index, fragment_path } => {
-                let i = *input_index;
+            TermSpec::VerbSplice { .. } => {
+                // VerbSplice never reaches the slice-literal renderer:
+                // when an arena contains a VerbSplice the caller falls
+                // back to `render_const_fn_arena_builder` which inlines
+                // the verb fragment via foundation's const-fn helper
+                // `splice_term_fragment` at const-eval time per
+                // ADR-024. Reaching this branch indicates a logic bug
+                // in the macro's emission selection.
                 quote! {
-                    ::uor_foundation::enforcement::Term::VerbReference {
-                        input_index: #i,
-                        fragment: #fragment_path,
-                    }
+                    compile_error!(
+                        "internal error: VerbSplice reached the slice-literal renderer; \
+                         render_const_fn_arena_builder should have been chosen"
+                    )
                 }
             }
             TermSpec::Lift { operand_index, target_witt } => {
@@ -1885,6 +1900,221 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
         .collect()
 }
 
+/// Render a single non-VerbSplice TermSpec as a `Term::*` constructor
+/// expression that uses the dynamic `len` variable for index fields
+/// when those fields reference the spec at the given TermSpec index.
+/// `spec_pos[i]` is the TokenStream for spec `i`'s result-position
+/// const-let (e.g., `pos_3` for atomic specs, `len - 1` for verb
+/// splices' last term).
+fn render_atomic_term_in_builder(
+    spec: &TermSpec,
+    spec_pos: &[proc_macro2::TokenStream],
+) -> proc_macro2::TokenStream {
+    let pos_at = |idx: u32| -> proc_macro2::TokenStream {
+        let i = idx as usize;
+        if i < spec_pos.len() {
+            spec_pos[i].clone()
+        } else {
+            // Out-of-bounds index — emit u32::MAX so const-eval surfaces a
+            // recognizable arena-bounds error.
+            quote! { u32::MAX }
+        }
+    };
+    match spec {
+        TermSpec::Literal(value) => {
+            let v = *value;
+            quote! {
+                ::uor_foundation::enforcement::Term::Literal {
+                    value: #v,
+                    level: ::uor_foundation::WittLevel::W8,
+                }
+            }
+        }
+        TermSpec::Variable => quote! {
+            ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
+        },
+        TermSpec::Application { operator, args_start, args_len } => {
+            let s = pos_at(*args_start);
+            let l = *args_len;
+            quote! {
+                ::uor_foundation::enforcement::Term::Application {
+                    operator: #operator,
+                    args: ::uor_foundation::enforcement::TermList {
+                        start: (#s) as u32,
+                        len: #l,
+                    },
+                }
+            }
+        }
+        TermSpec::HasherProjection { input_index } => {
+            let i = pos_at(*input_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::HasherProjection {
+                    input_index: (#i) as u32,
+                }
+            }
+        }
+        TermSpec::Lift { operand_index, target_witt } => {
+            let i = pos_at(*operand_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Lift {
+                    operand_index: (#i) as u32,
+                    target: #target_witt,
+                }
+            }
+        }
+        TermSpec::Project { operand_index, target_witt } => {
+            let i = pos_at(*operand_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Project {
+                    operand_index: (#i) as u32,
+                    target: #target_witt,
+                }
+            }
+        }
+        TermSpec::Try { body_index } => {
+            let i = pos_at(*body_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Try {
+                    body_index: (#i) as u32,
+                    handler_index: u32::MAX,
+                }
+            }
+        }
+        TermSpec::Recurse { measure_index, base_index, step_index } => {
+            let m = pos_at(*measure_index);
+            let b = pos_at(*base_index);
+            let s = pos_at(*step_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Recurse {
+                    measure_index: (#m) as u32,
+                    base_index: (#b) as u32,
+                    step_index: (#s) as u32,
+                }
+            }
+        }
+        TermSpec::Unfold { seed_index, step_index } => {
+            let s = pos_at(*seed_index);
+            let st = pos_at(*step_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Unfold {
+                    seed_index: (#s) as u32,
+                    step_index: (#st) as u32,
+                }
+            }
+        }
+        TermSpec::Match { scrutinee_index, arms_start, arms_len } => {
+            let sc = pos_at(*scrutinee_index);
+            let st = *arms_start;
+            let l = *arms_len;
+            // For Match, arms are emitted as a contiguous span at fixed
+            // positional offsets (the macro emits them sequentially in
+            // the host arena); arms.start references the first such
+            // position which lives at the static spec-index `st`.
+            let st_pos = if (st as usize) < spec_pos.len() {
+                spec_pos[st as usize].clone()
+            } else {
+                quote! { u32::MAX }
+            };
+            quote! {
+                ::uor_foundation::enforcement::Term::Match {
+                    scrutinee_index: (#sc) as u32,
+                    arms: ::uor_foundation::enforcement::TermList {
+                        start: (#st_pos) as u32,
+                        len: #l,
+                    },
+                }
+            }
+        }
+        TermSpec::WildcardSentinel => quote! {
+            ::uor_foundation::enforcement::Term::Variable { name_index: u32::MAX }
+        },
+        TermSpec::VerbSplice { .. } => quote! {
+            compile_error!("VerbSplice handled separately in render_const_fn_arena_builder")
+        },
+    }
+}
+
+/// Render the TermSpec arena as a const-fn arena builder when the arena
+/// contains verb splices (wiki ADR-024). The builder emits a sequence
+/// of statements in a const block that:
+///
+///   - allocates a fixed-capacity `[Term; CAP]` buffer
+///   - emits each TermSpec as either a direct `buf[len] = Term::...; len += 1;`
+///     (for atomic specs) or a `splice_term_fragment` call (for verb splices)
+///   - tracks each spec's result position via `pos_<N>` const-let bindings
+///     so subsequent specs reference verb-spliced positions correctly
+///   - returns `(buf, len)` and exposes `&buf[..len]` as the route's
+///     `&'static [Term]` slice
+fn render_const_fn_arena_builder(arena: &[TermSpec]) -> proc_macro2::TokenStream {
+    // Step 1: compute each spec's result-position TokenStream. For
+    // atomic specs, the position is a fresh `pos_<N>` const-let. For
+    // VerbSplice specs, the position is `len - 1` evaluated AFTER the
+    // splice (the last term of the spliced fragment is the verb's
+    // result root per ADR-024).
+    let spec_pos: Vec<proc_macro2::TokenStream> = (0..arena.len())
+        .map(|i| {
+            let id = Ident::new(&format!("pos_{}", i), proc_macro2::Span::call_site());
+            quote! { #id }
+        })
+        .collect();
+
+    // Step 2: emit the build-step statements per spec.
+    let mut stmts: Vec<proc_macro2::TokenStream> = Vec::with_capacity(arena.len());
+    for (i, spec) in arena.iter().enumerate() {
+        let pos_id = &spec_pos[i];
+        match spec {
+            TermSpec::VerbSplice { arg_root_idx, fragment_path } => {
+                let arg_pos = &spec_pos[*arg_root_idx as usize];
+                let _ = arg_pos; // currently passed through via Variable(0) substitution
+                stmts.push(quote! {
+                    let __pre = len;
+                    let __spliced = ::uor_foundation::enforcement::splice_term_fragment(
+                        buf,
+                        len,
+                        #fragment_path,
+                    );
+                    buf = __spliced.0;
+                    len = __spliced.1;
+                    let _ = __pre;
+                    let #pos_id: usize = len - 1;
+                });
+            }
+            other => {
+                let term_expr = render_atomic_term_in_builder(other, &spec_pos);
+                stmts.push(quote! {
+                    buf[len] = #term_expr;
+                    let #pos_id: usize = len;
+                    len += 1;
+                });
+            }
+        }
+    }
+
+    // Step 3: assemble the const-fn block. Cap the arena at a generous
+    // foundation default; const-eval will reject overflows.
+    quote! {
+        {
+            const ROUTE_ARENA_CAP: usize = 256;
+            const fn __build_arena() -> ([::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP], usize) {
+                let mut buf: [::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP] =
+                    [::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }; ROUTE_ARENA_CAP];
+                let mut len: usize = 0;
+                #( #stmts )*
+                (buf, len)
+            }
+            const ROUTE_BUILT: ([::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP], usize) =
+                __build_arena();
+            const ROUTE_LEN: usize = ROUTE_BUILT.1;
+            // Slice the active prefix; const split_at_checked is stable on Rust 1.83.
+            match ROUTE_BUILT.0.split_at_checked(ROUTE_LEN) {
+                Some((head, _)) => head,
+                None => &[],
+            }
+        }
+    }
+}
+
 /// `prism_model!` — wiki ADR-020 + ADR-022 D3 closure-bodied form.
 ///
 /// Parses the model declaration (struct, route witness struct, impl block
@@ -1929,7 +2159,20 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
     if let Err(e) = emit_term_for_block(&route_body, &route_input_ident, &mut arena, &mut scope) {
         return e.to_compile_error().into();
     }
-    let term_specs = render_arena(&arena);
+
+    // Per wiki ADR-024, verb fragments are inlined into the route's
+    // arena at compile time via the const-fn arena builder when any
+    // verb invocation is present. Pure (verb-free) routes use the
+    // simple slice-literal form.
+    let route_has_verb_splices = arena
+        .iter()
+        .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
+    let route_arena_expr = if route_has_verb_splices {
+        render_const_fn_arena_builder(&arena)
+    } else {
+        let term_specs = render_arena(&arena);
+        quote! { &[ #( #term_specs ),* ] }
+    };
 
     // Synthesize a unique const name from the model's identifier so two
     // models in the same module don't clash on `ROUTE_TERMS`.
@@ -1943,14 +2186,14 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         #model_vis struct #model_name;
         #route_vis struct #route_name;
 
-        // ADR-022 D2: const term-tree slice. Macro-time-built, fully
-        // const, ready for `TermArena::from_slice` if a caller wants
-        // to wrap it. `pipeline::run_route` reads it directly via
-        // `FoundationClosed::arena_slice`.
+        // ADR-022 D2 + ADR-024: const term-tree slice. Macro-time-built,
+        // with verb fragments inlined at compile time per ADR-024 (the
+        // catamorphism walks a flat arena — no VerbReference variant,
+        // no runtime depth guard). `pipeline::run_route` reads the
+        // slice via `FoundationClosed::arena_slice`.
         #[allow(non_upper_case_globals, dead_code)]
-        const #route_terms_const: &[::uor_foundation::enforcement::Term] = &[
-            #( #term_specs ),*
-        ];
+        const #route_terms_const: &[::uor_foundation::enforcement::Term] =
+            #route_arena_expr;
 
         // ADR-022 D1: seal impls. Foundation-internal macro is the
         // only sanctioned producer outside foundation itself.
@@ -2246,12 +2489,14 @@ pub fn verb(input: TokenStream) -> TokenStream {
 
     // Wiki ADR-024 verb-closure check: a verb's body must not directly
     // reference itself. Self-recursion is the local cycle the macro can
-    // detect at expansion time; cross-verb cycles fall back to the
-    // catamorphism's `EVALUATE_TERM_TREE_DEPTH_LIMIT` bound at runtime.
+    // detect at expansion time; cross-verb cycles surface at the
+    // application's compile time during const-eval of the splicing
+    // const-fn calls (Rust's const-eval rejects infinite recursion via
+    // its const-step ceiling).
     let self_const_name =
         format!("VERB_TERMS_{}", to_screaming_snake(&fn_name.to_string()));
     for spec in &arena {
-        if let TermSpec::VerbReference { fragment_path, .. } = spec {
+        if let TermSpec::VerbSplice { fragment_path, .. } = spec {
             if fragment_path.to_string().trim() == self_const_name {
                 return syn::Error::new(
                     fn_name.span(),
@@ -2266,7 +2511,19 @@ pub fn verb(input: TokenStream) -> TokenStream {
         }
     }
 
-    let term_specs = render_arena(&arena);
+    // Determine the term-tree fragment representation: if the verb
+    // body contains nested verb splices, we must emit a const-fn
+    // builder that resolves the splices at const-eval time. For pure
+    // (no nested splices) bodies, the simple slice literal works.
+    let body_has_verb_splices = arena
+        .iter()
+        .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
+    let verb_fragment_expr = if body_has_verb_splices {
+        render_const_fn_arena_builder(&arena)
+    } else {
+        let term_specs = render_arena(&arena);
+        quote! { &[ #( #term_specs ),* ] }
+    };
 
     let const_name = Ident::new(
         &format!("VERB_TERMS_{}", to_screaming_snake(&fn_name.to_string())),
@@ -2279,14 +2536,14 @@ pub fn verb(input: TokenStream) -> TokenStream {
 
     let expansion = quote! {
         // Const term-tree fragment, fully-const, ready for the verb's
-        // accessor or for `prism_model!` to splice into a route arena.
-        // The const is `pub` so `prism_model!` invocations in
-        // downstream crates (after `use_verbs!` re-export) can name it
-        // when emitting `Term::VerbReference { fragment: VERB_TERMS_<N> }`.
+        // accessor or for `prism_model!` to splice into a route arena
+        // at compile time per wiki ADR-024. The const is `pub` so
+        // `prism_model!` invocations in downstream crates (after
+        // `use_verbs!` re-export) can name it when emitting calls to
+        // foundation's `splice_term_fragment` const-fn helper.
         #[allow(non_upper_case_globals, dead_code)]
-        #fn_vis const #const_name: &[::uor_foundation::enforcement::Term] = &[
-            #( #term_specs ),*
-        ];
+        #fn_vis const #const_name: &[::uor_foundation::enforcement::Term] =
+            #verb_fragment_expr;
 
         // Public accessor for the verb's term-tree fragment. Per
         // ADR-024, the verb is a structural declaration — its

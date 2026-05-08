@@ -824,41 +824,17 @@ where
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
-    evaluate_term_at::<A>(arena, root_idx, input_bytes, 0)
+    evaluate_term_at::<A>(arena, root_idx, input_bytes)
 }
-
-/// Foundation-fixed evaluation-depth ceiling for the catamorphism
-/// (wiki ADR-024). Bounds the recursive descent of `evaluate_term_tree`
-/// through nested verb references, applications, and lift/project
-/// chains; exceeding the ceiling surfaces a typed
-/// `PipelineFailure::ShapeViolation` rather than overflowing the host
-/// stack. The runtime expression of the verb-graph acyclicity
-/// commitment ADR-024 makes — cycles through non-`Recurse` operators
-/// bottom out at this depth and fail-fast.
-pub const EVALUATE_TERM_TREE_DEPTH_LIMIT: usize = 256;
 
 fn evaluate_term_at<A>(
     arena: &[crate::enforcement::Term],
     idx: usize,
     input_bytes: &[u8],
-    depth: usize,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::enforcement::Hasher,
 {
-    if depth > EVALUATE_TERM_TREE_DEPTH_LIMIT {
-        return Err(PipelineFailure::ShapeViolation {
-            report: crate::enforcement::ShapeViolation {
-                shape_iri: "https://uor.foundation/pipeline/EvaluationDepthShape",
-                constraint_iri: "https://uor.foundation/pipeline/EvaluationDepthShape/maxDepth",
-                property_iri: "https://uor.foundation/pipeline/evaluationDepth",
-                expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
-                min_count: 0,
-                max_count: EVALUATE_TERM_TREE_DEPTH_LIMIT as u32,
-                kind: crate::ViolationKind::ValueCheck,
-            },
-        });
-    }
     if idx >= arena.len() {
         return Err(PipelineFailure::ShapeViolation {
             report: crate::enforcement::ShapeViolation {
@@ -898,13 +874,13 @@ where
         crate::enforcement::Term::Application { operator, args } => {
             let start = args.start as usize;
             let len = args.len as usize;
-            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, depth)
+            apply_primitive_op::<A>(arena, operator, start, len, input_bytes)
         }
         crate::enforcement::Term::Lift {
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, depth + 1)?;
+            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
                 TERM_VALUE_MAX_BYTES
@@ -931,7 +907,7 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, depth + 1)?;
+            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
                 TERM_VALUE_MAX_BYTES
@@ -949,8 +925,7 @@ where
             scrutinee_index,
             arms,
         } => {
-            let scrutinee =
-                evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, depth + 1)?;
+            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes)?;
             let start = arms.start as usize;
             let count = arms.len as usize;
             // Arms alternate (pattern, body) per ADR-022 D3 G6.
@@ -963,12 +938,11 @@ where
                     crate::enforcement::Term::Variable { name_index } if name_index == u32::MAX
                 );
                 if is_wildcard {
-                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, depth + 1);
+                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);
                 }
-                let pattern_val =
-                    evaluate_term_at::<A>(arena, pattern_idx, input_bytes, depth + 1)?;
+                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes)?;
                 if pattern_val.bytes() == scrutinee.bytes() {
-                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, depth + 1);
+                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);
                 }
                 i += 2;
             }
@@ -992,42 +966,41 @@ where
             base_index,
             step_index,
         } => {
-            let measure =
-                evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, depth + 1)?;
+            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes)?;
             // Measure equals zero iff every byte in the measure value is zero.
             let is_zero = measure.bytes().iter().all(|&b| b == 0);
             if is_zero {
-                evaluate_term_at::<A>(arena, base_index as usize, input_bytes, depth + 1)
+                evaluate_term_at::<A>(arena, base_index as usize, input_bytes)
             } else {
                 // Bounded recursion: evaluate one step. The Term::Recurse
                 // structure encodes well-foundedness via the measure; deeper
                 // unrolling is implementation-controlled (ADR-026 G14 maps
                 // higher counts to recursion).
-                evaluate_term_at::<A>(arena, step_index as usize, input_bytes, depth + 1)
+                evaluate_term_at::<A>(arena, step_index as usize, input_bytes)
             }
         }
         crate::enforcement::Term::Unfold {
             seed_index,
             step_index,
         } => {
-            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, depth + 1)?;
-            evaluate_term_at::<A>(arena, step_index as usize, input_bytes, depth + 1)
+            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes)?;
+            evaluate_term_at::<A>(arena, step_index as usize, input_bytes)
         }
         crate::enforcement::Term::Try {
             body_index,
             handler_index,
-        } => match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, depth + 1) {
+        } => match evaluate_term_at::<A>(arena, body_index as usize, input_bytes) {
             Ok(v) => Ok(v),
             Err(e) => {
                 if handler_index == u32::MAX {
                     Err(e)
                 } else {
-                    evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, depth + 1)
+                    evaluate_term_at::<A>(arena, handler_index as usize, input_bytes)
                 }
             }
         },
         crate::enforcement::Term::HasherProjection { input_index } => {
-            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, depth + 1)?;
+            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes)?;
             let mut hasher = <A as crate::enforcement::Hasher>::initial();
             hasher = hasher.fold_bytes(v.bytes());
             let digest = hasher.finalize();
@@ -1039,23 +1012,6 @@ where
             };
             Ok(TermValue::from_slice(&digest[..width]))
         }
-        crate::enforcement::Term::VerbReference {
-            input_index,
-            fragment,
-        } => {
-            // Wiki ADR-024: evaluate the verb's term-tree fragment recursively
-            // against the input value bound at `input_index`. The fragment is
-            // a separate `&'static [Term]` slice the verb's `verb!`-emitted
-            // const carries; the catamorphism evaluator's contract is the same
-            // shape against the fragment's own root-term-is-last convention.
-            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, depth + 1)?;
-            if fragment.is_empty() {
-                Ok(v)
-            } else {
-                let root_idx = fragment.len() - 1;
-                evaluate_term_at::<A>(fragment, root_idx, v.bytes(), depth + 1)
-            }
-        }
     }
 }
 
@@ -1065,7 +1021,6 @@ fn apply_primitive_op<A>(
     args_start: usize,
     args_len: usize,
     input_bytes: &[u8],
-    depth: usize,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::enforcement::Hasher,
@@ -1097,7 +1052,7 @@ where
         });
     }
     if arity == 1 {
-        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, depth + 1)?;
+        let v = evaluate_term_at::<A>(arena, args_start, input_bytes)?;
         let x = bytes_to_u64_be(v.bytes());
         let r =
             match operator {
@@ -1122,8 +1077,8 @@ where
         let arr = r.to_be_bytes();
         Ok(TermValue::from_slice(&arr[8 - width..]))
     } else {
-        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, depth + 1)?;
-        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, depth + 1)?;
+        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes)?;
+        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes)?;
         let a = bytes_to_u64_be(lhs.bytes());
         let b = bytes_to_u64_be(rhs.bytes());
         let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);

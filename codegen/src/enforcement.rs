@@ -2017,19 +2017,101 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Index of the input term in the arena (the bytes to hash).");
     f.line("        input_index: u32,");
     f.line("    },");
-    f.indented_doc_comment("Layer-3 verb-reference splice (wiki ADR-024).");
-    f.indented_doc_comment("");
-    f.indented_doc_comment("References a `verb!`-emitted term-tree fragment. The catamorphism");
-    f.indented_doc_comment("evaluates the fragment recursively against the input value bound at");
-    f.indented_doc_comment("`input_index`. Emitted by `prism_model!` when the closure body");
-    f.indented_doc_comment("invokes a verb declared via `verb!` or imported via `use_verbs!`.");
-    f.line("    VerbReference {");
-    f.line("        /// Index of the verb's input argument in the calling arena.");
-    f.line("        input_index: u32,");
-    f.line("        /// The verb's term-tree fragment, emitted as a `&'static [Term]`");
-    f.line("        /// const by `verb!` and referenced by the calling `prism_model!`.");
-    f.line("        fragment: &'static [Term],");
-    f.line("    },");
+    f.line("}");
+    f.blank();
+
+    // Wiki ADR-024 + ADR-029: verb-graph acyclicity is a compile-time
+    // commitment, not a runtime guard. The catamorphism walks a flat
+    // arena (the ten Term variants above); verb-emitted term-tree
+    // fragments are spliced into the calling route's arena at compile
+    // time via the const-fn helper `splice_term_fragment` below. The
+    // `prism_model!` macro emits a const-eval-time arena builder when
+    // a route invokes a verb; the splicing shifts internal arena
+    // indices by the host arena's current length so the inlined
+    // fragment remains internally consistent within the host.
+    f.doc_comment("Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index");
+    f.doc_comment("fields of `term` by `offset`. Used by [`splice_term_fragment`] to");
+    f.doc_comment("inline a verb's term-tree fragment into a host arena at compile time.");
+    f.doc_comment("");
+    f.doc_comment("`Term::Variable`'s `name_index` is a binding-name reference (not an");
+    f.doc_comment("arena index) and is preserved unchanged. `Term::Try`'s `handler_index`");
+    f.doc_comment("is preserved unchanged when it equals `u32::MAX` (the default-");
+    f.doc_comment("propagation sentinel per ADR-022 D3 G9).");
+    f.line("#[must_use]");
+    f.line("pub const fn shift_term(term: Term, offset: u32) -> Term {");
+    f.line("    match term {");
+    f.line("        Term::Literal { value, level } => Term::Literal { value, level },");
+    f.line("        // name_index is a binding-name reference, not an arena index.");
+    f.line("        Term::Variable { name_index } => Term::Variable { name_index },");
+    f.line("        Term::Application { operator, args } => Term::Application {");
+    f.line("            operator,");
+    f.line("            args: TermList {");
+    f.line("                start: args.start + offset,");
+    f.line("                len: args.len,");
+    f.line("            },");
+    f.line("        },");
+    f.line("        Term::Lift { operand_index, target } => Term::Lift {");
+    f.line("            operand_index: operand_index + offset,");
+    f.line("            target,");
+    f.line("        },");
+    f.line("        Term::Project { operand_index, target } => Term::Project {");
+    f.line("            operand_index: operand_index + offset,");
+    f.line("            target,");
+    f.line("        },");
+    f.line("        Term::Match { scrutinee_index, arms } => Term::Match {");
+    f.line("            scrutinee_index: scrutinee_index + offset,");
+    f.line("            arms: TermList {");
+    f.line("                start: arms.start + offset,");
+    f.line("                len: arms.len,");
+    f.line("            },");
+    f.line("        },");
+    f.line("        Term::Recurse { measure_index, base_index, step_index } => Term::Recurse {");
+    f.line("            measure_index: measure_index + offset,");
+    f.line("            base_index: base_index + offset,");
+    f.line("            step_index: step_index + offset,");
+    f.line("        },");
+    f.line("        Term::Unfold { seed_index, step_index } => Term::Unfold {");
+    f.line("            seed_index: seed_index + offset,");
+    f.line("            step_index: step_index + offset,");
+    f.line("        },");
+    f.line("        Term::Try { body_index, handler_index } => Term::Try {");
+    f.line("            body_index: body_index + offset,");
+    f.line(
+        "            handler_index: if handler_index == u32::MAX { u32::MAX } else { handler_index + offset },",
+    );
+    f.line("        },");
+    f.line("        Term::HasherProjection { input_index } => Term::HasherProjection {");
+    f.line("            input_index: input_index + offset,");
+    f.line("        },");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("Wiki ADR-024 compile-time verb splicing helper.");
+    f.doc_comment("");
+    f.doc_comment("Copies the `fragment` slice into `buf` starting at `len`, shifting each");
+    f.doc_comment("term's arena-index fields by `len` so the fragment's internal references");
+    f.doc_comment("remain consistent within the host arena. Returns the new length.");
+    f.doc_comment("Used by `prism_model!`-emitted const-fn arena builders to inline a verb's");
+    f.doc_comment("`&'static [Term]` fragment at the host's current length per ADR-024.");
+    f.doc_comment("");
+    f.doc_comment("# Panics");
+    f.doc_comment("");
+    f.doc_comment("Panics at const-eval time if `len + fragment.len() > CAP`.");
+    f.line("#[must_use]");
+    f.line("pub const fn splice_term_fragment<const CAP: usize>(");
+    f.line("    mut buf: [Term; CAP],");
+    f.line("    mut len: usize,");
+    f.line("    fragment: &[Term],");
+    f.line(") -> ([Term; CAP], usize) {");
+    f.line("    let offset = len as u32;");
+    f.line("    let mut i = 0;");
+    f.line("    while i < fragment.len() {");
+    f.line("        buf[len] = shift_term(fragment[i], offset);");
+    f.line("        len += 1;");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    (buf, len)");
     f.line("}");
     f.blank();
 
