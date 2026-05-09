@@ -1509,13 +1509,10 @@ fn emit_term_for_binary(
         syn::BinOp::BitXor(_) => quote! { ::uor_foundation::PrimitiveOp::Xor },
         syn::BinOp::BitAnd(_) => quote! { ::uor_foundation::PrimitiveOp::And },
         syn::BinOp::BitOr(_) => quote! { ::uor_foundation::PrimitiveOp::Or },
-        ref other => {
+        _ => {
             return Err(syn::Error::new_spanned(
                 expr,
-                format!(
-                    "closure violation: binary operator `{:?}` is not in the closure-body grammar; recognised operators are arithmetic (+, -, *), bitwise (^, &, |), and byte-level comparison (<=, <, >=, >)",
-                    other
-                ),
+                "closure violation: binary operator is not in the closure-body grammar; recognised operators are arithmetic (+, -, *), bitwise (^, &, |), and byte-level comparison (<=, <, >=, >)",
             ));
         }
     };
