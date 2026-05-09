@@ -1583,9 +1583,12 @@ fn validate_ebnf_grammar_alignment(report: &mut ConformanceReport) {
     let ontology = uor_ontology::Ontology::full();
     let validator = "ontology/inventory/ebnf_grammar_alignment";
 
-    // The EBNF grammar references 10 PrimitiveOp operations and 4 Witt levels.
+    // The EBNF grammar references 15 PrimitiveOp operations (10 original +
+    // 5 ADR-013/TR-08 substrate-amendment ops: Le, Lt, Ge, Gt, Concat) and
+    // 4 Witt levels.
     let expected_ops = [
-        "neg", "bnot", "succ", "pred", "add", "sub", "mul", "xor", "and", "or",
+        "neg", "bnot", "succ", "pred", "add", "sub", "mul", "xor", "and", "or", "le", "lt", "ge",
+        "gt", "concat",
     ];
     let expected_levels = ["W8", "W16", "W24", "W32"];
 
