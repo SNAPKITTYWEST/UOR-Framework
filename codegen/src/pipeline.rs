@@ -2363,6 +2363,34 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("pub const TERM_VALUE_MAX_BYTES: usize = 4096;");
     f.blank();
+    f.doc_comment("Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to");
+    f.doc_comment("mark `recurse(measure, base, |self| step)`'s self-identifier reference.");
+    f.doc_comment("When the catamorphism encounters `Term::Variable { name_index: <this> }`");
+    f.doc_comment("during step-body evaluation, it returns the previous iteration's result");
+    f.doc_comment("(the `recurse_value` parameter threaded through `evaluate_term_at`) — the");
+    f.doc_comment("fresh-name-indexed Variable ADR-029 specifies for the recursive-call");
+    f.doc_comment("placeholder.");
+    f.doc_comment("");
+    f.doc_comment("Foundation reserves the upper sentinels: `u32::MAX` is the wildcard arm");
+    f.doc_comment("for `Term::Match` (ADR-022 D3 G6) and the default-propagation handler for");
+    f.doc_comment("`Term::Try` (G9). `RECURSE_PLACEHOLDER_NAME_INDEX = u32::MAX - 1`.");
+    f.line("pub const RECURSE_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 1;");
+    f.blank();
+    f.doc_comment("Wiki ADR-022 D3 G8 + ADR-029: the fresh-name-indexed Variable that");
+    f.doc_comment("`prism_model!` emits in place of an `unfold(seed, |state, …| step)`");
+    f.doc_comment("closure's state-ident references. The catamorphism's `Term::Unfold`");
+    f.doc_comment("fold-rule binds this name to the unfold's current state value");
+    f.doc_comment("(threaded through `evaluate_term_at` as the `unfold_value` parameter)");
+    f.doc_comment("and iterates step until a Kleene fixpoint or [`UNFOLD_MAX_ITERATIONS`].");
+    f.line("pub const UNFOLD_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 2;");
+    f.blank();
+    f.doc_comment("Wiki ADR-029: bound on the anamorphic fixpoint iteration for");
+    f.doc_comment("`Term::Unfold`. The fold rule iterates `step(state)` until either the");
+    f.doc_comment("state reaches a Kleene fixpoint (`step(state) == state`) or this");
+    f.doc_comment("ceiling is hit, at which point evaluation returns the most-recent");
+    f.doc_comment("state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).");
+    f.line("pub const UNFOLD_MAX_ITERATIONS: usize = 256;");
+    f.blank();
     f.doc_comment("Wiki ADR-029: a single Term variant's evaluated value, carried as a");
     f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
     f.doc_comment("catamorphism produces a `TermValue` per variant, propagated up the");
@@ -2429,10 +2457,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("- `Term::Match { scrutinee, arms }` — evaluate scrutinee, match arms by");
     f.doc_comment("  literal-byte equality (wildcard arm `name_index = u32::MAX` matches");
     f.doc_comment("  unconditionally).");
-    f.doc_comment("- `Term::Recurse { measure, base, step }` — evaluate measure; if zero,");
-    f.doc_comment("  evaluate base; otherwise evaluate step (current iteration: bounded recursion");
-    f.doc_comment("  unrolls one step).");
-    f.doc_comment("- `Term::Unfold { seed, step }` — evaluate seed; emit step applied once.");
+    f.doc_comment("- `Term::Recurse { measure, base, step }` — bounded recursion: evaluate");
+    f.doc_comment("  measure → n; if n = 0 evaluate base; otherwise iterate step n times with");
+    f.doc_comment("  the recursive-call placeholder bound to the previous iteration's result.");
+    f.doc_comment("- `Term::Unfold { seed, step }` — anamorphism: evaluate seed → state₀;");
+    f.doc_comment("  iterate step (with the state placeholder bound to the current state)");
+    f.doc_comment("  until a Kleene fixpoint or `UNFOLD_MAX_ITERATIONS` is reached.");
     f.doc_comment("- `Term::Try { body, handler }` — evaluate body; on failure, propagate");
     f.doc_comment("  if `handler_index = u32::MAX`, otherwise evaluate handler.");
     f.doc_comment("- `Term::HasherProjection { input }` — fold the input's bytes through the");
@@ -2457,7 +2487,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes)");
+    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None)");
     f.line("}");
     f.blank();
 
@@ -2476,6 +2506,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    idx: usize,");
     f.line("    input_bytes: &[u8],");
+    f.line("    recurse_value: Option<&[u8]>,");
+    f.line("    unfold_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::enforcement::Hasher,");
@@ -2507,21 +2539,32 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Variable { name_index } => {");
     f.line("            // ADR-022 D3 G2: name_index = 0 is the route input slot.");
+    f.line("            // ADR-029: name_index = RECURSE_PLACEHOLDER_NAME_INDEX is the");
+    f.line("            // recursive-call placeholder bound to `recurse_value`.");
+    f.line("            // ADR-029: name_index = UNFOLD_PLACEHOLDER_NAME_INDEX is the");
+    f.line("            // unfold state placeholder bound to `unfold_value` (the");
+    f.line("            // current iteration's accumulated state — see the");
+    f.line("            // `Term::Unfold` fold-rule below).");
     f.line("            // Other indices reference let-bindings (G10), which the");
-    f.line("            // current macro emission does not produce; treat them as");
-    f.line("            // the same input slot for compatibility (the variable's");
-    f.line("            // dataflow trace lives in the binding-table fingerprint).");
-    f.line("            let _ = name_index;");
+    f.line("            // current macro emission resolves at expansion time via");
+    f.line("            // splice into the calling arena (so the binding's value-tree");
+    f.line("            // root is what the catamorphism actually walks).");
+    f.line("            if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {");
+    f.line("                return Ok(TermValue::from_slice(recurse_value.unwrap_or(&[])));");
+    f.line("            }");
+    f.line("            if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {");
+    f.line("                return Ok(TermValue::from_slice(unfold_value.unwrap_or(&[])));");
+    f.line("            }");
     f.line("            Ok(TermValue::from_slice(input_bytes))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes)");
+    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, recurse_value, unfold_value)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, unfold_value)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -2540,7 +2583,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, unfold_value)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -2553,7 +2596,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes)?;",
+        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, recurse_value, unfold_value)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -2569,13 +2612,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, unfold_value);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes)?;",
+        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes, recurse_value, unfold_value)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, unfold_value);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -2600,43 +2643,116 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line(
         "        crate::enforcement::Term::Recurse { measure_index, base_index, step_index } => {",
     );
+    f.line("            // Wiki ADR-029 recursive fold: evaluate measure once to get N;");
+    f.line("            // if N == 0 evaluate base; else iterate step N times, threading");
+    f.line("            // each iteration's result as the recurse_value (the recursive-");
+    f.line("            // call placeholder bound to a fresh-name-indexed Variable per");
+    f.line("            // ADR-029, with the placeholder's name_index resolving via the");
+    f.line("            // RECURSE_PLACEHOLDER_NAME_INDEX sentinel handled in the Variable");
+    f.line("            // arm). The outer recurse_value is preserved for nested Recurse");
+    f.line("            // forms within the measure/base computations; step body uses the");
+    f.line("            // iteration's accumulator.");
     f.line(
-        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes)?;",
+        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, recurse_value, unfold_value)?;",
     );
-    f.line("            // Measure equals zero iff every byte in the measure value is zero.");
-    f.line("            let is_zero = measure.bytes().iter().all(|&b| b == 0);");
-    f.line("            if is_zero {");
-    f.line("                evaluate_term_at::<A>(arena, base_index as usize, input_bytes)");
-    f.line("            } else {");
-    f.line("                // Bounded recursion: evaluate one step. The Term::Recurse");
-    f.line("                // structure encodes well-foundedness via the measure; deeper");
-    f.line("                // unrolling is implementation-controlled (ADR-026 G14 maps");
-    f.line("                // higher counts to recursion).");
-    f.line("                evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line("            let n = bytes_to_u64_be(measure.bytes());");
+    f.line(
+        "            let base_val = evaluate_term_at::<A>(arena, base_index as usize, input_bytes, recurse_value, unfold_value)?;",
+    );
+    f.line("            if n == 0 {");
+    f.line("                return Ok(base_val);");
     f.line("            }");
+    f.line("            // Iterate step N times. Each iteration's `current` becomes the");
+    f.line("            // next iteration's recurse_value. The descent measure is the");
+    f.line("            // bound; well-foundedness holds by monotonic decrease.");
+    f.line("            let mut current_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut current_len = base_val.bytes().len();");
+    f.line("            let mut k = 0;");
+    f.line("            while k < current_len {");
+    f.line("                current_buf[k] = base_val.bytes()[k];");
+    f.line("                k += 1;");
+    f.line("            }");
+    f.line("            let mut iter = 0u64;");
+    f.line("            while iter < n {");
+    f.line("                let next = evaluate_term_at::<A>(");
+    f.line("                    arena,");
+    f.line("                    step_index as usize,");
+    f.line("                    input_bytes,");
+    f.line("                    Some(&current_buf[..current_len]),");
+    f.line("                    unfold_value,");
+    f.line("                )?;");
+    f.line("                let nb = next.bytes();");
+    f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
+    f.line("                let mut j = 0;");
+    f.line("                while j < copy_len {");
+    f.line("                    current_buf[j] = nb[j];");
+    f.line("                    j += 1;");
+    f.line("                }");
+    f.line("                current_len = copy_len;");
+    f.line("                iter += 1;");
+    f.line("            }");
+    f.line("            Ok(TermValue::from_slice(&current_buf[..current_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Unfold { seed_index, step_index } => {");
+    f.line("            // ADR-029 anamorphism: evaluate seed → state₀; iterate step");
+    f.line("            // with the state placeholder (UNFOLD_PLACEHOLDER_NAME_INDEX,");
+    f.line("            // bound to the current state) until either a Kleene fixpoint");
+    f.line("            // (step(state) == state) or UNFOLD_MAX_ITERATIONS is reached.");
+    f.line("            // Well-foundedness: bounded by UNFOLD_MAX_ITERATIONS.");
+    f.line("            // The outer unfold_value is preserved for nested Unfold forms");
+    f.line("            // within the seed; step body's state placeholder uses the");
+    f.line("            // iteration's accumulator.");
     f.line(
-        "            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes)?;",
+        "            let seed_val = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, recurse_value, unfold_value)?;",
     );
-    f.line("            evaluate_term_at::<A>(arena, step_index as usize, input_bytes)");
+    f.line("            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut state_len = seed_val.bytes().len();");
+    f.line("            let mut k = 0;");
+    f.line("            while k < state_len {");
+    f.line("                state_buf[k] = seed_val.bytes()[k];");
+    f.line("                k += 1;");
+    f.line("            }");
+    f.line("            let mut iter = 0usize;");
+    f.line("            while iter < UNFOLD_MAX_ITERATIONS {");
+    f.line("                let next = evaluate_term_at::<A>(");
+    f.line("                    arena,");
+    f.line("                    step_index as usize,");
+    f.line("                    input_bytes,");
+    f.line("                    recurse_value,");
+    f.line("                    Some(&state_buf[..state_len]),");
+    f.line("                )?;");
+    f.line("                let nb = next.bytes();");
+    f.line("                // Kleene fixpoint check: if step(state) == state, return.");
+    f.line("                if nb.len() == state_len && nb == &state_buf[..state_len] {");
+    f.line("                    return Ok(TermValue::from_slice(&state_buf[..state_len]));");
+    f.line("                }");
+    f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
+    f.line("                let mut j = 0;");
+    f.line("                while j < copy_len {");
+    f.line("                    state_buf[j] = nb[j];");
+    f.line("                    j += 1;");
+    f.line("                }");
+    f.line("                state_len = copy_len;");
+    f.line("                iter += 1;");
+    f.line("            }");
+    f.line("            Ok(TermValue::from_slice(&state_buf[..state_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes) {");
+    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, recurse_value, unfold_value) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes)",
+        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, recurse_value, unfold_value)",
     );
     f.line("                    }");
     f.line("                }");
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::HasherProjection { input_index } => {");
-    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes)?;");
+    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, recurse_value, unfold_value)?;");
     f.line("            let mut hasher = <A as crate::enforcement::Hasher>::initial();");
     f.line("            hasher = hasher.fold_bytes(v.bytes());");
     f.line("            let digest = hasher.finalize();");
@@ -2659,6 +2775,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    args_start: usize,");
     f.line("    args_len: usize,");
     f.line("    input_bytes: &[u8],");
+    f.line("    recurse_value: Option<&[u8]>,");
+    f.line("    unfold_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::enforcement::Hasher,");
@@ -2674,7 +2792,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        | crate::PrimitiveOp::Mul");
     f.line("        | crate::PrimitiveOp::Xor");
     f.line("        | crate::PrimitiveOp::And");
-    f.line("        | crate::PrimitiveOp::Or => 2usize,");
+    f.line("        | crate::PrimitiveOp::Or");
+    f.line("        | crate::PrimitiveOp::Le");
+    f.line("        | crate::PrimitiveOp::Lt");
+    f.line("        | crate::PrimitiveOp::Ge");
+    f.line("        | crate::PrimitiveOp::Gt");
+    f.line("        | crate::PrimitiveOp::Concat => 2usize,");
     f.line("    };");
     f.line("    if args_len != arity {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
@@ -2694,7 +2817,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        });");
     f.line("    }");
     f.line("    if arity == 1 {");
-    f.line("        let v = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
+    f.line(
+        "        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;",
+    );
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
     f.line("            crate::PrimitiveOp::Neg => x.wrapping_neg(),");
@@ -2723,8 +2848,52 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        let arr = r.to_be_bytes();");
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    } else {");
-    f.line("        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes)?;");
-    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes)?;");
+    f.line(
+        "        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;",
+    );
+    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, recurse_value, unfold_value)?;");
+    f.line("        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and");
+    f.line("        // comparison primitives bypass the u64 fold and operate on the");
+    f.line("        // operands' full byte sequences.");
+    f.line("        match operator {");
+    f.line("            crate::PrimitiveOp::Concat => {");
+    f.line("                // Concat: emit lhs.bytes() ⧺ rhs.bytes(), bounded by");
+    f.line("                // TERM_VALUE_MAX_BYTES (truncates excess; runtime callers");
+    f.line("                // declaring shapes whose composite length exceeds the");
+    f.line("                // ceiling are rejected at validation time per ADR-028's");
+    f.line("                // symmetric output ceiling check).");
+    f.line("                let lb = lhs.bytes();");
+    f.line("                let rb = rhs.bytes();");
+    f.line("                let total = lb.len() + rb.len();");
+    f.line("                let cap = if total > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { total };");
+    f.line("                let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("                let mut i = 0;");
+    f.line("                while i < lb.len() && i < cap { buf[i] = lb[i]; i += 1; }");
+    f.line("                let mut j = 0;");
+    f.line("                while j < rb.len() && i < cap { buf[i] = rb[j]; i += 1; j += 1; }");
+    f.line("                return Ok(TermValue::from_slice(&buf[..cap]));");
+    f.line("            }");
+    f.line("            crate::PrimitiveOp::Le | crate::PrimitiveOp::Lt");
+    f.line("            | crate::PrimitiveOp::Ge | crate::PrimitiveOp::Gt => {");
+    f.line("                // Big-endian byte-level comparison. Both operands are");
+    f.line("                // padded with leading zeros to the max length so the");
+    f.line("                // comparison ignores leading-zero stripping differences.");
+    f.line("                let cmp = byte_compare_be(lhs.bytes(), rhs.bytes());");
+    f.line("                let result_byte: u8 = match operator {");
+    f.line("                    crate::PrimitiveOp::Le => u8::from(cmp != core::cmp::Ordering::Greater),");
+    f.line(
+        "                    crate::PrimitiveOp::Lt => u8::from(cmp == core::cmp::Ordering::Less),",
+    );
+    f.line(
+        "                    crate::PrimitiveOp::Ge => u8::from(cmp != core::cmp::Ordering::Less),",
+    );
+    f.line("                    crate::PrimitiveOp::Gt => u8::from(cmp == core::cmp::Ordering::Greater),");
+    f.line("                    _ => 0,");
+    f.line("                };");
+    f.line("                return Ok(TermValue::from_slice(&[result_byte]));");
+    f.line("            }");
+    f.line("            _ => {}");
+    f.line("        }");
     f.line("        let a = bytes_to_u64_be(lhs.bytes());");
     f.line("        let b = bytes_to_u64_be(rhs.bytes());");
     f.line("        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);");
@@ -2757,6 +2926,23 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        let arr = r.to_be_bytes();");
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // Big-endian byte-slice comparison helper for Le/Lt/Ge/Gt fold-rules.
+    f.line("fn byte_compare_be(a: &[u8], b: &[u8]) -> core::cmp::Ordering {");
+    f.line("    // Pad shorter operand with leading zeros so the comparison treats");
+    f.line("    // both operands at max(len(a), len(b)) byte width.");
+    f.line("    let max_len = if a.len() > b.len() { a.len() } else { b.len() };");
+    f.line("    let mut i = 0;");
+    f.line("    while i < max_len {");
+    f.line("        let ai = if i + a.len() >= max_len { a[i + a.len() - max_len] } else { 0u8 };");
+    f.line("        let bi = if i + b.len() >= max_len { b[i + b.len() - max_len] } else { 0u8 };");
+    f.line("        if ai < bi { return core::cmp::Ordering::Less; }");
+    f.line("        if ai > bi { return core::cmp::Ordering::Greater; }");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    core::cmp::Ordering::Equal");
     f.line("}");
     f.blank();
 

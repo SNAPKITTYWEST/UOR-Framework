@@ -462,10 +462,13 @@ mod tests {
     }
 
     #[test]
-    fn primitive_op_has_10_variants() {
+    fn primitive_op_has_15_variants() {
         let ontology = Ontology::full();
         let enums = detect_enums(ontology);
         let prim_op = enums.iter().find(|e| e.name == "PrimitiveOp").unwrap();
-        assert_eq!(prim_op.variants.len(), 10);
+        // 10 original (Neg/Bnot/Succ/Pred/Add/Sub/Mul/Xor/And/Or)
+        // + 4 comparison (Le/Lt/Ge/Gt) per ADR-013/TR-08 substrate amendment
+        // + 1 byte-packing (Concat) per ADR-013/TR-08 substrate amendment
+        assert_eq!(prim_op.variants.len(), 15);
     }
 }

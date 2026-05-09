@@ -1271,6 +1271,21 @@ enum TermSpec {
     /// Wildcard pattern sentinel — wiki ADR-022 D3 G6 (and G9 default
     /// handler). Lowers to `Term::Variable { name_index: u32::MAX }`.
     WildcardSentinel,
+    /// Recurse-placeholder sentinel — wiki ADR-029. Lowers to
+    /// `Term::Variable { name_index: RECURSE_PLACEHOLDER_NAME_INDEX }`.
+    /// The catamorphism's Variable handler returns the threaded
+    /// `recurse_value` (the previous iteration's accumulator) when the
+    /// name_index matches `pipeline::RECURSE_PLACEHOLDER_NAME_INDEX`.
+    RecursePlaceholder,
+    /// Unfold-placeholder sentinel — wiki ADR-029. Lowers to
+    /// `Term::Variable { name_index: UNFOLD_PLACEHOLDER_NAME_INDEX }`.
+    /// The catamorphism's Variable handler returns the threaded
+    /// `unfold_value` (the unfold's current state) when the name_index
+    /// matches `pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX`. The Term::Unfold
+    /// fold-rule iterates step with the placeholder bound to the
+    /// accumulated state until a Kleene fixpoint or
+    /// `pipeline::UNFOLD_MAX_ITERATIONS` is reached.
+    UnfoldPlaceholder,
 }
 
 /// Per-scope binding table the closure-body parser maintains. Maps a
@@ -1355,6 +1370,9 @@ fn emit_term_for_expr(
             ))
         }
         syn::Expr::Call(call_expr) => emit_term_for_call(call_expr, route_input, arena, scope),
+        // ADR-013/TR-08 substrate amendment: byte-level comparison operators
+        // <= < >= > == != lower to Term::Application(Le/Lt/Ge/Gt/Eq/Ne, [lhs, rhs]).
+        syn::Expr::Binary(bin_expr) => emit_term_for_binary(bin_expr, route_input, arena, scope),
         syn::Expr::Block(block_expr) => emit_term_for_block(&block_expr.block, route_input, arena, scope),
         syn::Expr::Paren(paren_expr) => {
             emit_term_for_expr(&paren_expr.expr, route_input, arena, scope)
@@ -1469,6 +1487,60 @@ fn emit_term_for_match(
     Ok(idx)
 }
 
+/// Map a binary operator expression to a `Term::Application` with the
+/// corresponding `PrimitiveOp` discriminant. Wiki ADR-013/TR-08 substrate
+/// amendment: foundation extends `PrimitiveOp` with `Le`, `Lt`, `Ge`,
+/// `Gt` (byte-level comparison) so the closure-body grammar G3 admits
+/// `<=`, `<`, `>=`, `>` operators alongside the arithmetic primitives.
+fn emit_term_for_binary(
+    expr: &syn::ExprBinary,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
+) -> Result<usize> {
+    let operator = match expr.op {
+        syn::BinOp::Le(_) => quote! { ::uor_foundation::PrimitiveOp::Le },
+        syn::BinOp::Lt(_) => quote! { ::uor_foundation::PrimitiveOp::Lt },
+        syn::BinOp::Ge(_) => quote! { ::uor_foundation::PrimitiveOp::Ge },
+        syn::BinOp::Gt(_) => quote! { ::uor_foundation::PrimitiveOp::Gt },
+        syn::BinOp::Add(_) => quote! { ::uor_foundation::PrimitiveOp::Add },
+        syn::BinOp::Sub(_) => quote! { ::uor_foundation::PrimitiveOp::Sub },
+        syn::BinOp::Mul(_) => quote! { ::uor_foundation::PrimitiveOp::Mul },
+        syn::BinOp::BitXor(_) => quote! { ::uor_foundation::PrimitiveOp::Xor },
+        syn::BinOp::BitAnd(_) => quote! { ::uor_foundation::PrimitiveOp::And },
+        syn::BinOp::BitOr(_) => quote! { ::uor_foundation::PrimitiveOp::Or },
+        ref other => {
+            return Err(syn::Error::new_spanned(
+                expr,
+                format!(
+                    "closure violation: binary operator `{:?}` is not in the closure-body grammar; recognised operators are arithmetic (+, -, *), bitwise (^, &, |), and byte-level comparison (<=, <, >=, >)",
+                    other
+                ),
+            ));
+        }
+    };
+    let lhs_root = emit_term_for_expr(&expr.left, route_input, arena, scope)?;
+    let rhs_root = emit_term_for_expr(&expr.right, route_input, arena, scope)?;
+    let already_contiguous = rhs_root == lhs_root + 1;
+    let (args_start, args_len) = if already_contiguous {
+        (lhs_root as u32, 2u32)
+    } else {
+        let start = arena.len();
+        let lhs_dup = clone_term_spec(&arena[lhs_root]);
+        arena.push(lhs_dup);
+        let rhs_dup = clone_term_spec(&arena[rhs_root]);
+        arena.push(rhs_dup);
+        (start as u32, 2u32)
+    };
+    let idx = arena.len();
+    arena.push(TermSpec::Application {
+        operator,
+        args_start,
+        args_len,
+    });
+    Ok(idx)
+}
+
 /// Duplicate a `TermSpec`. Used when emitting `match` arm-spans where
 /// the body's root term must be copied into the arms range alongside
 /// its pattern.
@@ -1538,6 +1610,8 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
             arms_len: *arms_len,
         },
         TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
+        TermSpec::RecursePlaceholder => TermSpec::RecursePlaceholder,
+        TermSpec::UnfoldPlaceholder => TermSpec::UnfoldPlaceholder,
     }
 }
 
@@ -1735,9 +1809,8 @@ fn emit_term_for_call(
         // Exclude all reserved + PrimitiveOp identifiers from verb
         // resolution; these have dedicated handling below.
         "add" | "sub" | "mul" | "xor" | "and" | "or" | "neg" | "bnot" | "succ" | "pred"
-        | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit" | "recurse" | "unfold" => {
-            false
-        }
+        | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit" | "recurse" | "unfold"
+        | "concat" => false,
         _ => true,
     };
     if verb_resolution {
@@ -1849,15 +1922,16 @@ fn emit_term_for_call(
         }
         // Recurse path: count is parametric or exceeds the threshold.
         // Lower to Term::Recurse with the count's tree as descent measure,
-        // init as base, and the step body as the step subtree.
+        // init as base, and the step body as the step subtree per
+        // ADR-029. State binds to the RecursePlaceholder Variable so the
+        // catamorphism's recurse_value threading resolves it.
         let measure_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
         let mut step_scope = scope.clone();
         step_scope.shadow_check(&state_ident)?;
         step_scope.shadow_check(&idx_ident)?;
-        // Bind state to the recursive-call placeholder (the Recurse node
-        // we're about to push); idx binds to the measure.
-        let recurse_idx_placeholder = arena.len() + 1; // body emits before Recurse
-        step_scope.push(state_ident, recurse_idx_placeholder);
+        let placeholder_idx = arena.len();
+        arena.push(TermSpec::RecursePlaceholder);
+        step_scope.push(state_ident, placeholder_idx);
         step_scope.push(idx_ident, measure_root);
         let step_root =
             emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
@@ -1908,15 +1982,18 @@ fn emit_term_for_call(
                 ));
             }
         };
-        // The step body resolves `self_ident` references through the
-        // binding scope; we register a fresh binding pointing at the
-        // current arena position (which will be the Recurse node) so
-        // self-references emit Variable lookups that the catamorphism
-        // interprets as recursive calls per ADR-029 Recurse fold rule.
+        // Wiki ADR-029: emit a `Term::Variable { name_index =
+        // RECURSE_PLACEHOLDER_NAME_INDEX }` BEFORE the step body and
+        // bind `self_ident` to that Variable's arena index. References
+        // to `self_ident` in step body resolve to that Variable; the
+        // catamorphism's Variable handler returns the threaded
+        // recurse_value (the previous iteration's accumulator) per
+        // ADR-029's recursive fold rule.
         let mut step_scope = scope.clone();
         step_scope.shadow_check(&self_ident)?;
-        let recurse_idx_placeholder = arena.len() + 1; // body emits before the Recurse node
-        step_scope.push(self_ident, recurse_idx_placeholder);
+        let placeholder_idx = arena.len();
+        arena.push(TermSpec::RecursePlaceholder);
+        step_scope.push(self_ident, placeholder_idx);
         let step_root =
             emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
         let idx = arena.len();
@@ -1964,9 +2041,18 @@ fn emit_term_for_call(
                 ));
             }
         };
+        // ADR-029 anamorphism: emit a `Variable { name_index =
+        // UNFOLD_PLACEHOLDER_NAME_INDEX }` BEFORE the step body and bind
+        // state_ident to that placeholder's arena index, so any reference
+        // to state_ident inside step lowers to the placeholder Variable.
+        // The catamorphism's Term::Unfold fold-rule iterates step with
+        // the placeholder bound to the current accumulated state until a
+        // Kleene fixpoint or UNFOLD_MAX_ITERATIONS.
         let mut step_scope = scope.clone();
         step_scope.shadow_check(&state_ident)?;
-        step_scope.push(state_ident, seed_root);
+        let placeholder_idx = arena.len();
+        arena.push(TermSpec::UnfoldPlaceholder);
+        step_scope.push(state_ident, placeholder_idx);
         let step_root =
             emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
         let idx = arena.len();
@@ -2231,6 +2317,42 @@ fn emit_term_for_call(
         return Ok(idx);
     }
 
+    // ADR-013/TR-08 byte-packing primitive: `concat(lhs, rhs)` lowers
+    // to `Term::Application(Concat, [lhs, rhs])`. The catamorphism's
+    // apply_primitive_op handles the byte-sequence concatenation
+    // bounded by TERM_VALUE_MAX_BYTES.
+    if func_ident == "concat" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "closure violation: `concat` (substrate amendment) expects 2 arguments, got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let lhs_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let rhs_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
+        let already_contiguous = rhs_root == lhs_root + 1;
+        let (args_start, args_len) = if already_contiguous {
+            (lhs_root as u32, 2u32)
+        } else {
+            let start = arena.len();
+            let lhs_dup = clone_term_spec(&arena[lhs_root]);
+            arena.push(lhs_dup);
+            let rhs_dup = clone_term_spec(&arena[rhs_root]);
+            arena.push(rhs_dup);
+            (start as u32, 2u32)
+        };
+        let idx = arena.len();
+        arena.push(TermSpec::Application {
+            operator: quote! { ::uor_foundation::PrimitiveOp::Concat },
+            args_start,
+            args_len,
+        });
+        return Ok(idx);
+    }
+
     // ADR-026 G19: `hash(input)` lowers to `Term::HasherProjection`.
     if func_ident == "hash" {
         if call.args.len() != 1 {
@@ -2393,6 +2515,8 @@ fn emit_term_for_call(
                     arms_len: *arms_len,
                 },
                 TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
+                TermSpec::RecursePlaceholder => TermSpec::RecursePlaceholder,
+                TermSpec::UnfoldPlaceholder => TermSpec::UnfoldPlaceholder,
             };
             arena.push(dup);
         }
@@ -2549,6 +2673,16 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     name_index: u32::MAX,
                 }
             },
+            TermSpec::RecursePlaceholder => quote! {
+                ::uor_foundation::enforcement::Term::Variable {
+                    name_index: ::uor_foundation::pipeline::RECURSE_PLACEHOLDER_NAME_INDEX,
+                }
+            },
+            TermSpec::UnfoldPlaceholder => quote! {
+                ::uor_foundation::enforcement::Term::Variable {
+                    name_index: ::uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX,
+                }
+            },
         })
         .collect()
 }
@@ -2702,6 +2836,16 @@ fn render_atomic_term_in_builder(
         }
         TermSpec::WildcardSentinel => quote! {
             ::uor_foundation::enforcement::Term::Variable { name_index: u32::MAX }
+        },
+        TermSpec::RecursePlaceholder => quote! {
+            ::uor_foundation::enforcement::Term::Variable {
+                name_index: ::uor_foundation::pipeline::RECURSE_PLACEHOLDER_NAME_INDEX,
+            }
+        },
+        TermSpec::UnfoldPlaceholder => quote! {
+            ::uor_foundation::enforcement::Term::Variable {
+                name_index: ::uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX,
+            }
         },
         TermSpec::VerbSplice { .. } => quote! {
             compile_error!("VerbSplice handled separately in render_const_fn_arena_builder")

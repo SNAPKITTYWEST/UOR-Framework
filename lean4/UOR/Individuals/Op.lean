@@ -8059,6 +8059,18 @@ def compose_op : UOR.Kernel.Op.SessionCompositionOperation UOR.Prims.Standard :=
   isRingOp := none
 }
 
+-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling.
+def concat : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := none
+  associative := some (true)
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.hypercubeJoin)
+  inverse := none
+  composedOf := none
+  isRingOp := some (false)
+}
+
 -- The foundational theorem of the UOR kernel: neg(bnot(x)) = succ(x) for all x in R_n. This identity links the two involutions (neg and bnot) to the successor operation, making succ derivable from neg and bnot.
 def criticalIdentity : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   lhs := some (UOR.Kernel.Schema.term_criticalIdentity_lhs.toTermExpression)
@@ -8100,6 +8112,30 @@ def dispatch : UOR.Kernel.Op.DispatchOperation UOR.Prims.Standard := {
   inverse := none
   composedOf := none
   isRingOp := none
+}
+
+-- Byte-level greater-than-or-equal: ge(x, y) = 1 if x ≥ y else 0. Operands compared as big-endian unsigned byte sequences.
+def ge : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := none
+  associative := none
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.constraintSelection)
+  inverse := none
+  composedOf := none
+  isRingOp := some (false)
+}
+
+-- Byte-level greater-than: gt(x, y) = 1 if x > y else 0. Operands compared as big-endian unsigned byte sequences.
+def gt : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := none
+  associative := none
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.constraintSelection)
+  inverse := none
+  composedOf := none
+  isRingOp := some (false)
 }
 
 -- ι(s, C) = P(Π(G(s, C))): the φ-pipeline composed into a single inference step. Non-commutative, non-associative.
@@ -8170,6 +8206,30 @@ def jsat_RR : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   validityKind := some (.universal)
   validKMin := none
   validKMax := none
+}
+
+-- Byte-level less-than-or-equal: le(x, y) = 1 if x ≤ y else 0. Operands compared as big-endian unsigned byte sequences. The catamorphism fold-rule emits Literal(1) on true, Literal(0) on false.
+def le : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := none
+  associative := none
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.constraintSelection)
+  inverse := none
+  composedOf := none
+  isRingOp := some (false)
+}
+
+-- Byte-level less-than: lt(x, y) = 1 if x < y else 0. Operands compared as big-endian unsigned byte sequences.
+def lt : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := none
+  associative := none
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.constraintSelection)
+  inverse := none
+  composedOf := none
+  isRingOp := some (false)
 }
 
 -- Ring multiplication: mul(x, y) = (x × y) mod 2^n. Commutative, associative; identity element is 1.

@@ -1312,6 +1312,94 @@ fn raw_individuals_vec() -> Vec<Individual> {
                 ),
             ],
         },
+        // ADR-013/TR-08 substrate amendment: byte-level comparison + concat
+        // primitives admitting <=, <, >=, > closure-body operators (G3) and
+        // byte-packing serialization (concat). Each is a binary op whose
+        // catamorphism fold-rule lives in apply_primitive_op.
+        Individual {
+            id: "https://uor.foundation/op/le",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "le",
+            comment: "Byte-level less-than-or-equal: le(x, y) = 1 if x ≤ y else 0. \
+                      Operands compared as big-endian unsigned byte sequences. \
+                      The catamorphism fold-rule emits Literal(1) on true, \
+                      Literal(0) on false.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/ConstraintSelection"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/lt",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "lt",
+            comment: "Byte-level less-than: lt(x, y) = 1 if x < y else 0. \
+                      Operands compared as big-endian unsigned byte sequences.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/ConstraintSelection"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/ge",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "ge",
+            comment: "Byte-level greater-than-or-equal: ge(x, y) = 1 if x ≥ y else 0. \
+                      Operands compared as big-endian unsigned byte sequences.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/ConstraintSelection"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/gt",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "gt",
+            comment: "Byte-level greater-than: gt(x, y) = 1 if x > y else 0. \
+                      Operands compared as big-endian unsigned byte sequences.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/ConstraintSelection"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/concat",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "concat",
+            comment: "Byte-sequence concatenation: concat(x, y) = x ⧺ y. \
+                      The substrate's byte-packing primitive — admits header \
+                      serialization and other byte-array construction patterns. \
+                      Result length is len(x) + len(y), bounded by the foundation's \
+                      TERM_VALUE_MAX_BYTES ceiling.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/HypercubeJoin"),
+                ),
+                (
+                    "https://uor.foundation/op/associative",
+                    IndividualValue::Bool(true),
+                ),
+            ],
+        },
         // Amendment 62: 5 composed operation individuals
         Individual {
             id: "https://uor.foundation/op/dispatch",

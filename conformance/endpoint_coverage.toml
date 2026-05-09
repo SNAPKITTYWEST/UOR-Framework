@@ -501,6 +501,19 @@ behavior = "behavior_route_output_payload"
 symbols = ["FOLD_UNROLL_THRESHOLD"]
 behavior = "behavior_fold_unroll_threshold"
 
+# ─── Mapping: ADR-029 anamorphism + recursive fold placeholders ────────
+# ADR-029 specifies that `Term::Recurse` and `Term::Unfold` carry their
+# bound variables via fresh-name-indexed `Term::Variable` placeholders
+# threaded through the catamorphism's evaluator. The two sentinels
+# `RECURSE_PLACEHOLDER_NAME_INDEX` and `UNFOLD_PLACEHOLDER_NAME_INDEX`
+# encode the recursive-call and unfold-state placeholders in stable-Rust
+# 1.83 (no nightly `generic_const_exprs`). `UNFOLD_MAX_ITERATIONS` is the
+# foundation-fixed bound on the anamorphic Kleene-fixpoint iteration —
+# parallel to `FOLD_UNROLL_THRESHOLD` for the catamorphic recursion path.
+[coverage.adr029_placeholders]
+symbols = ["RECURSE_PLACEHOLDER_NAME_INDEX", "UNFOLD_PLACEHOLDER_NAME_INDEX", "UNFOLD_MAX_ITERATIONS"]
+behavior = "behavior_catamorphism_evaluator"
+
 # ─── Mapping: ADR-016 four UOR-domain mint primitives ──────────────────
 # ADR-016 commits foundation to public mint primitives that are the
 # cross-crate construction surface for the four UOR-domain sealed

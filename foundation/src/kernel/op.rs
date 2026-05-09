@@ -13318,6 +13318,11 @@ impl PrimitiveOp {
             Self::Xor => 2,
             Self::And => 2,
             Self::Or => 2,
+            Self::Le => 2,
+            Self::Lt => 2,
+            Self::Ge => 2,
+            Self::Gt => 2,
+            Self::Concat => 2,
         }
     }
 
@@ -13347,6 +13352,11 @@ impl PrimitiveOp {
             Self::Xor => crate::enums::GeometricCharacter::HypercubeTranslation,
             Self::And => crate::enums::GeometricCharacter::HypercubeProjection,
             Self::Or => crate::enums::GeometricCharacter::HypercubeJoin,
+            Self::Le => crate::enums::GeometricCharacter::ConstraintSelection,
+            Self::Lt => crate::enums::GeometricCharacter::ConstraintSelection,
+            Self::Ge => crate::enums::GeometricCharacter::ConstraintSelection,
+            Self::Gt => crate::enums::GeometricCharacter::ConstraintSelection,
+            Self::Concat => crate::enums::GeometricCharacter::HypercubeJoin,
         }
     }
 

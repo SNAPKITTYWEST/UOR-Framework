@@ -3577,6 +3577,22 @@ fn generate_const_ring_eval(f: &mut RustFile, ontology: &Ontology) {
             "        PrimitiveOp::Or => {},",
             apply_mask("a | b".to_string())
         ));
+        // ADR-013/TR-08 substrate amendment: comparison primitives lift
+        // the ring's natural ordering to a 0/1-valued indicator. Returns
+        // 1 if the comparison holds, 0 otherwise.
+        f.line(&format!(
+            "        PrimitiveOp::Le => (a <= b) as {rust_ty},"
+        ));
+        f.line(&format!("        PrimitiveOp::Lt => (a < b) as {rust_ty},"));
+        f.line(&format!(
+            "        PrimitiveOp::Ge => (a >= b) as {rust_ty},"
+        ));
+        f.line(&format!("        PrimitiveOp::Gt => (a > b) as {rust_ty},"));
+        // Concat is a byte-sequence operator with no ring-arithmetic
+        // interpretation — the catamorphism handles it at the byte level
+        // via `apply_primitive_op`. Const-ring helpers return the ring's
+        // additive identity for completeness.
+        f.line("        PrimitiveOp::Concat => 0,");
         f.line("        _ => 0,");
         f.line("    }");
         f.line("}");
@@ -3643,6 +3659,13 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
         f.line(&format!(
             "pub const fn const_ring_eval_{lower}(op: PrimitiveOp, a: Limbs<{limb_count}>, b: Limbs<{limb_count}>) -> Limbs<{limb_count}> {{"
         ));
+        // ADR-013/TR-08 substrate amendment:
+        // - Le/Lt/Ge/Gt: lift the natural ring ordering to a 0/1-valued
+        //   indicator (returned as a one-limb Limbs value).
+        // - Concat: byte-sequence operator with no ring-arithmetic
+        //   interpretation; const-ring helpers return the additive
+        //   identity. Catamorphism evaluation routes Concat through
+        //   `apply_primitive_op` which handles it at the byte level.
         if exact_fit {
             f.line("    match op {");
             f.line("        PrimitiveOp::Add => a.wrapping_add(b),");
@@ -3660,6 +3683,21 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
             ));
             f.line(&format!(
                 "        PrimitiveOp::Pred => a.wrapping_sub(limbs_one_{limb_count}()),"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Le => if limbs_le_{limb_count}(a, b) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Lt => if limbs_lt_{limb_count}(a, b) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Ge => if limbs_le_{limb_count}(b, a) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Gt => if limbs_lt_{limb_count}(b, a) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Concat => Limbs::<{limb_count}>::zero(),"
             ));
             f.line("    }");
         } else {
@@ -3680,6 +3718,21 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
             f.line(&format!(
                 "        PrimitiveOp::Pred => a.wrapping_sub(limbs_one_{limb_count}()),"
             ));
+            f.line(&format!(
+                "        PrimitiveOp::Le => if limbs_le_{limb_count}(a, b) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Lt => if limbs_lt_{limb_count}(a, b) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Ge => if limbs_le_{limb_count}(b, a) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Gt => if limbs_lt_{limb_count}(b, a) {{ limbs_one_{limb_count}() }} else {{ Limbs::<{limb_count}>::zero() }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Concat => Limbs::<{limb_count}>::zero(),"
+            ));
             f.line("    };");
             f.line(&format!("    raw.mask_high_bits({bits})"));
         }
@@ -3692,7 +3745,7 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
     ns.sort_unstable();
     ns.dedup();
     f.doc_comment("Phase L.2: one-constant helpers for `Limbs<N>::from_words([1, 0, ...])`.");
-    for n in ns {
+    for &n in &ns {
         let body = if n == 1 {
             "Limbs::<1>::from_words([1u64])".to_string()
         } else {
@@ -3707,6 +3760,47 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
         f.line("#[must_use]");
         f.line(&format!("const fn limbs_one_{n}() -> Limbs<{n}> {{"));
         f.line(&format!("    {body}"));
+        f.line("}");
+        f.blank();
+    }
+    // ADR-013/TR-08: comparison helpers used by the const_ring_eval_w*
+    // limbs path to lift Le/Lt/Ge/Gt to ring-valued 0/1 indicators.
+    // Implementation: words are stored little-endian, so big-integer
+    // comparison walks from the top word down. Equal words skip; the
+    // first differing word's u64 ordering is decisive.
+    f.doc_comment("ADR-013/TR-08: const-fn limb comparisons used by `const_ring_eval_w{n}`");
+    f.doc_comment("to lift the comparison primitives to 0/1-valued ring indicators.");
+    for &n in &ns {
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_lt_{n}(a: Limbs<{n}>, b: Limbs<{n}>) -> bool {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line("    let bw = b.words();");
+        f.line(&format!("    let mut i = {n};"));
+        f.line("    while i > 0 {");
+        f.line("        i -= 1;");
+        f.line("        if aw[i] < bw[i] { return true; }");
+        f.line("        if aw[i] > bw[i] { return false; }");
+        f.line("    }");
+        f.line("    false");
+        f.line("}");
+        f.blank();
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_le_{n}(a: Limbs<{n}>, b: Limbs<{n}>) -> bool {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line("    let bw = b.words();");
+        f.line(&format!("    let mut i = {n};"));
+        f.line("    while i > 0 {");
+        f.line("        i -= 1;");
+        f.line("        if aw[i] < bw[i] { return true; }");
+        f.line("        if aw[i] > bw[i] { return false; }");
+        f.line("    }");
+        f.line("    true");
         f.line("}");
         f.blank();
     }
@@ -4916,7 +5010,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 3;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");
@@ -5154,6 +5248,12 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("        crate::PrimitiveOp::Xor => 7,");
     f.line("        crate::PrimitiveOp::And => 8,");
     f.line("        crate::PrimitiveOp::Or => 9,");
+    f.line("        // ADR-013/TR-08 substrate amendment: byte-level ops 10..15.");
+    f.line("        crate::PrimitiveOp::Le => 10,");
+    f.line("        crate::PrimitiveOp::Lt => 11,");
+    f.line("        crate::PrimitiveOp::Ge => 12,");
+    f.line("        crate::PrimitiveOp::Gt => 13,");
+    f.line("        crate::PrimitiveOp::Concat => 14,");
     f.line("    }");
     f.line("}");
     f.blank();

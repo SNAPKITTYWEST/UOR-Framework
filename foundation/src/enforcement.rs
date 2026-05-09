@@ -4178,6 +4178,11 @@ pub const fn const_ring_eval_w8(op: PrimitiveOp, a: u8, b: u8) -> u8 {
         PrimitiveOp::Xor => a ^ b,
         PrimitiveOp::And => a & b,
         PrimitiveOp::Or => a | b,
+        PrimitiveOp::Le => (a <= b) as u8,
+        PrimitiveOp::Lt => (a < b) as u8,
+        PrimitiveOp::Ge => (a >= b) as u8,
+        PrimitiveOp::Gt => (a > b) as u8,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4204,6 +4209,11 @@ pub const fn const_ring_eval_w16(op: PrimitiveOp, a: u16, b: u16) -> u16 {
         PrimitiveOp::Xor => a ^ b,
         PrimitiveOp::And => a & b,
         PrimitiveOp::Or => a | b,
+        PrimitiveOp::Le => (a <= b) as u16,
+        PrimitiveOp::Lt => (a < b) as u16,
+        PrimitiveOp::Ge => (a >= b) as u16,
+        PrimitiveOp::Gt => (a > b) as u16,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4231,6 +4241,11 @@ pub const fn const_ring_eval_w24(op: PrimitiveOp, a: u32, b: u32) -> u32 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u32,
+        PrimitiveOp::Lt => (a < b) as u32,
+        PrimitiveOp::Ge => (a >= b) as u32,
+        PrimitiveOp::Gt => (a > b) as u32,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4258,6 +4273,11 @@ pub const fn const_ring_eval_w32(op: PrimitiveOp, a: u32, b: u32) -> u32 {
         PrimitiveOp::Xor => a ^ b,
         PrimitiveOp::And => a & b,
         PrimitiveOp::Or => a | b,
+        PrimitiveOp::Le => (a <= b) as u32,
+        PrimitiveOp::Lt => (a < b) as u32,
+        PrimitiveOp::Ge => (a >= b) as u32,
+        PrimitiveOp::Gt => (a > b) as u32,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4285,6 +4305,11 @@ pub const fn const_ring_eval_w40(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u64,
+        PrimitiveOp::Lt => (a < b) as u64,
+        PrimitiveOp::Ge => (a >= b) as u64,
+        PrimitiveOp::Gt => (a > b) as u64,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4313,6 +4338,11 @@ pub const fn const_ring_eval_w48(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u64,
+        PrimitiveOp::Lt => (a < b) as u64,
+        PrimitiveOp::Ge => (a >= b) as u64,
+        PrimitiveOp::Gt => (a > b) as u64,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4341,6 +4371,11 @@ pub const fn const_ring_eval_w56(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u64,
+        PrimitiveOp::Lt => (a < b) as u64,
+        PrimitiveOp::Ge => (a >= b) as u64,
+        PrimitiveOp::Gt => (a > b) as u64,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4368,6 +4403,11 @@ pub const fn const_ring_eval_w64(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Xor => a ^ b,
         PrimitiveOp::And => a & b,
         PrimitiveOp::Or => a | b,
+        PrimitiveOp::Le => (a <= b) as u64,
+        PrimitiveOp::Lt => (a < b) as u64,
+        PrimitiveOp::Ge => (a >= b) as u64,
+        PrimitiveOp::Gt => (a > b) as u64,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4395,6 +4435,11 @@ pub const fn const_ring_eval_w72(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4423,6 +4468,11 @@ pub const fn const_ring_eval_w80(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4451,6 +4501,11 @@ pub const fn const_ring_eval_w88(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4479,6 +4534,11 @@ pub const fn const_ring_eval_w96(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4507,6 +4567,11 @@ pub const fn const_ring_eval_w104(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4535,6 +4600,11 @@ pub const fn const_ring_eval_w112(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4563,6 +4633,11 @@ pub const fn const_ring_eval_w120(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => (a ^ b) & MASK,
         PrimitiveOp::And => (a & b) & MASK,
         PrimitiveOp::Or => (a | b) & MASK,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -4590,6 +4665,11 @@ pub const fn const_ring_eval_w128(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Xor => a ^ b,
         PrimitiveOp::And => a & b,
         PrimitiveOp::Or => a | b,
+        PrimitiveOp::Le => (a <= b) as u128,
+        PrimitiveOp::Lt => (a < b) as u128,
+        PrimitiveOp::Ge => (a >= b) as u128,
+        PrimitiveOp::Gt => (a > b) as u128,
+        PrimitiveOp::Concat => 0,
         _ => 0,
     }
 }
@@ -6397,7 +6477,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 3;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate
@@ -6602,6 +6682,12 @@ pub const fn primitive_op_discriminant(op: crate::PrimitiveOp) -> u8 {
         crate::PrimitiveOp::Xor => 7,
         crate::PrimitiveOp::And => 8,
         crate::PrimitiveOp::Or => 9,
+        // ADR-013/TR-08 substrate amendment: byte-level ops 10..15.
+        crate::PrimitiveOp::Le => 10,
+        crate::PrimitiveOp::Lt => 11,
+        crate::PrimitiveOp::Ge => 12,
+        crate::PrimitiveOp::Gt => 13,
+        crate::PrimitiveOp::Concat => 14,
     }
 }
 
@@ -14412,6 +14498,35 @@ pub const fn const_ring_eval_w160(op: PrimitiveOp, a: Limbs<3>, b: Limbs<3>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_3()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_3()),
+        PrimitiveOp::Le => {
+            if limbs_le_3(a, b) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_3(a, b) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_3(b, a) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_3(b, a) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<3>::zero(),
     };
     raw.mask_high_bits(160)
 }
@@ -14430,6 +14545,35 @@ pub const fn const_ring_eval_w192(op: PrimitiveOp, a: Limbs<3>, b: Limbs<3>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_3()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_3()),
+        PrimitiveOp::Le => {
+            if limbs_le_3(a, b) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_3(a, b) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_3(b, a) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_3(b, a) {
+                limbs_one_3()
+            } else {
+                Limbs::<3>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<3>::zero(),
     }
 }
 
@@ -14447,6 +14591,35 @@ pub const fn const_ring_eval_w224(op: PrimitiveOp, a: Limbs<4>, b: Limbs<4>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_4()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_4()),
+        PrimitiveOp::Le => {
+            if limbs_le_4(a, b) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_4(a, b) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_4(b, a) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_4(b, a) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<4>::zero(),
     };
     raw.mask_high_bits(224)
 }
@@ -14465,6 +14638,35 @@ pub const fn const_ring_eval_w256(op: PrimitiveOp, a: Limbs<4>, b: Limbs<4>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_4()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_4()),
+        PrimitiveOp::Le => {
+            if limbs_le_4(a, b) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_4(a, b) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_4(b, a) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_4(b, a) {
+                limbs_one_4()
+            } else {
+                Limbs::<4>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<4>::zero(),
     }
 }
 
@@ -14482,6 +14684,35 @@ pub const fn const_ring_eval_w384(op: PrimitiveOp, a: Limbs<6>, b: Limbs<6>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_6()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_6()),
+        PrimitiveOp::Le => {
+            if limbs_le_6(a, b) {
+                limbs_one_6()
+            } else {
+                Limbs::<6>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_6(a, b) {
+                limbs_one_6()
+            } else {
+                Limbs::<6>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_6(b, a) {
+                limbs_one_6()
+            } else {
+                Limbs::<6>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_6(b, a) {
+                limbs_one_6()
+            } else {
+                Limbs::<6>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<6>::zero(),
     }
 }
 
@@ -14499,6 +14730,35 @@ pub const fn const_ring_eval_w448(op: PrimitiveOp, a: Limbs<7>, b: Limbs<7>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_7()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_7()),
+        PrimitiveOp::Le => {
+            if limbs_le_7(a, b) {
+                limbs_one_7()
+            } else {
+                Limbs::<7>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_7(a, b) {
+                limbs_one_7()
+            } else {
+                Limbs::<7>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_7(b, a) {
+                limbs_one_7()
+            } else {
+                Limbs::<7>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_7(b, a) {
+                limbs_one_7()
+            } else {
+                Limbs::<7>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<7>::zero(),
     }
 }
 
@@ -14516,6 +14776,35 @@ pub const fn const_ring_eval_w512(op: PrimitiveOp, a: Limbs<8>, b: Limbs<8>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_8()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_8()),
+        PrimitiveOp::Le => {
+            if limbs_le_8(a, b) {
+                limbs_one_8()
+            } else {
+                Limbs::<8>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_8(a, b) {
+                limbs_one_8()
+            } else {
+                Limbs::<8>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_8(b, a) {
+                limbs_one_8()
+            } else {
+                Limbs::<8>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_8(b, a) {
+                limbs_one_8()
+            } else {
+                Limbs::<8>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<8>::zero(),
     }
 }
 
@@ -14533,6 +14822,35 @@ pub const fn const_ring_eval_w520(op: PrimitiveOp, a: Limbs<9>, b: Limbs<9>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_9()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_9()),
+        PrimitiveOp::Le => {
+            if limbs_le_9(a, b) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_9(a, b) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_9(b, a) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_9(b, a) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<9>::zero(),
     };
     raw.mask_high_bits(520)
 }
@@ -14551,6 +14869,35 @@ pub const fn const_ring_eval_w528(op: PrimitiveOp, a: Limbs<9>, b: Limbs<9>) -> 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_9()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_9()),
+        PrimitiveOp::Le => {
+            if limbs_le_9(a, b) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_9(a, b) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_9(b, a) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_9(b, a) {
+                limbs_one_9()
+            } else {
+                Limbs::<9>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<9>::zero(),
     };
     raw.mask_high_bits(528)
 }
@@ -14569,6 +14916,35 @@ pub const fn const_ring_eval_w1024(op: PrimitiveOp, a: Limbs<16>, b: Limbs<16>) 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_16()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_16()),
+        PrimitiveOp::Le => {
+            if limbs_le_16(a, b) {
+                limbs_one_16()
+            } else {
+                Limbs::<16>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_16(a, b) {
+                limbs_one_16()
+            } else {
+                Limbs::<16>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_16(b, a) {
+                limbs_one_16()
+            } else {
+                Limbs::<16>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_16(b, a) {
+                limbs_one_16()
+            } else {
+                Limbs::<16>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<16>::zero(),
     }
 }
 
@@ -14586,6 +14962,35 @@ pub const fn const_ring_eval_w2048(op: PrimitiveOp, a: Limbs<32>, b: Limbs<32>) 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_32()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_32()),
+        PrimitiveOp::Le => {
+            if limbs_le_32(a, b) {
+                limbs_one_32()
+            } else {
+                Limbs::<32>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_32(a, b) {
+                limbs_one_32()
+            } else {
+                Limbs::<32>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_32(b, a) {
+                limbs_one_32()
+            } else {
+                Limbs::<32>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_32(b, a) {
+                limbs_one_32()
+            } else {
+                Limbs::<32>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<32>::zero(),
     }
 }
 
@@ -14603,6 +15008,35 @@ pub const fn const_ring_eval_w4096(op: PrimitiveOp, a: Limbs<64>, b: Limbs<64>) 
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_64()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_64()),
+        PrimitiveOp::Le => {
+            if limbs_le_64(a, b) {
+                limbs_one_64()
+            } else {
+                Limbs::<64>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_64(a, b) {
+                limbs_one_64()
+            } else {
+                Limbs::<64>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_64(b, a) {
+                limbs_one_64()
+            } else {
+                Limbs::<64>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_64(b, a) {
+                limbs_one_64()
+            } else {
+                Limbs::<64>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<64>::zero(),
     }
 }
 
@@ -14620,6 +15054,35 @@ pub const fn const_ring_eval_w8192(op: PrimitiveOp, a: Limbs<128>, b: Limbs<128>
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_128()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_128()),
+        PrimitiveOp::Le => {
+            if limbs_le_128(a, b) {
+                limbs_one_128()
+            } else {
+                Limbs::<128>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_128(a, b) {
+                limbs_one_128()
+            } else {
+                Limbs::<128>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_128(b, a) {
+                limbs_one_128()
+            } else {
+                Limbs::<128>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_128(b, a) {
+                limbs_one_128()
+            } else {
+                Limbs::<128>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<128>::zero(),
     }
 }
 
@@ -14637,6 +15100,35 @@ pub const fn const_ring_eval_w12288(op: PrimitiveOp, a: Limbs<192>, b: Limbs<192
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_192()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_192()),
+        PrimitiveOp::Le => {
+            if limbs_le_192(a, b) {
+                limbs_one_192()
+            } else {
+                Limbs::<192>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_192(a, b) {
+                limbs_one_192()
+            } else {
+                Limbs::<192>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_192(b, a) {
+                limbs_one_192()
+            } else {
+                Limbs::<192>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_192(b, a) {
+                limbs_one_192()
+            } else {
+                Limbs::<192>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<192>::zero(),
     }
 }
 
@@ -14654,6 +15146,35 @@ pub const fn const_ring_eval_w16384(op: PrimitiveOp, a: Limbs<256>, b: Limbs<256
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_256()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_256()),
+        PrimitiveOp::Le => {
+            if limbs_le_256(a, b) {
+                limbs_one_256()
+            } else {
+                Limbs::<256>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_256(a, b) {
+                limbs_one_256()
+            } else {
+                Limbs::<256>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_256(b, a) {
+                limbs_one_256()
+            } else {
+                Limbs::<256>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_256(b, a) {
+                limbs_one_256()
+            } else {
+                Limbs::<256>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<256>::zero(),
     }
 }
 
@@ -14671,6 +15192,35 @@ pub const fn const_ring_eval_w32768(op: PrimitiveOp, a: Limbs<512>, b: Limbs<512
         PrimitiveOp::Bnot => a.not(),
         PrimitiveOp::Succ => a.wrapping_add(limbs_one_512()),
         PrimitiveOp::Pred => a.wrapping_sub(limbs_one_512()),
+        PrimitiveOp::Le => {
+            if limbs_le_512(a, b) {
+                limbs_one_512()
+            } else {
+                Limbs::<512>::zero()
+            }
+        }
+        PrimitiveOp::Lt => {
+            if limbs_lt_512(a, b) {
+                limbs_one_512()
+            } else {
+                Limbs::<512>::zero()
+            }
+        }
+        PrimitiveOp::Ge => {
+            if limbs_le_512(b, a) {
+                limbs_one_512()
+            } else {
+                Limbs::<512>::zero()
+            }
+        }
+        PrimitiveOp::Gt => {
+            if limbs_lt_512(b, a) {
+                limbs_one_512()
+            } else {
+                Limbs::<512>::zero()
+            }
+        }
+        PrimitiveOp::Concat => Limbs::<512>::zero(),
     }
 }
 
@@ -14843,6 +15393,476 @@ const fn limbs_one_512() -> Limbs<512> {
         0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64,
         0u64, 0u64,
     ])
+}
+
+/// ADR-013/TR-08: const-fn limb comparisons used by `const_ring_eval_w{n}`
+/// to lift the comparison primitives to 0/1-valued ring indicators.
+#[inline]
+#[must_use]
+const fn limbs_lt_3(a: Limbs<3>, b: Limbs<3>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 3;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_3(a: Limbs<3>, b: Limbs<3>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 3;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_4(a: Limbs<4>, b: Limbs<4>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 4;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_4(a: Limbs<4>, b: Limbs<4>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 4;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_6(a: Limbs<6>, b: Limbs<6>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 6;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_6(a: Limbs<6>, b: Limbs<6>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 6;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_7(a: Limbs<7>, b: Limbs<7>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 7;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_7(a: Limbs<7>, b: Limbs<7>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 7;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_8(a: Limbs<8>, b: Limbs<8>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 8;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_8(a: Limbs<8>, b: Limbs<8>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 8;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_9(a: Limbs<9>, b: Limbs<9>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 9;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_9(a: Limbs<9>, b: Limbs<9>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 9;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_16(a: Limbs<16>, b: Limbs<16>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 16;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_16(a: Limbs<16>, b: Limbs<16>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 16;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_32(a: Limbs<32>, b: Limbs<32>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 32;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_32(a: Limbs<32>, b: Limbs<32>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 32;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_64(a: Limbs<64>, b: Limbs<64>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 64;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_64(a: Limbs<64>, b: Limbs<64>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 64;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_128(a: Limbs<128>, b: Limbs<128>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 128;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_128(a: Limbs<128>, b: Limbs<128>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 128;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_192(a: Limbs<192>, b: Limbs<192>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 192;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_192(a: Limbs<192>, b: Limbs<192>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 192;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_256(a: Limbs<256>, b: Limbs<256>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 256;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_256(a: Limbs<256>, b: Limbs<256>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 256;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_lt_512(a: Limbs<512>, b: Limbs<512>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 512;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    false
+}
+
+#[inline]
+#[must_use]
+const fn limbs_le_512(a: Limbs<512>, b: Limbs<512>) -> bool {
+    let aw = a.words();
+    let bw = b.words();
+    let mut i = 512;
+    while i > 0 {
+        i -= 1;
+        if aw[i] < bw[i] {
+            return true;
+        }
+        if aw[i] > bw[i] {
+            return false;
+        }
+    }
+    true
 }
 
 /// Sealed marker trait for fragment classifiers (Is2SatShape, IsHornShape,

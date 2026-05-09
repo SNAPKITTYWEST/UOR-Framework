@@ -131,3 +131,343 @@ fn term_value_carries_active_prefix_only() {
     let empty = TermValue::empty();
     assert_eq!(empty.bytes().len(), 0);
 }
+
+// ── Per-variant fold-rule coverage (ADR-029) ────────────────────────────
+
+#[test]
+fn variable_term_routes_input_bytes() {
+    // ADR-022 D3 G2: name_index = 0 is the route input slot. The
+    // catamorphism's Variable handler returns the threaded input bytes.
+    let arena = [Term::Variable { name_index: 0 }];
+    let input = [0xca, 0xfe];
+    let result =
+        evaluate_term_tree::<ZeroHasher>(&arena, &input).expect("variable evaluates to input");
+    assert_eq!(result.bytes(), &input[..]);
+}
+
+#[test]
+fn lift_term_zero_extends_to_target_width() {
+    // Term::Lift big-endian zero-extends a narrower value to the target
+    // Witt level's byte width.
+    let arena = [
+        Term::Literal {
+            value: 0x42,
+            level: WittLevel::W8,
+        },
+        Term::Lift {
+            operand_index: 0,
+            target: WittLevel::W32,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("lift evaluates");
+    // W32 is 4 bytes; the W8 value 0x42 zero-extends to [0x00, 0x00, 0x00, 0x42].
+    assert_eq!(result.bytes(), &[0x00, 0x00, 0x00, 0x42][..]);
+}
+
+#[test]
+fn project_term_truncates_to_target_width() {
+    // Term::Project takes the trailing `target_width` bytes of the operand.
+    let arena = [
+        Term::Literal {
+            value: 0xdeadbeef,
+            level: WittLevel::W32,
+        },
+        Term::Project {
+            operand_index: 0,
+            target: WittLevel::W8,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("project evaluates");
+    // 0xdeadbeef projected to W8 (1 byte) keeps the trailing byte 0xef.
+    assert_eq!(result.bytes(), &[0xef][..]);
+}
+
+#[test]
+fn match_term_dispatches_on_literal_pattern() {
+    // arena layout (indexes shown):
+    //   0: Literal(7, W8)             scrutinee
+    //   1: Literal(7, W8)             pattern arm 1
+    //   2: Literal(0xaa, W8)          body arm 1 (matches)
+    //   3: Literal(9, W8)             pattern arm 2
+    //   4: Literal(0xbb, W8)          body arm 2 (does not match)
+    //   5: Match { scrutinee: 0, arms: [1..5] }
+    let arena = [
+        Term::Literal {
+            value: 7,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: 7,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: 0xaa,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: 9,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: 0xbb,
+            level: WittLevel::W8,
+        },
+        Term::Match {
+            scrutinee_index: 0,
+            arms: TermList { start: 1, len: 4 },
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("match evaluates");
+    assert_eq!(result.bytes(), &[0xaa][..]);
+}
+
+#[test]
+fn match_term_falls_through_to_wildcard_arm() {
+    // Wildcard pattern is `Variable { name_index: u32::MAX }`. When the
+    // scrutinee matches no literal arm, the wildcard's body is taken.
+    let arena = [
+        Term::Literal {
+            value: 99,
+            level: WittLevel::W8,
+        },
+        Term::Variable {
+            name_index: u32::MAX,
+        },
+        Term::Literal {
+            value: 0xfa,
+            level: WittLevel::W8,
+        },
+        Term::Match {
+            scrutinee_index: 0,
+            arms: TermList { start: 1, len: 2 },
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("wildcard match evaluates");
+    assert_eq!(result.bytes(), &[0xfa][..]);
+}
+
+#[test]
+fn recurse_term_iterates_step_n_times() {
+    // ADR-029 recursive fold: `recurse(measure=3, base=10, |_self, _x| add(x, 1))`
+    // should compute 10 + 1 + 1 + 1 = 13 by iterating step 3 times with
+    // the recursive-call placeholder bound to the previous iteration's
+    // result.
+    use uor_foundation::pipeline::RECURSE_PLACEHOLDER_NAME_INDEX;
+    let arena = [
+        // 0: measure literal — 3 (one byte)
+        Term::Literal {
+            value: 3,
+            level: WittLevel::W8,
+        },
+        // 1: base literal — 10 (one byte)
+        Term::Literal {
+            value: 10,
+            level: WittLevel::W8,
+        },
+        // 2: step body — Add(placeholder, 1)
+        Term::Variable {
+            name_index: RECURSE_PLACEHOLDER_NAME_INDEX,
+        },
+        Term::Literal {
+            value: 1,
+            level: WittLevel::W8,
+        },
+        Term::Application {
+            operator: PrimitiveOp::Add,
+            args: TermList { start: 2, len: 2 },
+        },
+        // 5: Recurse { measure: 0, base: 1, step: 4 }
+        Term::Recurse {
+            measure_index: 0,
+            base_index: 1,
+            step_index: 4,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse evaluates");
+    assert_eq!(result.bytes(), &[13u8][..]);
+}
+
+#[test]
+fn recurse_zero_measure_returns_base() {
+    // measure = 0 → base case.
+    let arena = [
+        Term::Literal {
+            value: 0,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: 0xbe,
+            level: WittLevel::W8,
+        },
+        // Step: identity (will not run).
+        Term::Variable { name_index: 0 },
+        Term::Recurse {
+            measure_index: 0,
+            base_index: 1,
+            step_index: 2,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse base evaluates");
+    assert_eq!(result.bytes(), &[0xbe][..]);
+}
+
+#[test]
+fn unfold_term_iterates_to_kleene_fixpoint() {
+    // ADR-029 anamorphism: unfold(seed=0, |s| or(s, 0xff)) reaches the
+    // fixpoint at 0xff after one step (or(0xff, 0xff) == 0xff).
+    use uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX;
+    let arena = [
+        // 0: seed literal — 0
+        Term::Literal {
+            value: 0,
+            level: WittLevel::W8,
+        },
+        // 1: state placeholder
+        Term::Variable {
+            name_index: UNFOLD_PLACEHOLDER_NAME_INDEX,
+        },
+        // 2: 0xff literal
+        Term::Literal {
+            value: 0xff,
+            level: WittLevel::W8,
+        },
+        // 3: Or(state, 0xff)
+        Term::Application {
+            operator: PrimitiveOp::Or,
+            args: TermList { start: 1, len: 2 },
+        },
+        // 4: Unfold { seed: 0, step: 3 }
+        Term::Unfold {
+            seed_index: 0,
+            step_index: 3,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("unfold evaluates");
+    assert_eq!(result.bytes(), &[0xff][..]);
+}
+
+#[test]
+fn try_term_propagates_success() {
+    // Body succeeds → handler is not invoked.
+    let arena = [
+        Term::Literal {
+            value: 0x77,
+            level: WittLevel::W8,
+        },
+        Term::Try {
+            body_index: 0,
+            handler_index: u32::MAX,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("try success evaluates");
+    assert_eq!(result.bytes(), &[0x77][..]);
+}
+
+// ── PrimitiveOp coverage (ADR-013/TR-08 substrate amendment) ─────────────
+
+fn binary_op_arena(op: PrimitiveOp, lhs: u64, rhs: u64) -> [Term; 3] {
+    [
+        Term::Literal {
+            value: lhs,
+            level: WittLevel::W8,
+        },
+        Term::Literal {
+            value: rhs,
+            level: WittLevel::W8,
+        },
+        Term::Application {
+            operator: op,
+            args: TermList { start: 0, len: 2 },
+        },
+    ]
+}
+
+#[test]
+fn comparison_primitives_emit_zero_or_one() {
+    // ADR-013/TR-08: Le, Lt, Ge, Gt fold to a single 0/1-valued byte.
+    let cases = [
+        (PrimitiveOp::Le, 5u64, 7u64, 1u8),
+        (PrimitiveOp::Le, 7, 7, 1),
+        (PrimitiveOp::Le, 9, 7, 0),
+        (PrimitiveOp::Lt, 5, 7, 1),
+        (PrimitiveOp::Lt, 7, 7, 0),
+        (PrimitiveOp::Ge, 9, 7, 1),
+        (PrimitiveOp::Ge, 7, 7, 1),
+        (PrimitiveOp::Ge, 5, 7, 0),
+        (PrimitiveOp::Gt, 9, 7, 1),
+        (PrimitiveOp::Gt, 7, 7, 0),
+    ];
+    for (op, lhs, rhs, expected) in cases {
+        let arena = binary_op_arena(op, lhs, rhs);
+        let result =
+            evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("comparison op evaluates");
+        assert_eq!(
+            result.bytes(),
+            &[expected][..],
+            "{op:?}({lhs}, {rhs}) expected {expected}"
+        );
+    }
+}
+
+#[test]
+fn concat_primitive_packs_byte_sequences() {
+    // ADR-013/TR-08: Concat appends rhs's bytes to lhs's.
+    let arena = [
+        Term::Literal {
+            value: 0xabcd,
+            level: WittLevel::W16,
+        },
+        Term::Literal {
+            value: 0x1234,
+            level: WittLevel::W16,
+        },
+        Term::Application {
+            operator: PrimitiveOp::Concat,
+            args: TermList { start: 0, len: 2 },
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("concat evaluates");
+    assert_eq!(result.bytes(), &[0xab, 0xcd, 0x12, 0x34][..]);
+}
+
+#[test]
+fn arithmetic_primitives_match_ring_semantics() {
+    // Sub, Mul, Xor, And, Or — paired with their ring-eval reductions.
+    let cases = [
+        (PrimitiveOp::Sub, 10u64, 3u64, 7u8),
+        (PrimitiveOp::Mul, 6, 7, 42),
+        (PrimitiveOp::Xor, 0b1010, 0b1100, 0b0110),
+        (PrimitiveOp::And, 0b1010, 0b1100, 0b1000),
+        (PrimitiveOp::Or, 0b1010, 0b1100, 0b1110),
+    ];
+    for (op, lhs, rhs, expected) in cases {
+        let arena = binary_op_arena(op, lhs, rhs);
+        let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("binary op evaluates");
+        assert_eq!(result.bytes(), &[expected][..], "{op:?}({lhs}, {rhs})");
+    }
+}
+
+#[test]
+fn unary_primitives_match_ring_semantics() {
+    // Neg, Bnot, Succ, Pred (1-arg forms).
+    let cases = [
+        (PrimitiveOp::Neg, 1u64, 255u8), // 0 - 1 in u8
+        (PrimitiveOp::Bnot, 0u64, 0xff),
+        (PrimitiveOp::Succ, 41, 42),
+        (PrimitiveOp::Pred, 1, 0),
+    ];
+    for (op, operand, expected) in cases {
+        let arena = [
+            Term::Literal {
+                value: operand,
+                level: WittLevel::W8,
+            },
+            Term::Application {
+                operator: op,
+                args: TermList { start: 0, len: 1 },
+            },
+        ];
+        let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("unary op evaluates");
+        assert_eq!(result.bytes(), &[expected][..], "{op:?}({operand})");
+    }
+}

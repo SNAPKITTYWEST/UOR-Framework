@@ -738,6 +738,33 @@ where
 /// compile time, no cross-fragment runtime recursion), keeping stack usage finite.
 pub const TERM_VALUE_MAX_BYTES: usize = 4096;
 
+/// Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to
+/// mark `recurse(measure, base, |self| step)`'s self-identifier reference.
+/// When the catamorphism encounters `Term::Variable { name_index: <this> }`
+/// during step-body evaluation, it returns the previous iteration's result
+/// (the `recurse_value` parameter threaded through `evaluate_term_at`) — the
+/// fresh-name-indexed Variable ADR-029 specifies for the recursive-call
+/// placeholder.
+/// Foundation reserves the upper sentinels: `u32::MAX` is the wildcard arm
+/// for `Term::Match` (ADR-022 D3 G6) and the default-propagation handler for
+/// `Term::Try` (G9). `RECURSE_PLACEHOLDER_NAME_INDEX = u32::MAX - 1`.
+pub const RECURSE_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 1;
+
+/// Wiki ADR-022 D3 G8 + ADR-029: the fresh-name-indexed Variable that
+/// `prism_model!` emits in place of an `unfold(seed, |state, …| step)`
+/// closure's state-ident references. The catamorphism's `Term::Unfold`
+/// fold-rule binds this name to the unfold's current state value
+/// (threaded through `evaluate_term_at` as the `unfold_value` parameter)
+/// and iterates step until a Kleene fixpoint or [`UNFOLD_MAX_ITERATIONS`].
+pub const UNFOLD_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 2;
+
+/// Wiki ADR-029: bound on the anamorphic fixpoint iteration for
+/// `Term::Unfold`. The fold rule iterates `step(state)` until either the
+/// state reaches a Kleene fixpoint (`step(state) == state`) or this
+/// ceiling is hit, at which point evaluation returns the most-recent
+/// state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).
+pub const UNFOLD_MAX_ITERATIONS: usize = 256;
+
 /// Wiki ADR-029: a single Term variant's evaluated value, carried as a
 /// fixed-capacity byte buffer with an active-prefix length. The
 /// catamorphism produces a `TermValue` per variant, propagated up the
@@ -805,10 +832,12 @@ impl TermValue {
 /// - `Term::Match { scrutinee, arms }` — evaluate scrutinee, match arms by
 ///   literal-byte equality (wildcard arm `name_index = u32::MAX` matches
 ///   unconditionally).
-/// - `Term::Recurse { measure, base, step }` — evaluate measure; if zero,
-///   evaluate base; otherwise evaluate step (current iteration: bounded recursion
-///   unrolls one step).
-/// - `Term::Unfold { seed, step }` — evaluate seed; emit step applied once.
+/// - `Term::Recurse { measure, base, step }` — bounded recursion: evaluate
+///   measure → n; if n = 0 evaluate base; otherwise iterate step n times with
+///   the recursive-call placeholder bound to the previous iteration's result.
+/// - `Term::Unfold { seed, step }` — anamorphism: evaluate seed → state₀;
+///   iterate step (with the state placeholder bound to the current state)
+///   until a Kleene fixpoint or `UNFOLD_MAX_ITERATIONS` is reached.
 /// - `Term::Try { body, handler }` — evaluate body; on failure, propagate
 ///   if `handler_index = u32::MAX`, otherwise evaluate handler.
 /// - `Term::HasherProjection { input }` — fold the input's bytes through the
@@ -831,13 +860,15 @@ where
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
-    evaluate_term_at::<A>(arena, root_idx, input_bytes)
+    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None)
 }
 
 fn evaluate_term_at<A>(
     arena: &[crate::enforcement::Term],
     idx: usize,
     input_bytes: &[u8],
+    recurse_value: Option<&[u8]>,
+    unfold_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::enforcement::Hasher,
@@ -871,23 +902,48 @@ where
         }
         crate::enforcement::Term::Variable { name_index } => {
             // ADR-022 D3 G2: name_index = 0 is the route input slot.
+            // ADR-029: name_index = RECURSE_PLACEHOLDER_NAME_INDEX is the
+            // recursive-call placeholder bound to `recurse_value`.
+            // ADR-029: name_index = UNFOLD_PLACEHOLDER_NAME_INDEX is the
+            // unfold state placeholder bound to `unfold_value` (the
+            // current iteration's accumulated state — see the
+            // `Term::Unfold` fold-rule below).
             // Other indices reference let-bindings (G10), which the
-            // current macro emission does not produce; treat them as
-            // the same input slot for compatibility (the variable's
-            // dataflow trace lives in the binding-table fingerprint).
-            let _ = name_index;
+            // current macro emission resolves at expansion time via
+            // splice into the calling arena (so the binding's value-tree
+            // root is what the catamorphism actually walks).
+            if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {
+                return Ok(TermValue::from_slice(recurse_value.unwrap_or(&[])));
+            }
+            if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {
+                return Ok(TermValue::from_slice(unfold_value.unwrap_or(&[])));
+            }
             Ok(TermValue::from_slice(input_bytes))
         }
         crate::enforcement::Term::Application { operator, args } => {
             let start = args.start as usize;
             let len = args.len as usize;
-            apply_primitive_op::<A>(arena, operator, start, len, input_bytes)
+            apply_primitive_op::<A>(
+                arena,
+                operator,
+                start,
+                len,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )
         }
         crate::enforcement::Term::Lift {
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;
+            let v = evaluate_term_at::<A>(
+                arena,
+                operand_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
                 TERM_VALUE_MAX_BYTES
@@ -914,7 +970,13 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes)?;
+            let v = evaluate_term_at::<A>(
+                arena,
+                operand_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
                 TERM_VALUE_MAX_BYTES
@@ -932,7 +994,13 @@ where
             scrutinee_index,
             arms,
         } => {
-            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes)?;
+            let scrutinee = evaluate_term_at::<A>(
+                arena,
+                scrutinee_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
             let start = arms.start as usize;
             let count = arms.len as usize;
             // Arms alternate (pattern, body) per ADR-022 D3 G6.
@@ -945,11 +1013,29 @@ where
                     crate::enforcement::Term::Variable { name_index } if name_index == u32::MAX
                 );
                 if is_wildcard {
-                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);
+                    return evaluate_term_at::<A>(
+                        arena,
+                        body_idx,
+                        input_bytes,
+                        recurse_value,
+                        unfold_value,
+                    );
                 }
-                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes)?;
+                let pattern_val = evaluate_term_at::<A>(
+                    arena,
+                    pattern_idx,
+                    input_bytes,
+                    recurse_value,
+                    unfold_value,
+                )?;
                 if pattern_val.bytes() == scrutinee.bytes() {
-                    return evaluate_term_at::<A>(arena, body_idx, input_bytes);
+                    return evaluate_term_at::<A>(
+                        arena,
+                        body_idx,
+                        input_bytes,
+                        recurse_value,
+                        unfold_value,
+                    );
                 }
                 i += 2;
             }
@@ -973,41 +1059,158 @@ where
             base_index,
             step_index,
         } => {
-            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes)?;
-            // Measure equals zero iff every byte in the measure value is zero.
-            let is_zero = measure.bytes().iter().all(|&b| b == 0);
-            if is_zero {
-                evaluate_term_at::<A>(arena, base_index as usize, input_bytes)
-            } else {
-                // Bounded recursion: evaluate one step. The Term::Recurse
-                // structure encodes well-foundedness via the measure; deeper
-                // unrolling is implementation-controlled (ADR-026 G14 maps
-                // higher counts to recursion).
-                evaluate_term_at::<A>(arena, step_index as usize, input_bytes)
+            // Wiki ADR-029 recursive fold: evaluate measure once to get N;
+            // if N == 0 evaluate base; else iterate step N times, threading
+            // each iteration's result as the recurse_value (the recursive-
+            // call placeholder bound to a fresh-name-indexed Variable per
+            // ADR-029, with the placeholder's name_index resolving via the
+            // RECURSE_PLACEHOLDER_NAME_INDEX sentinel handled in the Variable
+            // arm). The outer recurse_value is preserved for nested Recurse
+            // forms within the measure/base computations; step body uses the
+            // iteration's accumulator.
+            let measure = evaluate_term_at::<A>(
+                arena,
+                measure_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
+            let n = bytes_to_u64_be(measure.bytes());
+            let base_val = evaluate_term_at::<A>(
+                arena,
+                base_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
+            if n == 0 {
+                return Ok(base_val);
             }
+            // Iterate step N times. Each iteration's `current` becomes the
+            // next iteration's recurse_value. The descent measure is the
+            // bound; well-foundedness holds by monotonic decrease.
+            let mut current_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut current_len = base_val.bytes().len();
+            let mut k = 0;
+            while k < current_len {
+                current_buf[k] = base_val.bytes()[k];
+                k += 1;
+            }
+            let mut iter = 0u64;
+            while iter < n {
+                let next = evaluate_term_at::<A>(
+                    arena,
+                    step_index as usize,
+                    input_bytes,
+                    Some(&current_buf[..current_len]),
+                    unfold_value,
+                )?;
+                let nb = next.bytes();
+                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES {
+                    TERM_VALUE_MAX_BYTES
+                } else {
+                    nb.len()
+                };
+                let mut j = 0;
+                while j < copy_len {
+                    current_buf[j] = nb[j];
+                    j += 1;
+                }
+                current_len = copy_len;
+                iter += 1;
+            }
+            Ok(TermValue::from_slice(&current_buf[..current_len]))
         }
         crate::enforcement::Term::Unfold {
             seed_index,
             step_index,
         } => {
-            let _seed = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes)?;
-            evaluate_term_at::<A>(arena, step_index as usize, input_bytes)
+            // ADR-029 anamorphism: evaluate seed → state₀; iterate step
+            // with the state placeholder (UNFOLD_PLACEHOLDER_NAME_INDEX,
+            // bound to the current state) until either a Kleene fixpoint
+            // (step(state) == state) or UNFOLD_MAX_ITERATIONS is reached.
+            // Well-foundedness: bounded by UNFOLD_MAX_ITERATIONS.
+            // The outer unfold_value is preserved for nested Unfold forms
+            // within the seed; step body's state placeholder uses the
+            // iteration's accumulator.
+            let seed_val = evaluate_term_at::<A>(
+                arena,
+                seed_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
+            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut state_len = seed_val.bytes().len();
+            let mut k = 0;
+            while k < state_len {
+                state_buf[k] = seed_val.bytes()[k];
+                k += 1;
+            }
+            let mut iter = 0usize;
+            while iter < UNFOLD_MAX_ITERATIONS {
+                let next = evaluate_term_at::<A>(
+                    arena,
+                    step_index as usize,
+                    input_bytes,
+                    recurse_value,
+                    Some(&state_buf[..state_len]),
+                )?;
+                let nb = next.bytes();
+                // Kleene fixpoint check: if step(state) == state, return.
+                if nb.len() == state_len && nb == &state_buf[..state_len] {
+                    return Ok(TermValue::from_slice(&state_buf[..state_len]));
+                }
+                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES {
+                    TERM_VALUE_MAX_BYTES
+                } else {
+                    nb.len()
+                };
+                let mut j = 0;
+                while j < copy_len {
+                    state_buf[j] = nb[j];
+                    j += 1;
+                }
+                state_len = copy_len;
+                iter += 1;
+            }
+            Ok(TermValue::from_slice(&state_buf[..state_len]))
         }
         crate::enforcement::Term::Try {
             body_index,
             handler_index,
-        } => match evaluate_term_at::<A>(arena, body_index as usize, input_bytes) {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                if handler_index == u32::MAX {
-                    Err(e)
-                } else {
-                    evaluate_term_at::<A>(arena, handler_index as usize, input_bytes)
+        } => {
+            match evaluate_term_at::<A>(
+                arena,
+                body_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            ) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    if handler_index == u32::MAX {
+                        Err(e)
+                    } else {
+                        evaluate_term_at::<A>(
+                            arena,
+                            handler_index as usize,
+                            input_bytes,
+                            recurse_value,
+                            unfold_value,
+                        )
+                    }
                 }
             }
-        },
+        }
         crate::enforcement::Term::HasherProjection { input_index } => {
-            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes)?;
+            let v = evaluate_term_at::<A>(
+                arena,
+                input_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
             let mut hasher = <A as crate::enforcement::Hasher>::initial();
             hasher = hasher.fold_bytes(v.bytes());
             let digest = hasher.finalize();
@@ -1028,6 +1231,8 @@ fn apply_primitive_op<A>(
     args_start: usize,
     args_len: usize,
     input_bytes: &[u8],
+    recurse_value: Option<&[u8]>,
+    unfold_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::enforcement::Hasher,
@@ -1043,7 +1248,12 @@ where
         | crate::PrimitiveOp::Mul
         | crate::PrimitiveOp::Xor
         | crate::PrimitiveOp::And
-        | crate::PrimitiveOp::Or => 2usize,
+        | crate::PrimitiveOp::Or
+        | crate::PrimitiveOp::Le
+        | crate::PrimitiveOp::Lt
+        | crate::PrimitiveOp::Ge
+        | crate::PrimitiveOp::Gt
+        | crate::PrimitiveOp::Concat => 2usize,
     };
     if args_len != arity {
         return Err(PipelineFailure::ShapeViolation {
@@ -1059,7 +1269,7 @@ where
         });
     }
     if arity == 1 {
-        let v = evaluate_term_at::<A>(arena, args_start, input_bytes)?;
+        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;
         let x = bytes_to_u64_be(v.bytes());
         let r =
             match operator {
@@ -1084,8 +1294,66 @@ where
         let arr = r.to_be_bytes();
         Ok(TermValue::from_slice(&arr[8 - width..]))
     } else {
-        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes)?;
-        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes)?;
+        let lhs =
+            evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;
+        let rhs = evaluate_term_at::<A>(
+            arena,
+            args_start + 1,
+            input_bytes,
+            recurse_value,
+            unfold_value,
+        )?;
+        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and
+        // comparison primitives bypass the u64 fold and operate on the
+        // operands' full byte sequences.
+        match operator {
+            crate::PrimitiveOp::Concat => {
+                // Concat: emit lhs.bytes() ⧺ rhs.bytes(), bounded by
+                // TERM_VALUE_MAX_BYTES (truncates excess; runtime callers
+                // declaring shapes whose composite length exceeds the
+                // ceiling are rejected at validation time per ADR-028's
+                // symmetric output ceiling check).
+                let lb = lhs.bytes();
+                let rb = rhs.bytes();
+                let total = lb.len() + rb.len();
+                let cap = if total > TERM_VALUE_MAX_BYTES {
+                    TERM_VALUE_MAX_BYTES
+                } else {
+                    total
+                };
+                let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+                let mut i = 0;
+                while i < lb.len() && i < cap {
+                    buf[i] = lb[i];
+                    i += 1;
+                }
+                let mut j = 0;
+                while j < rb.len() && i < cap {
+                    buf[i] = rb[j];
+                    i += 1;
+                    j += 1;
+                }
+                return Ok(TermValue::from_slice(&buf[..cap]));
+            }
+            crate::PrimitiveOp::Le
+            | crate::PrimitiveOp::Lt
+            | crate::PrimitiveOp::Ge
+            | crate::PrimitiveOp::Gt => {
+                // Big-endian byte-level comparison. Both operands are
+                // padded with leading zeros to the max length so the
+                // comparison ignores leading-zero stripping differences.
+                let cmp = byte_compare_be(lhs.bytes(), rhs.bytes());
+                let result_byte: u8 = match operator {
+                    crate::PrimitiveOp::Le => u8::from(cmp != core::cmp::Ordering::Greater),
+                    crate::PrimitiveOp::Lt => u8::from(cmp == core::cmp::Ordering::Less),
+                    crate::PrimitiveOp::Ge => u8::from(cmp != core::cmp::Ordering::Less),
+                    crate::PrimitiveOp::Gt => u8::from(cmp == core::cmp::Ordering::Greater),
+                    _ => 0,
+                };
+                return Ok(TermValue::from_slice(&[result_byte]));
+            }
+            _ => {}
+        }
         let a = bytes_to_u64_be(lhs.bytes());
         let b = bytes_to_u64_be(rhs.bytes());
         let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);
@@ -1114,6 +1382,33 @@ where
         let arr = r.to_be_bytes();
         Ok(TermValue::from_slice(&arr[8 - width..]))
     }
+}
+
+fn byte_compare_be(a: &[u8], b: &[u8]) -> core::cmp::Ordering {
+    // Pad shorter operand with leading zeros so the comparison treats
+    // both operands at max(len(a), len(b)) byte width.
+    let max_len = if a.len() > b.len() { a.len() } else { b.len() };
+    let mut i = 0;
+    while i < max_len {
+        let ai = if i + a.len() >= max_len {
+            a[i + a.len() - max_len]
+        } else {
+            0u8
+        };
+        let bi = if i + b.len() >= max_len {
+            b[i + b.len() - max_len]
+        } else {
+            0u8
+        };
+        if ai < bi {
+            return core::cmp::Ordering::Less;
+        }
+        if ai > bi {
+            return core::cmp::Ordering::Greater;
+        }
+        i += 1;
+    }
+    core::cmp::Ordering::Equal
 }
 
 fn bytes_to_u64_be(bytes: &[u8]) -> u64 {

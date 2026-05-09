@@ -3,12 +3,16 @@
 //! Asserts the byte-level interop contracts that `verify_trace` relies on
 //! are stable:
 //!
-//! 1. `primitive_op_discriminant(PrimitiveOp) -> u8` matches the 0..=9 range;
+//! 1. `primitive_op_discriminant(PrimitiveOp) -> u8` matches the 0..=14 range
+//!    (10 original primitives + 5 ADR-013/TR-08 substrate-amendment primitives:
+//!    Le=10, Lt=11, Ge=12, Gt=13, Concat=14);
 //! 2. `certificate_kind_discriminant(CertificateKind) -> u8` matches 1..=21
 //!    (5 Phase C kinds + 16 Phase D per-resolver kinds);
-//! 3. `TRACE_REPLAY_FORMAT_VERSION = 2` (bumped from 1 when the Phase D
-//!    per-resolver `CertificateKind` variants landed — the 1..=5 discriminant
-//!    bytes are preserved, so older traces still decode correctly);
+//! 3. `TRACE_REPLAY_FORMAT_VERSION = 3` (bumped from 2 when the ADR-013/TR-08
+//!    substrate amendment landed — adding Le/Lt/Ge/Gt/Concat to PrimitiveOp.
+//!    Bumped from 1 when the Phase D per-resolver `CertificateKind` variants
+//!    landed. Older format-2 traces are not forward-compatible because the
+//!    PrimitiveOp discriminant range expanded);
 //! 4. the six byte-layout helpers exist: `fold_unit_digest`,
 //!    `fold_parallel_digest`, `fold_stream_digest`, `fold_interaction_digest`,
 //!    `fold_constraint_ref`, `fold_stream_step_digest`, `fold_interaction_step_digest`.
@@ -50,8 +54,8 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "pub const fn certificate_kind_discriminant(kind: CertificateKind) -> u8",
         ),
         (
-            "TRACE_REPLAY_FORMAT_VERSION = 2",
-            "pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 2",
+            "TRACE_REPLAY_FORMAT_VERSION = 3",
+            "pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 3",
         ),
         (
             "fold_unit_digest helper",
@@ -94,7 +98,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         report.push(TestResult::pass(
             VALIDATOR,
             "T6.21 trace byte layout: primitive/certificate discriminants, \
-             TRACE_REPLAY_FORMAT_VERSION = 2, and 7 fold_*_digest helpers pinned",
+             TRACE_REPLAY_FORMAT_VERSION = 3, and 7 fold_*_digest helpers pinned",
         ));
     } else {
         report.push(TestResult::fail_with_details(

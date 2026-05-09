@@ -306,10 +306,13 @@ foundation/src/pipeline.rs: const CONJUNCTION_MAX_TERMS
 foundation/src/pipeline.rs: const INTERACTION_DIVERGENCE_BUDGET
 foundation/src/pipeline.rs: const FOLD_UNROLL_THRESHOLD
 foundation/src/pipeline.rs: const PREFLIGHT_CHECK_IRIS
+foundation/src/pipeline.rs: const RECURSE_PLACEHOLDER_NAME_INDEX
 foundation/src/pipeline.rs: const REDUCTION_STAGE_IRIS
 foundation/src/pipeline.rs: const ROUTE_INPUT_BUFFER_BYTES
 foundation/src/pipeline.rs: const ROUTE_OUTPUT_BUFFER_BYTES
 foundation/src/pipeline.rs: const TERM_VALUE_MAX_BYTES
+foundation/src/pipeline.rs: const UNFOLD_MAX_ITERATIONS
+foundation/src/pipeline.rs: const UNFOLD_PLACEHOLDER_NAME_INDEX
 foundation/src/pipeline.rs: const WITT_MAX_BITS
 foundation/src/pipeline.rs: const fn
 foundation/src/pipeline.rs: enum ConstraintRef

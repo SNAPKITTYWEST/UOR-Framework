@@ -108,7 +108,7 @@ pub const NAMESPACE_PROPERTIES: usize = 947;
 /// expands into LiteralExpression / ForAllDeclaration individuals in the
 /// schema namespace. Proof individuals carry no lhs/rhs/forAll strings so
 /// they contribute no derived AST terms.
-pub const INDIVIDUALS: usize = 3554;
+pub const INDIVIDUALS: usize = 3559;
 
 /// Number of SHACL test instance graphs.
 ///

@@ -46,6 +46,16 @@ inductive PrimitiveOp where
   | and : PrimitiveOp
   /-- Bitwise or: or(x, y) = x ∨ y. Commutative, associative. -/
   | or : PrimitiveOp
+  /-- Byte-level less-than-or-equal: le(x, y) = 1 if x ≤ y else 0. Operands compared as big-endian unsigned byte sequences. The catamorphism fold-rule emits Literal(1) on true, Literal(0) on false. -/
+  | le : PrimitiveOp
+  /-- Byte-level less-than: lt(x, y) = 1 if x < y else 0. Operands compared as big-endian unsigned byte sequences. -/
+  | lt : PrimitiveOp
+  /-- Byte-level greater-than-or-equal: ge(x, y) = 1 if x ≥ y else 0. Operands compared as big-endian unsigned byte sequences. -/
+  | ge : PrimitiveOp
+  /-- Byte-level greater-than: gt(x, y) = 1 if x > y else 0. Operands compared as big-endian unsigned byte sequences. -/
+  | gt : PrimitiveOp
+  /-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling. -/
+  | concat : PrimitiveOp
   deriving DecidableEq, Repr, BEq, Hashable, Inhabited
 
 /-- A classification axis for constraints by their geometric effect. The three axes — vertical (ring/additive), horizontal (Hamming/bitwise), diagonal (incompatibility) — form the tri-metric coordinate system of UOR. -/
@@ -405,6 +415,11 @@ def arity : PrimitiveOp → Int
   | .xor => 2
   | .and => 2
   | .or => 2
+  | .le => 2
+  | .lt => 2
+  | .ge => 2
+  | .gt => 2
+  | .concat => 2
 
 /-- Whether this operation is commutative. -/
 def isCommutative : PrimitiveOp → Bool
@@ -418,6 +433,11 @@ def isCommutative : PrimitiveOp → Bool
   | .xor => false
   | .and => false
   | .or => false
+  | .le => false
+  | .lt => false
+  | .ge => false
+  | .gt => false
+  | .concat => false
 
 /-- The geometric character of this operation. -/
 def hasGeometricCharacter : PrimitiveOp → GeometricCharacter
@@ -431,6 +451,11 @@ def hasGeometricCharacter : PrimitiveOp → GeometricCharacter
   | .xor => .hypercubeTranslation
   | .and => .hypercubeProjection
   | .or => .hypercubeJoin
+  | .le => .constraintSelection
+  | .lt => .constraintSelection
+  | .ge => .constraintSelection
+  | .gt => .constraintSelection
+  | .concat => .hypercubeJoin
 
 end PrimitiveOp
 

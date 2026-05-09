@@ -52,6 +52,16 @@ pub enum PrimitiveOp {
     And,
     /// Bitwise or: or(x, y) = x ∨ y. Commutative, associative.
     Or,
+    /// Byte-level less-than-or-equal: le(x, y) = 1 if x ≤ y else 0. Operands compared as big-endian unsigned byte sequences. The catamorphism fold-rule emits Literal(1) on true, Literal(0) on false.
+    Le,
+    /// Byte-level less-than: lt(x, y) = 1 if x < y else 0. Operands compared as big-endian unsigned byte sequences.
+    Lt,
+    /// Byte-level greater-than-or-equal: ge(x, y) = 1 if x ≥ y else 0. Operands compared as big-endian unsigned byte sequences.
+    Ge,
+    /// Byte-level greater-than: gt(x, y) = 1 if x > y else 0. Operands compared as big-endian unsigned byte sequences.
+    Gt,
+    /// Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling.
+    Concat,
 }
 
 impl fmt::Display for PrimitiveOp {
@@ -67,6 +77,11 @@ impl fmt::Display for PrimitiveOp {
             Self::Xor => f.write_str("xor"),
             Self::And => f.write_str("and"),
             Self::Or => f.write_str("or"),
+            Self::Le => f.write_str("le"),
+            Self::Lt => f.write_str("lt"),
+            Self::Ge => f.write_str("ge"),
+            Self::Gt => f.write_str("gt"),
+            Self::Concat => f.write_str("concat"),
         }
     }
 }
