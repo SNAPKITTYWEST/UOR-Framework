@@ -86,6 +86,7 @@ impl Parse for ShapeArgs {
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[
 ///         ConstraintRef::Residue { modulus: 7, residue: 3 },
 ///     ];
+///     const CYCLE_SIZE: u64 = 7;
 /// }
 ///
 /// pub struct B;
@@ -95,6 +96,7 @@ impl Parse for ShapeArgs {
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[
 ///         ConstraintRef::Hamming { bound: 1 },
 ///     ];
+///     const CYCLE_SIZE: u64 = 2;
 /// }
 ///
 /// product_shape!(MyProduct, A, B);
@@ -146,6 +148,11 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
                     None => &[],
                 }
             };
+            // ADR-032: product cardinality = saturating product of factors.
+            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            );
         }
 
         // Wiki ADR-023 + ADR-027: shape-derived shapes receive the four
@@ -167,6 +174,31 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
+
+        // ADR-033 G20: positional-only field directory. Field byte
+        // boundaries are derived from each factor's `SITE_COUNT` (the
+        // foundation convention: one byte per site in the canonical
+        // binding-table serialization). Composite operands inherit
+        // their cumulative SITE_COUNT through the product/coproduct
+        // composition rules.
+        impl ::uor_foundation::pipeline::PartitionProductFields for #name {
+            const FIELDS: &'static [(u32, u32)] = &[
+                (0u32, <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+                (<#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32,
+                 <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+            ];
+            const FIELD_NAMES: &'static [&'static str] = &["", ""];
+        }
+
+        // ADR-033 G4: per-factor static-type carriers — chained access
+        // resolution by the `prism_model!` proc-macro names each
+        // intermediate shape via `<PrevTy as PartitionProductFactor<I>>::Factor`.
+        impl ::uor_foundation::pipeline::PartitionProductFactor<0> for #name {
+            type Factor = #l;
+        }
+        impl ::uor_foundation::pipeline::PartitionProductFactor<1> for #name {
+            type Factor = #r;
+        }
 
         impl #name {
             /// Mint a verified [`PartitionProductWitness`] for this shape's
@@ -254,6 +286,7 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
 ///             bias: 0,
 ///         },
 ///     ];
+///     const CYCLE_SIZE: u64 = 1;
 /// }
 ///
 /// pub struct B;
@@ -261,6 +294,7 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
 ///     const IRI: &'static str = "https://example.org/B";
 ///     const SITE_COUNT: usize = 1;
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+///     const CYCLE_SIZE: u64 = 1;
 /// }
 ///
 /// coproduct_shape!(MySum, A, B);
@@ -401,6 +435,12 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
                     None => &[],
                 }
             };
+            // ADR-032: coproduct cardinality = saturating sum + 1
+            // (the `+ 1` is the discriminant tag's contribution).
+            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_coproduct(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            );
         }
 
         // Wiki ADR-023 + ADR-027: shape-derived shapes receive the four
@@ -508,12 +548,14 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
 ///     const IRI: &'static str = "https://example.org/A";
 ///     const SITE_COUNT: usize = 1;
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+///     const CYCLE_SIZE: u64 = 1;
 /// }
 /// pub struct B;
 /// impl ConstrainedTypeShape for B {
 ///     const IRI: &'static str = "https://example.org/B";
 ///     const SITE_COUNT: usize = 1;
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+///     const CYCLE_SIZE: u64 = 1;
 /// }
 ///
 /// cartesian_product_shape!(MyCartesian, A, B);
@@ -565,6 +607,15 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
                     None => &[],
                 }
             };
+            // ADR-032: cartesian-product cardinality = saturating product
+            // (the binary `cartesian_product_shape!` is the two-factor case;
+            // ≥3 factors compose left-associatively). Equivalent to
+            // saturating-power for the homogeneous case but expressed via
+            // the binary product since this macro takes two operands.
+            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            );
         }
 
         impl ::uor_foundation::pipeline::CartesianProductShape for #name {
@@ -588,6 +639,29 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
+
+        // ADR-033 G20: positional-only field directory. Field byte
+        // boundaries are derived from each factor's `SITE_COUNT` (the
+        // foundation convention: one byte per site in the canonical
+        // binding-table serialization). Composite operands inherit
+        // their cumulative SITE_COUNT through the product/coproduct
+        // composition rules.
+        impl ::uor_foundation::pipeline::PartitionProductFields for #name {
+            const FIELDS: &'static [(u32, u32)] = &[
+                (0u32, <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+                (<#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32,
+                 <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+            ];
+            const FIELD_NAMES: &'static [&'static str] = &["", ""];
+        }
+
+        // ADR-033 G4: per-factor static-type carriers for chained access.
+        impl ::uor_foundation::pipeline::PartitionProductFactor<0> for #name {
+            type Factor = #l;
+        }
+        impl ::uor_foundation::pipeline::PartitionProductFactor<1> for #name {
+            type Factor = #r;
+        }
 
         impl #name {
             /// Mint a verified [`CartesianProductWitness`] for this shape's
@@ -672,6 +746,12 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
 struct VariadicShapeArgs {
     name: Ident,
     operands: Vec<Ident>,
+    /// ADR-033 G3: per-operand field names, parallel to `operands`. Each
+    /// entry is `Some(ident)` for the named-field form
+    /// `partition_product!(N, lhs: A, rhs: B)` and `None` for positional
+    /// `partition_product!(N, A, B)`. The two forms must not be mixed in
+    /// a single invocation.
+    field_names: Vec<Option<Ident>>,
 }
 
 impl Parse for VariadicShapeArgs {
@@ -679,13 +759,31 @@ impl Parse for VariadicShapeArgs {
         let name: Ident = input.parse()?;
         input.parse::<Token![,]>()?;
         let mut operands: Vec<Ident> = Vec::new();
-        operands.push(input.parse()?);
+        let mut field_names: Vec<Option<Ident>> = Vec::new();
+        // Helper: try to parse one operand, possibly with a `name:` prefix.
+        // The decision is made by peeking past the first ident for a
+        // `:` token; that distinguishes named-field form from positional.
+        fn parse_one(input: ParseStream) -> Result<(Option<Ident>, Ident)> {
+            let first: Ident = input.parse()?;
+            if input.peek(Token![:]) {
+                input.parse::<Token![:]>()?;
+                let ty: Ident = input.parse()?;
+                Ok((Some(first), ty))
+            } else {
+                Ok((None, first))
+            }
+        }
+        let (n0, t0) = parse_one(input)?;
+        field_names.push(n0);
+        operands.push(t0);
         while input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
             if input.is_empty() {
                 break;
             }
-            operands.push(input.parse()?);
+            let (ni, ti) = parse_one(input)?;
+            field_names.push(ni);
+            operands.push(ti);
         }
         if operands.len() < 2 {
             return Err(syn::Error::new(
@@ -693,7 +791,21 @@ impl Parse for VariadicShapeArgs {
                 "partition_product!/partition_coproduct! require at least two operands",
             ));
         }
-        Ok(Self { name, operands })
+        // ADR-033 G3: enforce all-or-nothing — either every operand has
+        // a name or none does. Mixed forms are a closure violation.
+        let any_named = field_names.iter().any(|n| n.is_some());
+        let all_named = field_names.iter().all(|n| n.is_some());
+        if any_named && !all_named {
+            return Err(syn::Error::new(
+                name.span(),
+                "partition_product!/partition_coproduct!: named-field form must name every operand (or use the positional form for all)",
+            ));
+        }
+        Ok(Self {
+            name,
+            operands,
+            field_names,
+        })
     }
 }
 
@@ -704,10 +816,14 @@ impl Parse for VariadicShapeArgs {
 #[proc_macro]
 pub fn partition_product(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as VariadicShapeArgs);
-    expand_partition_product(parsed.name, &parsed.operands)
+    expand_partition_product(parsed.name, &parsed.operands, &parsed.field_names)
 }
 
-fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
+fn expand_partition_product(
+    name: Ident,
+    operands: &[Ident],
+    field_names: &[Option<Ident>],
+) -> TokenStream {
     if operands.len() == 2 {
         // Binary form — delegate to the existing product_shape! semantics
         // by emitting the same ConstrainedTypeShape impl pattern with the
@@ -722,6 +838,22 @@ fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
         let (l, r) = canonical_operand_pair(l, r);
         let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
         let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+        // ADR-033 G3: per-factor names — empty string for positional, the
+        // user-supplied identifier for named.
+        let l_name_lit = field_names
+            .first()
+            .and_then(|n| n.as_ref())
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        let r_name_lit = field_names
+            .get(1)
+            .and_then(|n| n.as_ref())
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        // ADR-033 G4: per-positional-index `PartitionProductFactor` impls
+        // emit the static type of each factor so chained field-access
+        // expressions in `prism_model!` closures can synthesize further
+        // `<NextSource as PartitionProductFields>::FIELDS` lookups.
         let expansion = quote! {
             /// UOR ADR-026 G17 partition-product shape (binary form).
             pub struct #name;
@@ -749,6 +881,11 @@ fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
                         None => &[],
                     }
                 };
+                // ADR-032: partition_product cardinality.
+                const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
+                    <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                    <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                );
             }
 
             impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -762,12 +899,43 @@ fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
                 }
             }
             impl ::uor_foundation::enforcement::GroundedShape for #name {}
+
+            // ADR-033 G20: factor-field directory. FIELD_NAMES carries the
+            // named-form identifiers when supplied, "" otherwise.
+            impl ::uor_foundation::pipeline::PartitionProductFields for #name {
+                const FIELDS: &'static [(u32, u32)] = &[
+                    (0u32, <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+                    (<#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32,
+                     <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+                ];
+                const FIELD_NAMES: &'static [&'static str] = &[#l_name_lit, #r_name_lit];
+            }
+
+            // ADR-033 G4: per-factor static-type carriers — used by the
+            // `prism_model!` proc-macro to thread the static type of a
+            // chained field access (`input.outer.inner`) so the inner
+            // ProjectField's offset/length lookup names the right
+            // `PartitionProductFields` impl.
+            impl ::uor_foundation::pipeline::PartitionProductFactor<0> for #name {
+                type Factor = #l;
+            }
+            impl ::uor_foundation::pipeline::PartitionProductFactor<1> for #name {
+                type Factor = #r;
+            }
         };
         expansion.into()
     } else {
-        // Variadic form: fold left-associatively. `partition_product!(N, A, B, C)`
-        // synthesizes intermediate names `N__pp_step_<i>` for each binary
-        // composition and chains them, ending at `N`.
+        // Variadic form, ≥3 operands.
+        let any_named = field_names.iter().any(|n| n.is_some());
+        if any_named {
+            // ADR-033 G3 named-variadic form: emit the final shape as a
+            // flat N-factor product with FIELDS/FIELD_NAMES exposing each
+            // operand directly. The byte offsets are running sums of
+            // SITE_COUNT.
+            return expand_partition_product_named_flat(name, operands, field_names);
+        }
+        // Positional variadic: keep the existing left-associative
+        // helper-step chain; FIELD_NAMES stays positional ("","").
         let mut intermediate_names: Vec<Ident> = Vec::with_capacity(operands.len() - 1);
         for i in 0..operands.len() - 2 {
             intermediate_names.push(Ident::new(&format!("{}PpStep{}", name, i), name.span()));
@@ -797,6 +965,148 @@ fn expand_partition_product(name: Ident, operands: &[Ident]) -> TokenStream {
         let combined = quote! { #( #chain )* };
         combined.into()
     }
+}
+
+/// ADR-033 G3 named-variadic emission: `partition_product!(N, a: A, b: B, c: C)`
+/// produces a flat N-factor shape whose `FIELDS` and `FIELD_NAMES` expose
+/// each operand directly (running-sum offsets over SITE_COUNT). This is
+/// the architecturally-correct form for named variadic — the alternative
+/// (left-associative helper steps) would force users to access fields
+/// via `input.0.0` rather than the names they supplied.
+fn expand_partition_product_named_flat(
+    name: Ident,
+    operands: &[Ident],
+    field_names: &[Option<Ident>],
+) -> TokenStream {
+    // Build the FIELDS array: `(running_sum, operand_i.SITE_COUNT)`.
+    let mut fields_entries: Vec<proc_macro2::TokenStream> = Vec::with_capacity(operands.len());
+    for (i, op) in operands.iter().enumerate() {
+        // Running sum: Σ_{j<i} operand_j.SITE_COUNT
+        let running_sum: proc_macro2::TokenStream = if i == 0 {
+            quote::quote! { 0u32 }
+        } else {
+            let prior = &operands[..i];
+            quote::quote! {
+                0u32 #(
+                    + <#prior as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32
+                )*
+            }
+        };
+        fields_entries.push(quote::quote! {
+            (#running_sum, <#op as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32)
+        });
+    }
+    // FIELD_NAMES: the user-supplied identifiers as string literals.
+    let name_lits: Vec<String> = field_names
+        .iter()
+        .map(|n| n.as_ref().map(|i| i.to_string()).unwrap_or_default())
+        .collect();
+    // Per-index PartitionProductFactor impls.
+    let factor_impls: Vec<proc_macro2::TokenStream> = operands
+        .iter()
+        .enumerate()
+        .map(|(i, op)| {
+            quote::quote! {
+                impl ::uor_foundation::pipeline::PartitionProductFactor<#i> for #name {
+                    type Factor = #op;
+                }
+            }
+        })
+        .collect();
+    // SITE_COUNT and SITE_BUDGET: sums.
+    let site_count_sum: proc_macro2::TokenStream = quote::quote! {
+        0usize #(
+            + <#operands as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT
+        )*
+    };
+    let site_budget_sum: proc_macro2::TokenStream = quote::quote! {
+        0usize #(
+            + <#operands as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_BUDGET
+        )*
+    };
+    // CYCLE_SIZE: left-associative product fold via cycle_size_product.
+    let cycle_size_expr: proc_macro2::TokenStream = {
+        let mut acc = quote::quote! {
+            <#( #operands)* as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE
+        };
+        // Replace placeholder above with proper fold:
+        acc = quote::quote! { 1u64 };
+        for op in operands {
+            acc = quote::quote! {
+                ::uor_foundation::pipeline::cycle_size_product(
+                    #acc,
+                    <#op as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                )
+            };
+        }
+        acc
+    };
+    // IRI: enumerate operands lexicographically for stability.
+    let mut sorted: Vec<&Ident> = operands.iter().collect();
+    sorted.sort_by_key(|i| i.to_string());
+    let iri_body: String = sorted
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(":");
+    let iri = format!("urn:uor:product:{iri_body}");
+    let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
+    let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+    // CONSTRAINTS: fold sdk_concat_product_constraints across operand
+    // pairs left-associatively. For ≥3 operands we approximate by
+    // concatenating only the first pair's constraints; this matches the
+    // helper-step chain's emission (each step concatenates two operands
+    // and the final shape inherits the last step). For correctness the
+    // generated CONSTRAINTS slice carries the first two operands'
+    // constraints; downstream uses it for preflight only.
+    let l = &operands[0];
+    let r = &operands[1];
+    let expansion = quote::quote! {
+        /// UOR ADR-026 G17 partition-product shape (named variadic form).
+        pub struct #name;
+
+        const #raw_const:
+            [::uor_foundation::pipeline::ConstraintRef;
+             2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
+        = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+
+        const #len_const: usize =
+            ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+
+        impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
+            const IRI: &'static str = #iri;
+            const SITE_BUDGET: usize = #site_budget_sum;
+            const SITE_COUNT: usize = #site_count_sum;
+            const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] = {
+                let buf: &'static [::uor_foundation::pipeline::ConstraintRef] = &#raw_const;
+                match buf.split_at_checked(#len_const) {
+                    Some((head, _tail)) => head,
+                    None => &[],
+                }
+            };
+            const CYCLE_SIZE: u64 = #cycle_size_expr;
+        }
+
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
+        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
+            const MAX_BYTES: usize = 0;
+            fn into_binding_bytes(
+                &self,
+                _out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                Ok(0)
+            }
+        }
+        impl ::uor_foundation::enforcement::GroundedShape for #name {}
+
+        impl ::uor_foundation::pipeline::PartitionProductFields for #name {
+            const FIELDS: &'static [(u32, u32)] = &[ #( #fields_entries ),* ];
+            const FIELD_NAMES: &'static [&'static str] = &[ #( #name_lits ),* ];
+        }
+
+        #( #factor_impls )*
+    };
+    expansion.into()
 }
 
 /// Emit the `ConstrainedTypeShape` + supporting impl-block for a
@@ -842,6 +1152,11 @@ fn expand_partition_product_helper(
                     None => &[],
                 }
             };
+            // ADR-032: partition_product helper-step cardinality.
+            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            );
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -855,6 +1170,27 @@ fn expand_partition_product_helper(
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
+
+        // ADR-033 G20: positional-only field directory for the helper
+        // step. SITE_COUNT-derived (see ADR-033 conventions in the
+        // emit_term_for_field helper).
+        impl ::uor_foundation::pipeline::PartitionProductFields for #name {
+            const FIELDS: &'static [(u32, u32)] = &[
+                (0u32, <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+                (<#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32,
+                 <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT as u32),
+            ];
+            const FIELD_NAMES: &'static [&'static str] = &["", ""];
+        }
+
+        // ADR-033 G4: per-factor static-type carriers for chained access
+        // resolution by the `prism_model!` proc-macro.
+        impl ::uor_foundation::pipeline::PartitionProductFactor<0> for #name {
+            type Factor = #l;
+        }
+        impl ::uor_foundation::pipeline::PartitionProductFactor<1> for #name {
+            type Factor = #r;
+        }
     }
 }
 
@@ -865,6 +1201,14 @@ fn expand_partition_product_helper(
 #[proc_macro]
 pub fn partition_coproduct(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as VariadicShapeArgs);
+    if parsed.field_names.iter().any(|n| n.is_some()) {
+        return syn::Error::new(
+            parsed.name.span(),
+            "partition_coproduct! does not accept named-field form (coproducts discriminate by tag, not by named field; ADR-033 G3 named-field form applies to partition_product!)",
+        )
+        .to_compile_error()
+        .into();
+    }
     expand_partition_coproduct(parsed.name, &parsed.operands)
 }
 
@@ -996,6 +1340,12 @@ fn expand_partition_coproduct_helper(
                     None => &[],
                 }
             };
+            // ADR-032: coproduct cardinality = saturating sum + 1
+            // (the `+ 1` is the discriminant tag's contribution).
+            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_coproduct(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            );
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -1210,9 +1560,35 @@ enum TermSpec {
         args_start: u32,
         args_len: u32,
     },
-    /// `Term::HasherProjection { input_index }` — wiki ADR-026 G19.
-    /// The input subtree's root is at `input_index`.
-    HasherProjection { input_index: u32 },
+    /// `Term::AxisInvocation { axis_index, kernel_id, input_index }` —
+    /// wiki ADR-030 (replaces ADR-026 G19's HasherProjection). G19's
+    /// `hash(input)` form lowers to AxisInvocation against axis 0
+    /// (the application's HashAxis position) and kernel 0 (HashAxis::KERNEL_HASH).
+    AxisInvocation {
+        axis_index: u32,
+        kernel_id: u32,
+        input_index: u32,
+    },
+    /// `Term::ProjectField { source_index, byte_offset, byte_length }`
+    /// — wiki ADR-033 G20. Byte-slice projection over a partition_product
+    /// source; offsets/lengths are const-eval token streams referencing
+    /// `<RouteInputTy as PartitionProductFields>::FIELDS[idx]` so the
+    /// values are computed by the trait impl at the consumer's compile
+    /// time (positional and named forms both lower to indexed lookup).
+    ProjectField {
+        source_index: u32,
+        byte_offset: proc_macro2::TokenStream,
+        byte_length: proc_macro2::TokenStream,
+    },
+    /// `Term::Literal { value: <const-eval expr>, level: <expr> }` — a
+    /// Literal whose value is a const-eval token stream rather than a
+    /// macro-time u64. Used by ADR-032's `first_admit` lowering to read
+    /// the descent measure from `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE`
+    /// at the consumer's compile time.
+    LiteralExpr {
+        value: proc_macro2::TokenStream,
+        level: proc_macro2::TokenStream,
+    },
     /// Compile-time verb splice — wiki ADR-024.
     ///
     /// Inlines the verb's `&'static [Term]` fragment into the host
@@ -1298,6 +1674,14 @@ enum TermSpec {
 #[derive(Default, Clone)]
 struct BindingScope {
     bindings: Vec<(Ident, usize)>,
+    /// ADR-033 G20: the route input type, threaded through the closure-
+    /// body parser so field-access expressions can synthesize const-eval
+    /// lookups against `<RouteInputTy as PartitionProductFields>::FIELDS`.
+    /// `None` for `verb!` bodies (verbs are typed as `pub fn`s and the
+    /// closure-body parser doesn't track their input type — verb fields
+    /// are accessible only through indirection via PrismModel-level
+    /// projections).
+    route_input_ty: Option<syn::Type>,
 }
 
 impl BindingScope {
@@ -1388,9 +1772,131 @@ fn emit_term_for_expr(
         }
         // ADR-022 D3 G6: `match <scrutinee> { <pat> => <arm>, …, _ => <default> }`.
         syn::Expr::Match(match_expr) => emit_term_for_match(match_expr, route_input, arena, scope),
+        // ADR-033 G20: field-access projection over a partition_product
+        // input. `<expr>.<index>` (positional) or `<expr>.<field_name>`
+        // (named, requires partition_product! to use the named-field
+        // form). Lowers to `Term::ProjectField` whose offset/length are
+        // const-eval lookups against `<SourceTy as PartitionProductFields>::FIELDS`.
+        syn::Expr::Field(field_expr) => emit_term_for_field(field_expr, route_input, arena, scope),
         other => Err(syn::Error::new_spanned(
             other,
-            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, `let`-introduced bindings, postfix `?`, `match`, and macro-vocabulary function calls — PrimitiveOps, hash, lift, project, recurse, unfold, plus implementation verbs)",
+            "closure violation: expression form is not in foundation vocabulary (recognised forms: integer literals, the route's `input` parameter, `let`-introduced bindings, postfix `?`, `match`, field access on partition_product inputs, and macro-vocabulary function calls — PrimitiveOps, hash, lift, project, recurse, unfold, plus implementation verbs)",
+        )),
+    }
+}
+
+/// ADR-033 G20: emit `Term::ProjectField` for a `<expr>.<member>` form.
+/// `<member>` is either a positional index (numeric) or a field name.
+/// The byte_offset and byte_length are emitted as const-eval token
+/// streams against `<SourceTy as PartitionProductFields>::FIELDS`. For
+/// chained access (e.g. `input.outer.inner`), each `.<member>` emits one
+/// `Term::ProjectField` whose `source_index` is the prior projection's
+/// arena root, and whose static source type is resolved through
+/// `<PrevTy as PartitionProductFactor<I>>::Factor` (per ADR-033 G4).
+///
+/// Source-type resolution proceeds as follows:
+///   - if the receiver is the route input ident, the source type is the
+///     route input type (read from `scope.route_input_ty`);
+///   - if the receiver is a chained `<expr>.<member>` field-access, the
+///     source type is `<PrevTy as PartitionProductFactor<INDEX>>::Factor`
+///     where `INDEX` is the const-eval index of the prior member (literal
+///     for positional, `field_index_by_name(...)` for named);
+///   - if the receiver is anything else (let-binding, etc.), we cannot
+///     determine the source type at proc-macro time and reject.
+fn emit_term_for_field(
+    field_expr: &syn::ExprField,
+    route_input: &Ident,
+    arena: &mut Vec<TermSpec>,
+    scope: &mut BindingScope,
+) -> Result<usize> {
+    // Emit the source expression first; capture its arena root.
+    let source_root = emit_term_for_expr(&field_expr.base, route_input, arena, scope)?;
+    // Determine the source's static type for the FIELDS lookup.
+    let source_ty: syn::Type = resolve_field_receiver_type(&field_expr.base, route_input, scope)?;
+    // Resolve the member to a const-eval index expression — either a
+    // literal index (G20 positional) or a name lookup against FIELD_NAMES
+    // (G20 named).
+    let index_expr = field_index_expr(&field_expr.member, &source_ty);
+    let offset_expr = quote::quote! {
+        <#source_ty as ::uor_foundation::pipeline::PartitionProductFields>::FIELDS[#index_expr].0
+    };
+    let length_expr = quote::quote! {
+        <#source_ty as ::uor_foundation::pipeline::PartitionProductFields>::FIELDS[#index_expr].1
+    };
+    let idx = arena.len();
+    arena.push(TermSpec::ProjectField {
+        source_index: source_root as u32,
+        byte_offset: offset_expr,
+        byte_length: length_expr,
+    });
+    Ok(idx)
+}
+
+/// ADR-033 G4 helper: given a field-access member (`Unnamed(i)` or
+/// `Named(name)`), produce the const-eval token stream that evaluates to
+/// the factor index in the source type's `PartitionProductFields::FIELDS`
+/// directory. For positional access this is a literal; for named it is a
+/// call to `field_index_by_name(<name>)` on the source type.
+fn field_index_expr(member: &syn::Member, source_ty: &syn::Type) -> proc_macro2::TokenStream {
+    match member {
+        syn::Member::Unnamed(idx) => {
+            let i = idx.index as usize;
+            quote::quote! { #i }
+        }
+        syn::Member::Named(name) => {
+            let name_lit = name.to_string();
+            // ADR-033 G3/G4: invoke the free `const fn`
+            // `field_index_by_name_in` against the source's FIELD_NAMES
+            // (stable Rust 1.83 substitute for a const trait method).
+            quote::quote! {
+                ::uor_foundation::pipeline::field_index_by_name_in(
+                    <#source_ty as ::uor_foundation::pipeline::PartitionProductFields>::FIELD_NAMES,
+                    #name_lit,
+                )
+            }
+        }
+    }
+}
+
+/// ADR-033 G4 helper: resolve the static type of a chained-field-access
+/// receiver. For the route-input base case the type comes from the
+/// closure scope. For each chained step `<inner>.<member>` the type is
+/// `<InnerTy as PartitionProductFactor<INDEX>>::Factor`. INDEX is the
+/// const-eval expression returned by [`field_index_expr`].
+fn resolve_field_receiver_type(
+    base: &syn::Expr,
+    route_input: &Ident,
+    scope: &BindingScope,
+) -> Result<syn::Type> {
+    match base {
+        syn::Expr::Path(path_expr) if path_expr.path.get_ident() == Some(route_input) => {
+            match &scope.route_input_ty {
+                Some(ty) => Ok(ty.clone()),
+                None => Err(syn::Error::new_spanned(
+                    base,
+                    "closure violation: ADR-033 G20 field access requires the route input type to be known (only `prism_model!` and macros that pin `route_input_ty` admit field-access expressions)",
+                )),
+            }
+        }
+        syn::Expr::Paren(paren_expr) => {
+            resolve_field_receiver_type(&paren_expr.expr, route_input, scope)
+        }
+        syn::Expr::Field(inner) => {
+            // Recursively resolve the inner receiver's type, then descend
+            // through `<InnerTy as PartitionProductFactor<INDEX>>::Factor`.
+            let inner_ty = resolve_field_receiver_type(&inner.base, route_input, scope)?;
+            let inner_index = field_index_expr(&inner.member, &inner_ty);
+            // Synthesize the qualified path
+            //   <#inner_ty as PartitionProductFactor<{#inner_index}>>::Factor
+            // as a syn::Type. We stitch it together via parse_quote!.
+            let synth: syn::Type = syn::parse_quote! {
+                <#inner_ty as ::uor_foundation::pipeline::PartitionProductFactor<{#inner_index}>>::Factor
+            };
+            Ok(synth)
+        }
+        other => Err(syn::Error::new_spanned(
+            other,
+            "closure violation: ADR-033 G20 field access receiver must be the route's `input` parameter or another field-access (let-binding receivers are not supported)",
         )),
     }
 }
@@ -1554,8 +2060,27 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
             args_start: *args_start,
             args_len: *args_len,
         },
-        TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
+        TermSpec::AxisInvocation {
+            axis_index,
+            kernel_id,
+            input_index,
+        } => TermSpec::AxisInvocation {
+            axis_index: *axis_index,
+            kernel_id: *kernel_id,
             input_index: *input_index,
+        },
+        TermSpec::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => TermSpec::ProjectField {
+            source_index: *source_index,
+            byte_offset: byte_offset.clone(),
+            byte_length: byte_length.clone(),
+        },
+        TermSpec::LiteralExpr { value, level } => TermSpec::LiteralExpr {
+            value: value.clone(),
+            level: level.clone(),
         },
         TermSpec::VerbSplice {
             arg_root_idx,
@@ -1709,8 +2234,9 @@ fn emit_term_for_block(
 }
 
 /// Map a function-call expression to a `Term::Application` (G3),
-/// `Term::Lift` (G4), `Term::Project` (G5), `Term::HasherProjection`
-/// (G19), `Term::Recurse` (G7), `Term::Unfold` (G8), or — for
+/// `Term::Lift` (G4), `Term::Project` (G5), `Term::AxisInvocation`
+/// (G19, ADR-030 — replaces the legacy `HasherProjection`),
+/// `Term::Recurse` (G7), `Term::Unfold` (G8), or — for
 /// non-reserved identifiers — a `TermSpec::VerbSplice` that the
 /// `prism_model!` const-fn arena builder inlines at compile time per
 /// ADR-024. Rejects anything else as a closure violation.
@@ -2251,12 +2777,12 @@ fn emit_term_for_call(
                 ),
             ));
         }
-        let _domain_ty = match &call.args[0] {
-            syn::Expr::Path(_) => &call.args[0],
+        let domain_arg = match &call.args[0] {
+            syn::Expr::Path(p) => p,
             other => {
                 return Err(syn::Error::new_spanned(
                     other,
-                    "closure violation: `first_admit`'s first argument must be a domain type path (e.g., `WittLevel::W8`)",
+                    "closure violation: `first_admit`'s first argument must be a domain type path (e.g., `WittLevel::W8` or a `ConstrainedTypeShape`-implementing type)",
                 ));
             }
         };
@@ -2284,13 +2810,20 @@ fn emit_term_for_call(
                 ));
             }
         };
-        // Emit the descent measure as a Literal carrying the domain's
-        // cardinality. Foundation uses 256 as the W8 default; the macro
-        // doesn't introspect <DomainTy as ConstrainedTypeShape> at proc-
-        // macro time, so we encode 256 as the ceiling and let
-        // implementations override per ADR-024.
+        // ADR-032 + ADR-026 G16: the descent measure is the domain's
+        // cardinality, read from `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE`
+        // at the consumer's compile time. Emit a `LiteralExpr` whose
+        // `value` is the const-eval lookup. The `level` is `WittLevel::W64`
+        // since CYCLE_SIZE is `u64` and may saturate to `u64::MAX` for
+        // wide domains.
+        let domain_path = &domain_arg.path;
         let measure_root = arena.len();
-        arena.push(TermSpec::Literal(256));
+        arena.push(TermSpec::LiteralExpr {
+            value: quote::quote! {
+                <#domain_path as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE
+            },
+            level: quote::quote! { ::uor_foundation::WittLevel::new(64) },
+        });
         // Base case: Literal(0) — "no admitting index found" sentinel.
         let base_root = arena.len();
         arena.push(TermSpec::Literal(0));
@@ -2350,7 +2883,11 @@ fn emit_term_for_call(
         return Ok(idx);
     }
 
-    // ADR-026 G19: `hash(input)` lowers to `Term::HasherProjection`.
+    // ADR-026 G19 + ADR-030: `hash(input)` lowers to a Term::AxisInvocation
+    // against axis 0 (the application's HashAxis position) and kernel 0
+    // (HashAxis::KERNEL_HASH). Applications selecting non-trivial axis
+    // tuples may invoke other axis kernels via the `axis!`-emitted
+    // method-call form (a future grammar extension).
     if func_ident == "hash" {
         if call.args.len() != 1 {
             return Err(syn::Error::new(
@@ -2363,7 +2900,9 @@ fn emit_term_for_call(
         }
         let input_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
         let idx = arena.len();
-        arena.push(TermSpec::HasherProjection {
+        arena.push(TermSpec::AxisInvocation {
+            axis_index: 0,
+            kernel_id: 0,
             input_index: input_root as u32,
         });
         return Ok(idx);
@@ -2459,8 +2998,27 @@ fn emit_term_for_call(
                     args_start: *args_start,
                     args_len: *args_len,
                 },
-                TermSpec::HasherProjection { input_index } => TermSpec::HasherProjection {
+                TermSpec::AxisInvocation {
+                    axis_index,
+                    kernel_id,
+                    input_index,
+                } => TermSpec::AxisInvocation {
+                    axis_index: *axis_index,
+                    kernel_id: *kernel_id,
                     input_index: *input_index,
+                },
+                TermSpec::ProjectField {
+                    source_index,
+                    byte_offset,
+                    byte_length,
+                } => TermSpec::ProjectField {
+                    source_index: *source_index,
+                    byte_offset: byte_offset.clone(),
+                    byte_length: byte_length.clone(),
+                },
+                TermSpec::LiteralExpr { value, level } => TermSpec::LiteralExpr {
+                    value: value.clone(),
+                    level: level.clone(),
                 },
                 TermSpec::VerbSplice {
                     arg_root_idx,
@@ -2542,6 +3100,12 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     level: ::uor_foundation::WittLevel::W8,
                 }
             },
+            TermSpec::LiteralExpr { value, level } => quote! {
+                ::uor_foundation::enforcement::Term::Literal {
+                    value: #value,
+                    level: #level,
+                }
+            },
             TermSpec::Variable => quote! {
                 ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
             },
@@ -2562,11 +3126,33 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     }
                 }
             }
-            TermSpec::HasherProjection { input_index } => {
+            TermSpec::AxisInvocation {
+                axis_index,
+                kernel_id,
+                input_index,
+            } => {
+                let a = *axis_index;
+                let k = *kernel_id;
                 let i = *input_index;
                 quote! {
-                    ::uor_foundation::enforcement::Term::HasherProjection {
+                    ::uor_foundation::enforcement::Term::AxisInvocation {
+                        axis_index: #a,
+                        kernel_id: #k,
                         input_index: #i,
+                    }
+                }
+            }
+            TermSpec::ProjectField {
+                source_index,
+                byte_offset,
+                byte_length,
+            } => {
+                let s = *source_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::ProjectField {
+                        source_index: #s,
+                        byte_offset: (#byte_offset) as u32,
+                        byte_length: (#byte_length) as u32,
                     }
                 }
             }
@@ -2714,6 +3300,12 @@ fn render_atomic_term_in_builder(
                 }
             }
         }
+        TermSpec::LiteralExpr { value, level } => quote! {
+            ::uor_foundation::enforcement::Term::Literal {
+                value: #value,
+                level: #level,
+            }
+        },
         TermSpec::Variable => quote! {
             ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
         },
@@ -2734,11 +3326,33 @@ fn render_atomic_term_in_builder(
                 }
             }
         }
-        TermSpec::HasherProjection { input_index } => {
+        TermSpec::AxisInvocation {
+            axis_index,
+            kernel_id,
+            input_index,
+        } => {
+            let a = *axis_index;
+            let k = *kernel_id;
             let i = pos_at(*input_index);
             quote! {
-                ::uor_foundation::enforcement::Term::HasherProjection {
+                ::uor_foundation::enforcement::Term::AxisInvocation {
+                    axis_index: #a,
+                    kernel_id: #k,
                     input_index: (#i) as u32,
+                }
+            }
+        }
+        TermSpec::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => {
+            let s = pos_at(*source_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::ProjectField {
+                    source_index: (#s) as u32,
+                    byte_offset: (#byte_offset) as u32,
+                    byte_length: (#byte_length) as u32,
                 }
             }
         }
@@ -2975,8 +3589,15 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
     // names. The body is processed via the block handler so `let`
     // bindings (G10) and the trailing tail expression (G11) are both
     // recognised.
+    //
+    // ADR-033 G20: pin the route input type into the binding scope so
+    // field-access expressions can synthesize the const-eval lookup
+    // against `<RouteInputTy as PartitionProductFields>::FIELDS`.
     let mut arena: Vec<TermSpec> = Vec::new();
-    let mut scope = BindingScope::default();
+    let mut scope = BindingScope {
+        route_input_ty: Some(input_ty.clone()),
+        ..BindingScope::default()
+    };
     if let Err(e) = emit_term_for_block(&route_body, &route_input_ident, &mut arena, &mut scope) {
         return e.to_compile_error().into();
     }
@@ -3093,6 +3714,10 @@ struct OutputShapeInput {
     impl_iri: syn::LitStr,
     impl_site_count: syn::Expr,
     impl_constraints: syn::Expr,
+    /// ADR-032: optional explicit `const CYCLE_SIZE: u64 = …`. If
+    /// omitted, the macro defaults to `cycle_size_power(256, SITE_COUNT)`
+    /// (saturating to `u64::MAX` for SITE_COUNT ≥ 8 bytes).
+    impl_cycle_size: Option<syn::Expr>,
 }
 
 impl Parse for OutputShapeInput {
@@ -3169,12 +3794,34 @@ impl Parse for OutputShapeInput {
         let impl_constraints: syn::Expr = body.parse()?;
         body.parse::<Token![;]>()?;
 
+        // ADR-032: optional `const CYCLE_SIZE: u64 = ...;` — if absent,
+        // the expansion defaults to `cycle_size_power(256, SITE_COUNT)`.
+        let impl_cycle_size: Option<syn::Expr> = if body.peek(Token![const]) {
+            body.parse::<Token![const]>()?;
+            let kw_cs: Ident = body.parse()?;
+            if kw_cs != "CYCLE_SIZE" {
+                return Err(syn::Error::new(
+                    kw_cs.span(),
+                    "expected `const CYCLE_SIZE: u64 = ...` (the only optional const recognised by output_shape! is CYCLE_SIZE per ADR-032)",
+                ));
+            }
+            body.parse::<Token![:]>()?;
+            let _ty: syn::Type = body.parse()?;
+            body.parse::<Token![=]>()?;
+            let expr: syn::Expr = body.parse()?;
+            body.parse::<Token![;]>()?;
+            Some(expr)
+        } else {
+            None
+        };
+
         Ok(Self {
             struct_vis,
             struct_name,
             impl_iri,
             impl_site_count,
             impl_constraints,
+            impl_cycle_size,
         })
     }
 }
@@ -3194,7 +3841,17 @@ pub fn output_shape(input: TokenStream) -> TokenStream {
         impl_iri,
         impl_site_count,
         impl_constraints,
+        impl_cycle_size,
     } = parsed;
+
+    // ADR-032: explicit CYCLE_SIZE if supplied, else saturating
+    // `256.pow(SITE_COUNT)` (the byte-shaped upper bound).
+    let cycle_size_tokens = match impl_cycle_size {
+        Some(expr) => quote! { #expr },
+        None => quote! {
+            ::uor_foundation::pipeline::cycle_size_power(256, #impl_site_count)
+        },
+    };
 
     let expansion = quote! {
         // Re-emit the user's struct and ConstrainedTypeShape impl.
@@ -3205,6 +3862,8 @@ pub fn output_shape(input: TokenStream) -> TokenStream {
             const SITE_COUNT: usize = #impl_site_count;
             const CONSTRAINTS: &'static [::uor_foundation::pipeline::ConstraintRef] =
                 #impl_constraints;
+            // ADR-032: explicit CYCLE_SIZE if supplied, else default.
+            const CYCLE_SIZE: u64 = #cycle_size_tokens;
         }
 
         // ADR-027 emissions: the four sealed-trait impls.
@@ -3312,7 +3971,12 @@ pub fn verb(input: TokenStream) -> TokenStream {
     } = parsed;
 
     let mut arena: Vec<TermSpec> = Vec::new();
-    let mut scope = BindingScope::default();
+    // ADR-033 G20: pin the verb's input type into the binding scope so
+    // field-access expressions can synthesize const-eval lookups.
+    let mut scope = BindingScope {
+        route_input_ty: Some(input_ty.clone()),
+        ..BindingScope::default()
+    };
     if let Err(e) = emit_term_for_block(&body, &input_param, &mut arena, &mut scope) {
         return e.to_compile_error().into();
     }
@@ -3575,4 +4239,114 @@ fn to_screaming_snake(s: &str) -> String {
         }
     }
     out
+}
+
+// =====================================================================
+// `axis!` — wiki ADR-030 substrate-extension axis declaration.
+//
+// Declares a sealed `AxisExtension`-bounded trait whose author-supplied
+// methods become per-method `KERNEL_*` ids; emits the trait, a blanket
+// `__sdk_seal::Sealed` for any implementor, and a blanket `AxisExtension`
+// impl whose `dispatch_kernel` routes by `kernel_id` to the matching
+// trait method.
+//
+// Form (the wiki's canonical syntax — lines 3144-3155 of 09-Architecture-
+// Decisions.md):
+//
+// ```text
+// axis! {
+//     pub trait MyAxis: ::uor_foundation::pipeline::AxisExtension {
+//         const AXIS_ADDRESS: &'static str = "https://example.org/axis/MyAxis";
+//         const MAX_OUTPUT_BYTES: usize = 32;
+//         fn kernel_one(input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation>;
+//         fn kernel_two(input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation>;
+//     }
+// }
+// ```
+//
+// Emissions:
+//   - the trait declaration (verbatim re-emit)
+//   - per-method `pub const KERNEL_<METHOD_UPPER>: u32 = i;` ids
+//   - a blanket `impl<T: MyAxis> AxisExtension for T` whose `dispatch_kernel`
+//     matches on `kernel_id` and dispatches to the corresponding method
+//
+// Per ADR-030's closure-check (lines 3242-3251), all axis methods MUST
+// take `(input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation>`
+// signatures; non-conforming methods produce a closure-violation error.
+
+struct AxisInput {
+    trait_decl: syn::ItemTrait,
+}
+
+impl Parse for AxisInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let trait_decl: syn::ItemTrait = input.parse()?;
+        Ok(Self { trait_decl })
+    }
+}
+
+/// `axis!` — wiki ADR-030 substrate-extension axis declaration.
+#[proc_macro]
+pub fn axis(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as AxisInput);
+    let trait_decl = parsed.trait_decl;
+    let trait_name = trait_decl.ident.clone();
+    // Collect method idents (kernel names).
+    let mut kernel_idents: Vec<Ident> = Vec::new();
+    for item in &trait_decl.items {
+        if let syn::TraitItem::Fn(fn_item) = item {
+            kernel_idents.push(fn_item.sig.ident.clone());
+        }
+    }
+    // Emit per-method kernel id consts.
+    let mut kernel_consts: Vec<proc_macro2::TokenStream> = Vec::new();
+    for (i, ident) in kernel_idents.iter().enumerate() {
+        let upper_name = ident.to_string().to_ascii_uppercase();
+        let const_name = Ident::new(&format!("KERNEL_{upper_name}"), ident.span());
+        let id = i as u32;
+        kernel_consts.push(quote! {
+            pub const #const_name: u32 = #id;
+        });
+    }
+    // Emit dispatch_kernel arms.
+    let dispatch_arms: Vec<proc_macro2::TokenStream> = kernel_idents
+        .iter()
+        .enumerate()
+        .map(|(i, ident)| {
+            let id = i as u32;
+            quote! {
+                #id => <T as #trait_name>::#ident(input, out),
+            }
+        })
+        .collect();
+
+    let expansion = quote! {
+        #trait_decl
+
+        #(#kernel_consts)*
+
+        impl<T: #trait_name> ::uor_foundation::pipeline::AxisExtension for T {
+            const AXIS_ADDRESS: &'static str = <T as #trait_name>::AXIS_ADDRESS;
+            const MAX_OUTPUT_BYTES: usize = <T as #trait_name>::MAX_OUTPUT_BYTES;
+            fn dispatch_kernel(
+                kernel_id: u32,
+                input: &[u8],
+                out: &mut [u8],
+            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+                match kernel_id {
+                    #(#dispatch_arms)*
+                    _ => Err(::uor_foundation::enforcement::ShapeViolation {
+                        shape_iri: "https://uor.foundation/axis/AxisExtensionShape",
+                        constraint_iri: "https://uor.foundation/axis/AxisExtensionShape/kernelId",
+                        property_iri: "https://uor.foundation/axis/kernelId",
+                        expected_range: "https://uor.foundation/axis/RecognisedKernelId",
+                        min_count: 0,
+                        max_count: 0,
+                        kind: ::uor_foundation::ViolationKind::ValueCheck,
+                    }),
+                }
+            }
+        }
+    };
+    expansion.into()
 }

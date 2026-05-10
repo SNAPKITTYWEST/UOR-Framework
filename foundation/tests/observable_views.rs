@@ -26,6 +26,7 @@ impl ConstrainedTypeShape for EmptyShape {
     const IRI: &'static str = "https://uor.foundation/test/EmptyShape";
     const SITE_COUNT: usize = 0;
     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]

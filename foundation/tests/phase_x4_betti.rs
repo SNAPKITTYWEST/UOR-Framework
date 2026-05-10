@@ -56,6 +56,7 @@ impl ConstrainedTypeShape for DisconnectedPair {
         ConstraintRef::Site { position: 0 },
         ConstraintRef::Site { position: 1 },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]
@@ -90,6 +91,7 @@ impl ConstrainedTypeShape for FilledTriangle {
             residue: 3,
         },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]
@@ -124,6 +126,7 @@ impl ConstrainedTypeShape for CircleNerve {
             bias: 0,
         },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]
@@ -167,6 +170,7 @@ impl ConstrainedTypeShape for TetrahedronBoundary {
             bias: 0,
         },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]
@@ -184,6 +188,7 @@ impl ConstrainedTypeShape for Empty {
     const IRI: &'static str = "https://example.org/phase_x4/Empty";
     const SITE_COUNT: usize = 4;
     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 #[test]

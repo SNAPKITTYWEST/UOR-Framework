@@ -52,6 +52,7 @@ impl ConstrainedTypeShape for LeafA {
         coefficient_count: 1,
         bias: 0,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 pub struct LeafB;
@@ -59,6 +60,7 @@ impl ConstrainedTypeShape for LeafB {
     const IRI: &'static str = "https://example.org/consumer-smoke/LeafB";
     const SITE_COUNT: usize = 1;
     const CONSTRAINTS: &'static [ConstraintRef] = &[ConstraintRef::Hamming { bound: 1 }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 pub struct MyShape;
@@ -69,6 +71,7 @@ impl ConstrainedTypeShape for MyShape {
         modulus: 7,
         residue: 3,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 fn nonzero_fingerprint(seed: u8) -> ContentFingerprint {

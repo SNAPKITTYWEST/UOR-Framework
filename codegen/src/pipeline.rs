@@ -35,6 +35,7 @@
 //! check or resolver is a pure ontology edit.
 
 use crate::emit::RustFile;
+use crate::enforcement::{limbs_witt_levels, witt_levels};
 use uor_ontology::model::{IndividualValue, Ontology};
 
 /// Convert an IRI to its local name.
@@ -105,6 +106,7 @@ pub fn generate_pipeline_module(ontology: &Ontology) -> String {
     emit_constants(&mut f, ontology);
     emit_constraint_ref(&mut f);
     emit_constrained_type_shape(&mut f);
+    emit_witt_domain(&mut f, ontology);
     emit_admission_fns(&mut f);
     emit_fragment_classifier(&mut f);
     emit_two_sat_decider(&mut f, ontology);
@@ -1827,6 +1829,7 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     f.doc_comment("    const CONSTRAINTS: &'static [ConstraintRef] = &[");
     f.doc_comment("        ConstraintRef::Residue { modulus: 7, residue: 3 },");
     f.doc_comment("    ];");
+    f.doc_comment("    const CYCLE_SIZE: u64 = 7;  // ADR-032: 7 residues mod 7");
     f.doc_comment("}");
     f.doc_comment("");
     f.doc_comment("let validated = validate_constrained_type(MyShape)");
@@ -1852,6 +1855,59 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     f.line("    const SITE_BUDGET: usize = Self::SITE_COUNT;");
     f.indented_doc_comment("Per-site constraint list. Empty means unconstrained.");
     f.line("    const CONSTRAINTS: &'static [ConstraintRef];");
+    f.indented_doc_comment("ADR-032: cardinality of the shape's value-set (the cycle");
+    f.indented_doc_comment("structure of the shape under the substrate's discrete-clock");
+    f.indented_doc_comment("model). Used by the `prism_model!` macro to lower `first_admit`");
+    f.indented_doc_comment("(closure-body grammar G16) to the correct descent measure.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Conventions:");
+    f.indented_doc_comment("- Witt-level shapes: `1u64 << WITT_LEVEL_BITS` (W8 = 256, W16 =");
+    f.indented_doc_comment("  65536, W32 = 4294967296). Levels above W63 saturate to `u64::MAX`.");
+    f.indented_doc_comment("- `partition_product` factors: `cycle_size_product` of factor");
+    f.indented_doc_comment("  CYCLE_SIZEs (saturating-multiply).");
+    f.indented_doc_comment("- `partition_coproduct` summands: `cycle_size_coproduct` (saturating");
+    f.indented_doc_comment("  add + 1 for the discriminant).");
+    f.indented_doc_comment("- `cartesian_product_shape` (homogeneous power): factor's CYCLE_SIZE");
+    f.indented_doc_comment("  raised to `SITE_COUNT` (saturating).");
+    f.indented_doc_comment("- The foundation-sanctioned identity `ConstrainedTypeInput` has");
+    f.indented_doc_comment("  `CYCLE_SIZE = 1` (single-element shape).");
+    f.line("    const CYCLE_SIZE: u64;");
+    f.line("}");
+    f.blank();
+
+    // ADR-032: const-fn helpers the SDK macros call at expansion time
+    // when composing shapes. Both saturate to u64::MAX so the macros
+    // never overflow; downstream `first_admit` lowering uses the value
+    // as a `Term::Literal` measure for `Term::Recurse`.
+    f.doc_comment("ADR-032: saturating multiply for `partition_product`'s CYCLE_SIZE.");
+    f.doc_comment("Returns `u64::MAX` on overflow.");
+    f.line("#[inline]");
+    f.line("#[must_use]");
+    f.line("pub const fn cycle_size_product(a: u64, b: u64) -> u64 {");
+    f.line("    a.saturating_mul(b)");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-032: saturating add + 1 (for the discriminant) for");
+    f.doc_comment("`partition_coproduct`'s CYCLE_SIZE. Returns `u64::MAX` on overflow.");
+    f.line("#[inline]");
+    f.line("#[must_use]");
+    f.line("pub const fn cycle_size_coproduct(a: u64, b: u64) -> u64 {");
+    f.line("    a.saturating_add(b).saturating_add(1)");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-032: saturating power for `cartesian_product_shape`'s CYCLE_SIZE");
+    f.doc_comment("(homogeneous power: factor.CYCLE_SIZE^SITE_COUNT). Returns `u64::MAX`");
+    f.doc_comment("on overflow.");
+    f.line("#[inline]");
+    f.line("#[must_use]");
+    f.line("pub const fn cycle_size_power(base: u64, exp: usize) -> u64 {");
+    f.line("    let mut result: u64 = 1;");
+    f.line("    let mut i: usize = 0;");
+    f.line("    while i < exp {");
+    f.line("        result = result.saturating_mul(base);");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    result");
     f.line("}");
     f.blank();
 
@@ -1860,11 +1916,425 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     f.line("    const IRI: &'static str = \"https://uor.foundation/type/ConstrainedType\";");
     f.line("    const SITE_COUNT: usize = 0;");
     f.line("    const CONSTRAINTS: &'static [ConstraintRef] = &[];");
+    f.line("    const CYCLE_SIZE: u64 = 1;");
     f.line("}");
     f.blank();
 
+    // ADR-032 Witt-level domain types are emitted by `emit_witt_domain`
+    // (called from `generate_pipeline_module`'s top-level driver).
+
+    // ADR-033 G20: every `partition_product`-shaped type carries a
+    // factor-fields directory describing each factor's byte offset and
+    // length within the product's canonical byte serialization (per
+    // ADR-023's `IntoBindingValue::into_binding_bytes`). The closure-body
+    // grammar's field-access form `<expr>.<index>` (G20 positional) and
+    // `<expr>.<name>` (G20 named) lowers via this trait at proc-macro
+    // expansion time: the macro emits `Term::ProjectField` whose
+    // `byte_offset` and `byte_length` are read from this directory.
+    f.doc_comment("ADR-033 G20: factor-field directory carried by every");
+    f.doc_comment("`partition_product`-shaped type. The closure-body grammar's");
+    f.doc_comment("field-access form (`<expr>.<index>` or `<expr>.<field_name>`)");
+    f.doc_comment("lowers via this trait at proc-macro expansion time.");
+    f.doc_comment("");
+    f.doc_comment("Foundation-sanctioned identity `ConstrainedTypeInput` has zero");
+    f.doc_comment("fields (it is a leaf shape). The SDK macros `partition_product!`,");
+    f.doc_comment("`product_shape!`, and `cartesian_product_shape!` emit the impl.");
+    f.line("pub trait PartitionProductFields: ConstrainedTypeShape {");
+    f.indented_doc_comment("Per-factor `(byte_offset, byte_length)` pairs in declaration");
+    f.indented_doc_comment("order. Length is the same as `FIELD_NAMES.len()`.");
+    f.line("    const FIELDS: &'static [(u32, u32)];");
+    f.indented_doc_comment("Per-factor names. Empty string `\"\"` for positional-only");
+    f.indented_doc_comment("`partition_product!(Name, A, B)` emissions; non-empty for");
+    f.indented_doc_comment("named-field `partition_product!(Name, lhs: A, rhs: B)` form.");
+    f.indented_doc_comment("Length matches `FIELDS.len()`.");
+    f.line("    const FIELD_NAMES: &'static [&'static str];");
+    f.indented_doc_comment("Linear search returning the field index whose `FIELD_NAMES`");
+    f.indented_doc_comment("entry equals `name`, or `usize::MAX` if not found. Delegates");
+    f.indented_doc_comment("to the free `const fn` [`field_index_by_name_in`] so the");
+    f.indented_doc_comment("result is usable inside const-eval contexts on stable Rust");
+    f.indented_doc_comment("1.83 (where const trait methods are unavailable).");
+    f.line("    #[must_use]");
+    f.line("    fn field_index_by_name(name: &str) -> usize {");
+    f.line("        field_index_by_name_in(Self::FIELD_NAMES, name)");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-033 G3/G4: const-fn factor-name lookup. The SDK proc-macro");
+    f.doc_comment("emits const-eval calls to this helper to resolve a named-field");
+    f.doc_comment("access against the source type's `FIELD_NAMES`. On stable Rust");
+    f.doc_comment("1.83 a free `const fn` is the substitute for a `const fn`");
+    f.doc_comment("trait method. Returns `usize::MAX` for not-found so the result");
+    f.doc_comment("is usable directly inside `const` array indexing.");
+    f.line("#[must_use]");
+    f.line("pub const fn field_index_by_name_in(names: &[&'static str], name: &str) -> usize {");
+    f.line("    let nb = name.as_bytes();");
+    f.line("    let mut i = 0usize;");
+    f.line("    while i < names.len() {");
+    f.line("        let nb_i = names[i].as_bytes();");
+    f.line("        if nb_i.len() == nb.len() {");
+    f.line("            let mut j = 0usize;");
+    f.line("            let mut matched = true;");
+    f.line("            while j < nb.len() {");
+    f.line("                if nb_i[j] != nb[j] { matched = false; break; }");
+    f.line("                j += 1;");
+    f.line("            }");
+    f.line("            if matched { return i; }");
+    f.line("        }");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    usize::MAX");
+    f.line("}");
+    f.blank();
+    // Foundation-sanctioned identity: zero fields (leaf shape).
+    f.line("impl PartitionProductFields for ConstrainedTypeInput {");
+    f.line("    const FIELDS: &'static [(u32, u32)] = &[];");
+    f.line("    const FIELD_NAMES: &'static [&'static str] = &[];");
+    f.line("}");
+    f.blank();
+
+    // ADR-033 G20 (chained-access support): per-factor type retrieval.
+    // The `prism_model!` proc-macro uses `<SourceTy as
+    // PartitionProductFactor<I>>::Factor` to resolve the static type of
+    // a chained `<expr>.<member>` receiver. `partition_product!`,
+    // `product_shape!`, and `cartesian_product_shape!` emit per-index
+    // impls of this trait so the proc-macro can name the inner type
+    // when synthesizing further `Term::ProjectField` lookups.
+    f.doc_comment("ADR-033 G20 chained-field access support: maps a");
+    f.doc_comment("`partition_product`-shaped type's positional factor index to");
+    f.doc_comment("the factor's static type. The `prism_model!` proc-macro emits");
+    f.doc_comment("a chain of `Term::ProjectField` projections by walking this");
+    f.doc_comment("trait, naming each next source type as");
+    f.doc_comment("`<PrevTy as PartitionProductFactor<I>>::Factor`.");
+    f.doc_comment("");
+    f.doc_comment("`partition_product!`, `product_shape!`, and");
+    f.doc_comment("`cartesian_product_shape!` emit one impl per factor index.");
+    f.line("pub trait PartitionProductFactor<const INDEX: usize>: PartitionProductFields {");
+    f.indented_doc_comment("The static type of the factor at position `INDEX`.");
+    f.line("    type Factor: ConstrainedTypeShape;");
+    f.line("}");
+    f.blank();
+
+    emit_axis_extension(f);
     emit_prism_model(f);
     emit_cartesian_product_shape(f);
+}
+
+/// ADR-032 (G5): emits one zero-sized marker type per Witt level, each
+/// implementing `ConstrainedTypeShape` with `CYCLE_SIZE = 2^bits_width`
+/// (saturated at `u64::MAX` for levels above W64). The `prism_model!`
+/// proc-macro reads `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE` at
+/// expansion time to lower `first_admit(<DomainTy>, |i| …)` (G16) into
+/// `Term::Recurse` whose descent measure is the domain's cardinality.
+///
+/// The wiki's example syntax `first_admit(WittLevel::W32, |nonce| …)`
+/// addresses the level as a *type*; on stable Rust 1.83 the inherent-
+/// associated-type form `WittLevel::W32` is unavailable (it requires
+/// nightly `inherent_associated_types`), so the witt_domain types are
+/// the architecturally-equivalent named form — `witt_domain::W32` is
+/// the type whose `CYCLE_SIZE` is `2^32 = 4_294_967_296`, matching the
+/// wiki's normative count.
+fn emit_witt_domain(f: &mut RustFile, ontology: &Ontology) {
+    let mut levels = witt_levels(ontology);
+    levels.extend(limbs_witt_levels(ontology));
+    levels.sort_by_key(|(_, bits, _)| *bits);
+
+    f.doc_comment("ADR-032: per-Witt-level zero-sized marker types implementing");
+    f.doc_comment("`ConstrainedTypeShape`. The `prism_model!` proc-macro consumes");
+    f.doc_comment("these as the `<DomainTy>` operand of `first_admit(<DomainTy>, |i| …)`");
+    f.doc_comment("(G16): `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE` carries the");
+    f.doc_comment("domain's cardinality, which the macro lowers as the descent measure");
+    f.doc_comment("for the emitted `Term::Recurse`.");
+    f.doc_comment("");
+    f.doc_comment("Each level's `CYCLE_SIZE` is `2^bits_width`, saturated at");
+    f.doc_comment("`u64::MAX` for levels whose cardinality exceeds 64-bit range.");
+    f.doc_comment("The wiki's normative example `first_admit(WittLevel::W32, |nonce| …)`");
+    f.doc_comment("compiles on stable Rust 1.83 as `first_admit(witt_domain::W32, |nonce| …)`");
+    f.doc_comment("(`witt_domain::W32::CYCLE_SIZE = 4_294_967_296`).");
+    f.line("pub mod witt_domain {");
+    f.line("    use super::{ConstrainedTypeShape, ConstraintRef, PartitionProductFields};");
+    f.line("    use crate::enforcement::GroundedShape;");
+    f.line("    use crate::pipeline::__sdk_seal;");
+    f.line("    use crate::pipeline::IntoBindingValue;");
+    f.line("    use crate::enforcement::ShapeViolation;");
+    f.blank();
+    for (local, bits, _byte_or_limb) in &levels {
+        // Compute cycle_size: 2^bits, saturated at u64::MAX.
+        let cycle_size = if *bits >= 64 {
+            "u64::MAX".to_string()
+        } else {
+            format!("{}u64", 1u64 << *bits)
+        };
+        let iri = format!("https://uor.foundation/witt/{local}");
+        f.indented_doc_comment(&format!(
+            "ADR-032 Witt-level domain marker for `{local}` ({bits}-bit ring)."
+        ));
+        f.indented_doc_comment(&format!(
+            "`CYCLE_SIZE = 2^{bits} = {}`. Used as the `<DomainTy>` operand of",
+            if *bits >= 64 {
+                "u64::MAX (saturated)".to_string()
+            } else {
+                format!("{}", 1u64 << *bits)
+            }
+        ));
+        f.indented_doc_comment(
+            "`first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.",
+        );
+        f.line(&format!("    pub struct {local};"));
+        f.line(&format!("    impl ConstrainedTypeShape for {local} {{"));
+        f.line(&format!("        const IRI: &'static str = \"{iri}\";"));
+        f.line("        const SITE_COUNT: usize = 1;");
+        f.line("        const CONSTRAINTS: &'static [ConstraintRef] = &[];");
+        f.line(&format!("        const CYCLE_SIZE: u64 = {cycle_size};"));
+        f.line("    }");
+        f.line(&format!("    impl __sdk_seal::Sealed for {local} {{}}"));
+        f.line(&format!("    impl IntoBindingValue for {local} {{"));
+        f.line("        const MAX_BYTES: usize = 0;");
+        f.line(
+            "        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {",
+        );
+        f.line("            Ok(0)");
+        f.line("        }");
+        f.line("    }");
+        f.line(&format!("    impl GroundedShape for {local} {{}}"));
+        f.line(&format!("    impl PartitionProductFields for {local} {{"));
+        f.line("        const FIELDS: &'static [(u32, u32)] = &[];");
+        f.line("        const FIELD_NAMES: &'static [&'static str] = &[];");
+        f.line("    }");
+        f.blank();
+    }
+    f.line("}");
+    f.blank();
+}
+
+/// Emits the wiki ADR-030 surface: the [`AxisExtension`] sealed trait
+/// that every substrate-extension axis declares (via the SDK `axis!`
+/// macro) and the [`AxisTuple`] dispatcher trait whose tuple impls
+/// route axis invocations to the right kernel at evaluation time.
+fn emit_axis_extension(f: &mut RustFile) {
+    f.doc_comment("ADR-030: maximum number of axes a single application's");
+    f.doc_comment("`AxisTuple` may carry. Foundation-fixed (parallel to");
+    f.doc_comment("`FOLD_UNROLL_THRESHOLD` and `UNFOLD_MAX_ITERATIONS`).");
+    f.line("pub const MAX_AXIS_TUPLE_ARITY: usize = 8;");
+    f.blank();
+    f.doc_comment("ADR-030: the upper byte ceiling on a single axis kernel's");
+    f.doc_comment("output. Sized to `TERM_VALUE_MAX_BYTES` so any kernel can");
+    f.doc_comment("populate a `TermValue` directly.");
+    f.line("pub const AXIS_OUTPUT_BYTES_CEILING: usize = TERM_VALUE_MAX_BYTES;");
+    f.blank();
+    f.doc_comment("ADR-030: a substrate-extension axis. Each `axis!`-declared");
+    f.doc_comment("trait extends this trait via the SDK macro's blanket impl,");
+    f.doc_comment("which emits per-method `KERNEL_*` const ids and the");
+    f.doc_comment("`dispatch_kernel` router into a fixed-capacity byte buffer.");
+    f.doc_comment("");
+    f.doc_comment("The catamorphism's `Term::AxisInvocation` fold-rule reads the");
+    f.doc_comment("axis position from the application's `AxisTuple` impl and");
+    f.doc_comment("calls `dispatch_kernel` with the kernel id and the evaluated");
+    f.doc_comment("input bytes; the returned `TermValue` is the axis's");
+    f.doc_comment("contribution to the route's evaluation.");
+    f.line("pub trait AxisExtension {");
+    f.indented_doc_comment("ADR-017 content address of this axis trait. The SDK macro");
+    f.indented_doc_comment("derives this from the trait name and method signatures.");
+    f.line("    const AXIS_ADDRESS: &'static str;");
+    f.indented_doc_comment("Maximum bytes any kernel of this axis returns.");
+    f.line("    const MAX_OUTPUT_BYTES: usize;");
+    f.indented_doc_comment("Dispatch the kernel identified by `kernel_id` against the");
+    f.indented_doc_comment("evaluated input bytes. The implementation copies the kernel's");
+    f.indented_doc_comment("output into `out` and returns the written length.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("# Errors");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Returns [`crate::enforcement::ShapeViolation`] when the");
+    f.indented_doc_comment("kernel id is unrecognised or the input does not satisfy the");
+    f.indented_doc_comment("kernel's shape contract.");
+    f.line("    fn dispatch_kernel(");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation>;");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-030: a tuple of `AxisExtension`-implementing types selected");
+    f.doc_comment("by the application. The catamorphism's `Term::AxisInvocation`");
+    f.doc_comment("fold-rule calls `dispatch` to route the invocation to the right");
+    f.doc_comment("axis position.");
+    f.doc_comment("");
+    f.doc_comment("Foundation provides tuple impls for arities 1 through");
+    f.doc_comment("[`MAX_AXIS_TUPLE_ARITY`].");
+    f.line("pub trait AxisTuple {");
+    f.indented_doc_comment("Number of axes carried in this tuple.");
+    f.line("    const AXIS_COUNT: usize;");
+    f.indented_doc_comment("Maximum kernel-output byte width across all axes in this tuple.");
+    f.line("    const MAX_OUTPUT_BYTES: usize;");
+    f.indented_doc_comment("Dispatch a kernel against the axis at `axis_index`. Returns");
+    f.indented_doc_comment("the kernel's output bytes (length up to [`MAX_OUTPUT_BYTES`]).");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("# Errors");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Returns [`crate::enforcement::ShapeViolation`] when `axis_index`");
+    f.indented_doc_comment("is out of range or the axis dispatcher rejects the input.");
+    f.line("    fn dispatch(");
+    f.line("        axis_index: u32,");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation>;");
+    f.line("}");
+    f.blank();
+    // ADR-030 blanket: every `Hasher` is an `AxisTuple` of arity 1
+    // (axis 0 = the canonical hash axis; kernel 0 = `fold_bytes` →
+    // `finalize`). This blanket lets existing Hasher impls satisfy
+    // `A: AxisTuple` bounds without source changes; new substrate axes
+    // declared via the `axis!` SDK macro compose into multi-tuple
+    // `(HashAxis<MyHasher>, MyTensorAxis, …)` forms.
+    f.doc_comment("ADR-030 blanket: every [`crate::enforcement::Hasher`] is");
+    f.doc_comment("automatically an [`AxisTuple`] of arity 1 — the canonical");
+    f.doc_comment("hash axis at position 0, kernel id 0.");
+    f.line("impl<H: crate::enforcement::Hasher> AxisTuple for H {");
+    f.line("    const AXIS_COUNT: usize = 1;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line("    fn dispatch(");
+    f.line("        axis_index: u32,");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+    f.line("        if axis_index != 0 || kernel_id != 0 {");
+    f.line("            return Err(crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/axis/HasherBlanket\",");
+    f.line("                constraint_iri: \"https://uor.foundation/axis/HasherBlanket/canonicalDispatch\",");
+    f.line("                property_iri: \"https://uor.foundation/axis/axisIndex\",");
+    f.line("                expected_range: \"https://uor.foundation/axis/CanonicalHashAxis\",");
+    f.line("                min_count: 0,");
+    f.line("                max_count: 1,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            });");
+    f.line("        }");
+    f.line("        let mut hasher = <H as crate::enforcement::Hasher>::initial();");
+    f.line("        hasher = hasher.fold_bytes(input);");
+    f.line("        let digest = hasher.finalize();");
+    f.line("        let n_max = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line("        let n = if n_max > out.len() { out.len() } else { n_max };");
+    f.line("        let mut i = 0;");
+    f.line("        while i < n {");
+    f.line("            out[i] = digest[i];");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        Ok(n)");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    // 1-tuple impl — the most common case (a single hash axis).
+    f.doc_comment("ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.");
+    f.line("impl<A0: AxisExtension> AxisTuple for (A0,) {");
+    f.line("    const AXIS_COUNT: usize = 1;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;");
+    f.line("    fn dispatch(");
+    f.line("        axis_index: u32,");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+    f.line("        match axis_index {");
+    f.line("            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            _ => Err(crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
+    f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
+    f.line("                property_iri: \"https://uor.foundation/pipeline/axisIndex\",");
+    f.line("                expected_range: \"https://uor.foundation/pipeline/AxisIndex\",");
+    f.line("                min_count: 0,");
+    f.line("                max_count: 1,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            }),");
+    f.line("        }");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    // 2-tuple impl
+    f.doc_comment("ADR-030: 2-tuple AxisTuple impl.");
+    f.line("impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {");
+    f.line("    const AXIS_COUNT: usize = 2;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = {");
+    f.line("        let a = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;");
+    f.line("        let b = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;");
+    f.line("        if a > b { a } else { b }");
+    f.line("    };");
+    f.line("    fn dispatch(");
+    f.line("        axis_index: u32,");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+    f.line("        match axis_index {");
+    f.line("            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            _ => Err(crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
+    f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
+    f.line("                property_iri: \"https://uor.foundation/pipeline/axisIndex\",");
+    f.line("                expected_range: \"https://uor.foundation/pipeline/AxisIndex\",");
+    f.line("                min_count: 0,");
+    f.line("                max_count: 2,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            }),");
+    f.line("        }");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    // ADR-030 tuple impls 3..=MAX_AXIS_TUPLE_ARITY (8).
+    for arity in 3..=8 {
+        f.doc_comment(&format!("ADR-030: {arity}-tuple AxisTuple impl."));
+        let type_params: String = (0..arity)
+            .map(|i| format!("A{i}: AxisExtension"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let tuple_args: String = (0..arity)
+            .map(|i| format!("A{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        f.line(&format!(
+            "impl<{type_params}> AxisTuple for ({tuple_args},) {{"
+        ));
+        f.line(&format!("    const AXIS_COUNT: usize = {arity};"));
+        f.line("    const MAX_OUTPUT_BYTES: usize = {");
+        // saturating max chain of MAX_OUTPUT_BYTES
+        for i in 0..arity {
+            f.line(&format!(
+                "        let a{i} = <A{i} as AxisExtension>::MAX_OUTPUT_BYTES;"
+            ));
+        }
+        // Compute max via const-fn-friendly chained ifs.
+        f.line("        let mut m = a0;");
+        for i in 1..arity {
+            f.line(&format!("        if a{i} > m {{ m = a{i}; }}"));
+        }
+        f.line("        m");
+        f.line("    };");
+        f.line("    fn dispatch(");
+        f.line("        axis_index: u32,");
+        f.line("        kernel_id: u32,");
+        f.line("        input: &[u8],");
+        f.line("        out: &mut [u8],");
+        f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+        f.line("        match axis_index {");
+        for i in 0..arity {
+            f.line(&format!(
+                "            {i} => <A{i} as AxisExtension>::dispatch_kernel(kernel_id, input, out),"
+            ));
+        }
+        f.line("            _ => Err(crate::enforcement::ShapeViolation {");
+        f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
+        f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
+        f.line("                property_iri: \"https://uor.foundation/pipeline/axisIndex\",");
+        f.line("                expected_range: \"https://uor.foundation/pipeline/AxisIndex\",");
+        f.line("                min_count: 0,");
+        f.line(&format!("                max_count: {arity},"));
+        f.line("                kind: crate::ViolationKind::ValueCheck,");
+        f.line("            }),");
+        f.line("        }");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+    }
 }
 
 /// Emits the wiki ADR-020 + ADR-022 surface: the [`FoundationClosed`]
@@ -2133,7 +2603,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple,");
     f.line("{");
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment("foundation vocabulary.");
@@ -2209,7 +2679,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
     f.line("    M: PrismModel<H, B, A>,");
     f.line("{");
     f.line("    // ADR-022 D5: read the route's term-tree arena from the model's");
@@ -2335,15 +2805,16 @@ fn emit_prism_model(f: &mut RustFile) {
     // `pipeline::run_route` calls this evaluator after validating the
     // `CompileUnit`; the result is the Output shape's canonical bytes,
     // which populate the Grounded's output payload (ADR-028). The
-    // evaluator is parametric in the Hasher axis `A` because the
-    // `HasherProjection` variant delegates evaluation to the
-    // application's selected `Hasher` impl per ADR-029's
-    // substitution-axis-realized verb form.
+    // evaluator is parametric in the AxisTuple `A` because the
+    // `AxisInvocation` variant (ADR-030, replaces ADR-029's
+    // `HasherProjection`) delegates evaluation to the application's
+    // selected axis dispatcher per the substitution-axis-realized verb
+    // form.
     f.doc_comment("Maximum byte width any single `TermValue` carries during evaluation.");
     f.doc_comment("");
     f.doc_comment("Foundation-fixed at the maximum of the input/output buffer ceilings so a");
     f.doc_comment("TermValue can carry the catamorphism's evaluation result (per ADR-028) and");
-    f.doc_comment("the input bytes a Variable/HasherProjection consumes (per ADR-023). On stable");
+    f.doc_comment("the input bytes a Variable/AxisInvocation consumes (per ADR-023). On stable");
     f.doc_comment(
         "Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`",
     );
@@ -2465,8 +2936,10 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("  until a Kleene fixpoint or `UNFOLD_MAX_ITERATIONS` is reached.");
     f.doc_comment("- `Term::Try { body, handler }` — evaluate body; on failure, propagate");
     f.doc_comment("  if `handler_index = u32::MAX`, otherwise evaluate handler.");
-    f.doc_comment("- `Term::HasherProjection { input }` — fold the input's bytes through the");
-    f.doc_comment("  application's `Hasher` substitution-axis impl and emit the digest.");
+    f.doc_comment("- `Term::AxisInvocation { axis_index, kernel_id, input_index }` — dispatch");
+    f.doc_comment("  the input's bytes to the application's `AxisTuple` (ADR-030); the");
+    f.doc_comment("  foundation-canonical (axis_index=0, kernel_id=0) folds through the");
+    f.doc_comment("  selected `Hasher` impl. Replaces the legacy `HasherProjection` variant.");
     f.doc_comment("");
     f.doc_comment("# Errors");
     f.doc_comment("");
@@ -2477,7 +2950,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    input_bytes: &[u8],");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple,");
     f.line("{");
     f.line("    if arena.is_empty() {");
     f.line("        // Identity route: output equals input bytes.");
@@ -2510,7 +2983,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    unfold_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple,");
     f.line("{");
     f.line("    if idx >= arena.len() {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
@@ -2751,18 +3224,51 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                }");
     f.line("            }");
     f.line("        }");
-    f.line("        crate::enforcement::Term::HasherProjection { input_index } => {");
+    f.line("        crate::enforcement::Term::AxisInvocation { axis_index, kernel_id, input_index } => {");
+    f.line("            // ADR-030: dispatch to the application's selected axis at");
+    f.line("            // `axis_index`, with `kernel_id` selecting the per-axis kernel.");
+    f.line("            // The catamorphism evaluates the input subtree to bytes and");
+    f.line("            // hands them to the AxisTuple's dispatch router; the dispatcher");
+    f.line("            // writes the kernel's output into a stack-resident buffer.");
+    f.line("            //");
+    f.line("            // The foundation-built blanket `impl<H: Hasher> AxisTuple for H`");
+    f.line("            // routes the canonical hash dispatch (axis 0, kernel 0)");
+    f.line("            // through the legacy Hasher API; user-declared axes via the");
+    f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
+    f.line("            // (axis_index, kernel_id) combinations.");
     f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, recurse_value, unfold_value)?;");
-    f.line("            let mut hasher = <A as crate::enforcement::Hasher>::initial();");
-    f.line("            hasher = hasher.fold_bytes(v.bytes());");
-    f.line("            let digest = hasher.finalize();");
+    f.line("            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
+    f.line("            let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
+    f.line("                Ok(n) => n,");
     f.line(
-        "            // Take the first `OUTPUT_BYTES` bytes of the digest as the canonical width.",
+        "                Err(report) => return Err(PipelineFailure::ShapeViolation { report }),",
     );
-    f.line("            let width = if A::OUTPUT_BYTES > TERM_VALUE_MAX_BYTES {");
-    f.line("                TERM_VALUE_MAX_BYTES");
-    f.line("            } else { A::OUTPUT_BYTES };");
-    f.line("            Ok(TermValue::from_slice(&digest[..width]))");
+    f.line("            };");
+    f.line("            let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");
+    f.line("            Ok(TermValue::from_slice(&out[..width]))");
+    f.line("        }");
+    f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
+    f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
+    f.line("            let v = evaluate_term_at::<A>(arena, source_index as usize, input_bytes, recurse_value, unfold_value)?;");
+    f.line("            let bytes = v.bytes();");
+    f.line("            let start = byte_offset as usize;");
+    f.line("            let end = start.saturating_add(byte_length as usize);");
+    f.line("            if end > bytes.len() {");
+    f.line("                return Err(PipelineFailure::ShapeViolation {");
+    f.line("                    report: crate::enforcement::ShapeViolation {");
+    f.line(
+        "                        shape_iri: \"https://uor.foundation/pipeline/ProjectFieldShape\",",
+    );
+    f.line("                        constraint_iri: \"https://uor.foundation/pipeline/ProjectFieldShape/inBounds\",");
+    f.line("                        property_iri: \"https://uor.foundation/pipeline/byteOffset\",");
+    f.line("                        expected_range: \"https://uor.foundation/pipeline/SourceByteRange\",");
+    f.line("                        min_count: 0,");
+    f.line("                        max_count: 1,");
+    f.line("                        kind: crate::ViolationKind::ValueCheck,");
+    f.line("                    },");
+    f.line("                });");
+    f.line("            }");
+    f.line("            Ok(TermValue::from_slice(&bytes[start..end]))");
     f.line("        }");
     f.line("    }");
     f.line("}");
@@ -2779,7 +3285,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    unfold_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple,");
     f.line("{");
     f.line("    // Unary ops: 1 arg. Binary ops: 2 args.");
     f.line("    let arity = match operator {");
@@ -3293,6 +3799,7 @@ fn emit_admission_fns(f: &mut RustFile) {
     f.doc_comment("    const CONSTRAINTS: &'static [ConstraintRef] = &[");
     f.doc_comment("        ConstraintRef::Residue { modulus: 5, residue: 2 },");
     f.doc_comment("    ];");
+    f.doc_comment("    const CYCLE_SIZE: u64 = 5;  // ADR-032: 5 residue classes mod 5");
     f.doc_comment("}");
     f.doc_comment("");
     f.doc_comment("let validated = validate_constrained_type(MyShape).unwrap();");

@@ -1858,15 +1858,37 @@ pub enum Term {
         /// Index of the handler term.
         handler_index: u32,
     },
-    /// Substitution-axis-realized verb projection (wiki ADR-029).
-    /// Delegates evaluation to the application's `Hasher` substitution-axis
-    /// impl: the catamorphism folds the input binding's bytes through
-    /// `<A as Hasher>::initial().fold_bytes(...)` and emits
-    /// `<A as Hasher>::finalize()` as the result. Emitted by
-    /// `prism_model!` from the closure-body form `hash(input)` (ADR-026 G19).
-    HasherProjection {
-        /// Index of the input term in the arena (the bytes to hash).
+    /// Substitution-axis-realized verb projection (wiki ADR-029 + ADR-030).
+    /// Delegates evaluation to the application's `AxisTuple` substitution-axis
+    /// impl: the catamorphism evaluates the input subtree, dispatches the
+    /// axis at `axis_index` to the kernel identified by `kernel_id`, and
+    /// emits the kernel's output as the result. Emitted by
+    /// `prism_model!` from the closure-body form `hash(input)` (ADR-026 G19,
+    /// which lowers to AxisInvocation against the application's HashAxis).
+    AxisInvocation {
+        /// Position of the axis in the application's `AxisTuple`.
+        axis_index: u32,
+        /// Per-axis kernel id (the SDK macro emits per-method `KERNEL_*` consts).
+        kernel_id: u32,
+        /// Input subtree's arena index (single input — current axes are 1-arg).
         input_index: u32,
+    },
+    /// Field-access projection over a partition_product input (wiki
+    /// ADR-033 G20). The catamorphism's fold-rule evaluates `source`
+    /// and slices `[byte_offset .. byte_offset + byte_length]` from
+    /// the resulting bytes. Emitted by `prism_model!` and `verb!`
+    /// from the closure-body forms `<expr>.<index>` and
+    /// `<expr>.<field_name>` (named-field access requires the
+    /// `partition_product!` declaration to use the named-field form).
+    /// Coproduct field-access is rejected at macro-expansion time.
+    ProjectField {
+        /// Arena index of the source expression's term tree.
+        source_index: u32,
+        /// Byte offset into the source's evaluated bytes (proc-
+        /// macro-computed from factor MAX_BYTES).
+        byte_offset: u32,
+        /// Length of the projected slice in bytes.
+        byte_length: u32,
     },
 }
 
@@ -1941,8 +1963,23 @@ pub const fn shift_term(term: Term, offset: u32) -> Term {
                 handler_index + offset
             },
         },
-        Term::HasherProjection { input_index } => Term::HasherProjection {
+        Term::AxisInvocation {
+            axis_index,
+            kernel_id,
+            input_index,
+        } => Term::AxisInvocation {
+            axis_index,
+            kernel_id,
             input_index: input_index + offset,
+        },
+        Term::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => Term::ProjectField {
+            source_index: source_index + offset,
+            byte_offset,
+            byte_length,
         },
     }
 }
@@ -6477,7 +6514,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 3;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 4;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate
@@ -6576,6 +6613,53 @@ pub trait Hasher<const FP_MAX: usize = 32> {
     /// Bytes `0..OUTPUT_BYTES` carry the hash result; bytes
     /// `OUTPUT_BYTES..FP_MAX` MUST be zero.
     fn finalize(self) -> [u8; FP_MAX];
+}
+
+/// ADR-030 adapter: wrap any [`Hasher`] impl as an
+/// [`crate::pipeline::AxisExtension`]. The lone supported kernel id
+/// is [`HashAxis::KERNEL_HASH`] = 0, which folds the input bytes
+/// through the wrapped Hasher and writes the first `OUTPUT_BYTES`
+/// digest bytes to the caller-provided buffer.
+#[derive(Debug, Clone, Copy)]
+pub struct HashAxis<H: Hasher>(core::marker::PhantomData<H>);
+
+impl<H: Hasher> HashAxis<H> {
+    /// Canonical kernel id for the hash operation. The closure-body
+    /// grammar G19 form `hash(input)` lowers to
+    /// `Term::AxisInvocation { axis_index: 0, kernel_id: HashAxis::KERNEL_HASH, input_index }`.
+    pub const KERNEL_HASH: u32 = 0;
+}
+
+impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {
+    const AXIS_ADDRESS: &'static str = "https://uor.foundation/axis/HashAxis";
+    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;
+    fn dispatch_kernel(
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, ShapeViolation> {
+        if kernel_id != Self::KERNEL_HASH {
+            return Err(ShapeViolation {
+                shape_iri: "https://uor.foundation/axis/HashAxis",
+                constraint_iri: "https://uor.foundation/axis/HashAxis/kernelId",
+                property_iri: "https://uor.foundation/axis/kernelId",
+                expected_range: "https://uor.foundation/axis/HashAxis/KERNEL_HASH",
+                min_count: 0,
+                max_count: 1,
+                kind: crate::ViolationKind::ValueCheck,
+            });
+        }
+        let mut hasher = <H as Hasher>::initial();
+        hasher = hasher.fold_bytes(input);
+        let digest = hasher.finalize();
+        let n = <H as Hasher>::OUTPUT_BYTES.min(out.len()).min(digest.len());
+        let mut i = 0;
+        while i < n {
+            out[i] = digest[i];
+            i += 1;
+        }
+        Ok(n)
+    }
 }
 
 /// Sealed parametric content fingerprint.

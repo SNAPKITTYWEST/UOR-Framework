@@ -37,6 +37,7 @@ impl ConstrainedTypeShape for Probe {
         modulus: 5,
         residue: 2,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 /// Compile-time-validated probe. This const item proves the const path
@@ -140,6 +141,7 @@ impl ConstrainedTypeShape for Probe2 {
     const IRI: &'static str = "https://example.org/phase_x3/Probe2";
     const SITE_COUNT: usize = 4;
     const CONSTRAINTS: &'static [ConstraintRef] = &[ConstraintRef::Site { position: 1 }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 const PROBE2: Validated<Probe2, uor_foundation::enforcement::CompileTime> =

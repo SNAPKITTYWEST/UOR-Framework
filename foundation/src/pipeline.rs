@@ -376,6 +376,7 @@ const fn conjunction_all_sat(
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[
 ///         ConstraintRef::Residue { modulus: 7, residue: 3 },
 ///     ];
+///     const CYCLE_SIZE: u64 = 7;  // ADR-032: 7 residues mod 7
 /// }
 /// let validated = validate_constrained_type(MyShape)
 ///     .expect("residue 3 mod 7 is admissible");
@@ -398,12 +399,640 @@ pub trait ConstrainedTypeShape {
     const SITE_BUDGET: usize = Self::SITE_COUNT;
     /// Per-site constraint list. Empty means unconstrained.
     const CONSTRAINTS: &'static [ConstraintRef];
+    /// ADR-032: cardinality of the shape's value-set (the cycle
+    /// structure of the shape under the substrate's discrete-clock
+    /// model). Used by the `prism_model!` macro to lower `first_admit`
+    /// (closure-body grammar G16) to the correct descent measure.
+    /// Conventions:
+    /// - Witt-level shapes: `1u64 << WITT_LEVEL_BITS` (W8 = 256, W16 =
+    ///   65536, W32 = 4294967296). Levels above W63 saturate to `u64::MAX`.
+    /// - `partition_product` factors: `cycle_size_product` of factor
+    ///   CYCLE_SIZEs (saturating-multiply).
+    /// - `partition_coproduct` summands: `cycle_size_coproduct` (saturating
+    ///   add + 1 for the discriminant).
+    /// - `cartesian_product_shape` (homogeneous power): factor's CYCLE_SIZE
+    ///   raised to `SITE_COUNT` (saturating).
+    /// - The foundation-sanctioned identity `ConstrainedTypeInput` has
+    ///   `CYCLE_SIZE = 1` (single-element shape).
+    const CYCLE_SIZE: u64;
+}
+
+/// ADR-032: saturating multiply for `partition_product`'s CYCLE_SIZE.
+/// Returns `u64::MAX` on overflow.
+#[inline]
+#[must_use]
+pub const fn cycle_size_product(a: u64, b: u64) -> u64 {
+    a.saturating_mul(b)
+}
+
+/// ADR-032: saturating add + 1 (for the discriminant) for
+/// `partition_coproduct`'s CYCLE_SIZE. Returns `u64::MAX` on overflow.
+#[inline]
+#[must_use]
+pub const fn cycle_size_coproduct(a: u64, b: u64) -> u64 {
+    a.saturating_add(b).saturating_add(1)
+}
+
+/// ADR-032: saturating power for `cartesian_product_shape`'s CYCLE_SIZE
+/// (homogeneous power: factor.CYCLE_SIZE^SITE_COUNT). Returns `u64::MAX`
+/// on overflow.
+#[inline]
+#[must_use]
+pub const fn cycle_size_power(base: u64, exp: usize) -> u64 {
+    let mut result: u64 = 1;
+    let mut i: usize = 0;
+    while i < exp {
+        result = result.saturating_mul(base);
+        i += 1;
+    }
+    result
 }
 
 impl ConstrainedTypeShape for ConstrainedTypeInput {
     const IRI: &'static str = "https://uor.foundation/type/ConstrainedType";
     const SITE_COUNT: usize = 0;
     const CONSTRAINTS: &'static [ConstraintRef] = &[];
+    const CYCLE_SIZE: u64 = 1;
+}
+
+/// ADR-033 G20: factor-field directory carried by every
+/// `partition_product`-shaped type. The closure-body grammar's
+/// field-access form (`<expr>.<index>` or `<expr>.<field_name>`)
+/// lowers via this trait at proc-macro expansion time.
+/// Foundation-sanctioned identity `ConstrainedTypeInput` has zero
+/// fields (it is a leaf shape). The SDK macros `partition_product!`,
+/// `product_shape!`, and `cartesian_product_shape!` emit the impl.
+pub trait PartitionProductFields: ConstrainedTypeShape {
+    /// Per-factor `(byte_offset, byte_length)` pairs in declaration
+    /// order. Length is the same as `FIELD_NAMES.len()`.
+    const FIELDS: &'static [(u32, u32)];
+    /// Per-factor names. Empty string `""` for positional-only
+    /// `partition_product!(Name, A, B)` emissions; non-empty for
+    /// named-field `partition_product!(Name, lhs: A, rhs: B)` form.
+    /// Length matches `FIELDS.len()`.
+    const FIELD_NAMES: &'static [&'static str];
+    /// Linear search returning the field index whose `FIELD_NAMES`
+    /// entry equals `name`, or `usize::MAX` if not found. Delegates
+    /// to the free `const fn` [`field_index_by_name_in`] so the
+    /// result is usable inside const-eval contexts on stable Rust
+    /// 1.83 (where const trait methods are unavailable).
+    #[must_use]
+    fn field_index_by_name(name: &str) -> usize {
+        field_index_by_name_in(Self::FIELD_NAMES, name)
+    }
+}
+
+/// ADR-033 G3/G4: const-fn factor-name lookup. The SDK proc-macro
+/// emits const-eval calls to this helper to resolve a named-field
+/// access against the source type's `FIELD_NAMES`. On stable Rust
+/// 1.83 a free `const fn` is the substitute for a `const fn`
+/// trait method. Returns `usize::MAX` for not-found so the result
+/// is usable directly inside `const` array indexing.
+#[must_use]
+pub const fn field_index_by_name_in(names: &[&'static str], name: &str) -> usize {
+    let nb = name.as_bytes();
+    let mut i = 0usize;
+    while i < names.len() {
+        let nb_i = names[i].as_bytes();
+        if nb_i.len() == nb.len() {
+            let mut j = 0usize;
+            let mut matched = true;
+            while j < nb.len() {
+                if nb_i[j] != nb[j] {
+                    matched = false;
+                    break;
+                }
+                j += 1;
+            }
+            if matched {
+                return i;
+            }
+        }
+        i += 1;
+    }
+    usize::MAX
+}
+
+impl PartitionProductFields for ConstrainedTypeInput {
+    const FIELDS: &'static [(u32, u32)] = &[];
+    const FIELD_NAMES: &'static [&'static str] = &[];
+}
+
+/// ADR-033 G20 chained-field access support: maps a
+/// `partition_product`-shaped type's positional factor index to
+/// the factor's static type. The `prism_model!` proc-macro emits
+/// a chain of `Term::ProjectField` projections by walking this
+/// trait, naming each next source type as
+/// `<PrevTy as PartitionProductFactor<I>>::Factor`.
+/// `partition_product!`, `product_shape!`, and
+/// `cartesian_product_shape!` emit one impl per factor index.
+pub trait PartitionProductFactor<const INDEX: usize>: PartitionProductFields {
+    /// The static type of the factor at position `INDEX`.
+    type Factor: ConstrainedTypeShape;
+}
+
+/// ADR-030: maximum number of axes a single application's
+/// `AxisTuple` may carry. Foundation-fixed (parallel to
+/// `FOLD_UNROLL_THRESHOLD` and `UNFOLD_MAX_ITERATIONS`).
+pub const MAX_AXIS_TUPLE_ARITY: usize = 8;
+
+/// ADR-030: the upper byte ceiling on a single axis kernel's
+/// output. Sized to `TERM_VALUE_MAX_BYTES` so any kernel can
+/// populate a `TermValue` directly.
+pub const AXIS_OUTPUT_BYTES_CEILING: usize = TERM_VALUE_MAX_BYTES;
+
+/// ADR-030: a substrate-extension axis. Each `axis!`-declared
+/// trait extends this trait via the SDK macro's blanket impl,
+/// which emits per-method `KERNEL_*` const ids and the
+/// `dispatch_kernel` router into a fixed-capacity byte buffer.
+/// The catamorphism's `Term::AxisInvocation` fold-rule reads the
+/// axis position from the application's `AxisTuple` impl and
+/// calls `dispatch_kernel` with the kernel id and the evaluated
+/// input bytes; the returned `TermValue` is the axis's
+/// contribution to the route's evaluation.
+pub trait AxisExtension {
+    /// ADR-017 content address of this axis trait. The SDK macro
+    /// derives this from the trait name and method signatures.
+    const AXIS_ADDRESS: &'static str;
+    /// Maximum bytes any kernel of this axis returns.
+    const MAX_OUTPUT_BYTES: usize;
+    /// Dispatch the kernel identified by `kernel_id` against the
+    /// evaluated input bytes. The implementation copies the kernel's
+    /// output into `out` and returns the written length.
+    /// # Errors
+    /// Returns [`crate::enforcement::ShapeViolation`] when the
+    /// kernel id is unrecognised or the input does not satisfy the
+    /// kernel's shape contract.
+    fn dispatch_kernel(
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+}
+
+/// ADR-030: a tuple of `AxisExtension`-implementing types selected
+/// by the application. The catamorphism's `Term::AxisInvocation`
+/// fold-rule calls `dispatch` to route the invocation to the right
+/// axis position.
+/// Foundation provides tuple impls for arities 1 through
+/// [`MAX_AXIS_TUPLE_ARITY`].
+pub trait AxisTuple {
+    /// Number of axes carried in this tuple.
+    const AXIS_COUNT: usize;
+    /// Maximum kernel-output byte width across all axes in this tuple.
+    const MAX_OUTPUT_BYTES: usize;
+    /// Dispatch a kernel against the axis at `axis_index`. Returns
+    /// the kernel's output bytes (length up to [`MAX_OUTPUT_BYTES`]).
+    /// # Errors
+    /// Returns [`crate::enforcement::ShapeViolation`] when `axis_index`
+    /// is out of range or the axis dispatcher rejects the input.
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+}
+
+/// ADR-030 blanket: every [`crate::enforcement::Hasher`] is
+/// automatically an [`AxisTuple`] of arity 1 — the canonical
+/// hash axis at position 0, kernel id 0.
+impl<H: crate::enforcement::Hasher> AxisTuple for H {
+    const AXIS_COUNT: usize = 1;
+    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        if axis_index != 0 || kernel_id != 0 {
+            return Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/axis/HasherBlanket",
+                constraint_iri: "https://uor.foundation/axis/HasherBlanket/canonicalDispatch",
+                property_iri: "https://uor.foundation/axis/axisIndex",
+                expected_range: "https://uor.foundation/axis/CanonicalHashAxis",
+                min_count: 0,
+                max_count: 1,
+                kind: crate::ViolationKind::ValueCheck,
+            });
+        }
+        let mut hasher = <H as crate::enforcement::Hasher>::initial();
+        hasher = hasher.fold_bytes(input);
+        let digest = hasher.finalize();
+        let n_max = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;
+        let n = if n_max > out.len() { out.len() } else { n_max };
+        let mut i = 0;
+        while i < n {
+            out[i] = digest[i];
+            i += 1;
+        }
+        Ok(n)
+    }
+}
+
+/// ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.
+impl<A0: AxisExtension> AxisTuple for (A0,) {
+    const AXIS_COUNT: usize = 1;
+    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 1,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 2-tuple AxisTuple impl.
+impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {
+    const AXIS_COUNT: usize = 2;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let b = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        if a > b {
+            a
+        } else {
+            b
+        }
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 2,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 3-tuple AxisTuple impl.
+impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension> AxisTuple for (A0, A1, A2) {
+    const AXIS_COUNT: usize = 3;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 3,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 4-tuple AxisTuple impl.
+impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension> AxisTuple
+    for (A0, A1, A2, A3)
+{
+    const AXIS_COUNT: usize = 4;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        if a3 > m {
+            m = a3;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 4,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 5-tuple AxisTuple impl.
+impl<
+        A0: AxisExtension,
+        A1: AxisExtension,
+        A2: AxisExtension,
+        A3: AxisExtension,
+        A4: AxisExtension,
+    > AxisTuple for (A0, A1, A2, A3, A4)
+{
+    const AXIS_COUNT: usize = 5;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        if a3 > m {
+            m = a3;
+        }
+        if a4 > m {
+            m = a4;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 5,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 6-tuple AxisTuple impl.
+impl<
+        A0: AxisExtension,
+        A1: AxisExtension,
+        A2: AxisExtension,
+        A3: AxisExtension,
+        A4: AxisExtension,
+        A5: AxisExtension,
+    > AxisTuple for (A0, A1, A2, A3, A4, A5)
+{
+    const AXIS_COUNT: usize = 6;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        if a3 > m {
+            m = a3;
+        }
+        if a4 > m {
+            m = a4;
+        }
+        if a5 > m {
+            m = a5;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 6,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 7-tuple AxisTuple impl.
+impl<
+        A0: AxisExtension,
+        A1: AxisExtension,
+        A2: AxisExtension,
+        A3: AxisExtension,
+        A4: AxisExtension,
+        A5: AxisExtension,
+        A6: AxisExtension,
+    > AxisTuple for (A0, A1, A2, A3, A4, A5, A6)
+{
+    const AXIS_COUNT: usize = 7;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        if a3 > m {
+            m = a3;
+        }
+        if a4 > m {
+            m = a4;
+        }
+        if a5 > m {
+            m = a5;
+        }
+        if a6 > m {
+            m = a6;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            6 => <A6 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 7,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
+}
+
+/// ADR-030: 8-tuple AxisTuple impl.
+impl<
+        A0: AxisExtension,
+        A1: AxisExtension,
+        A2: AxisExtension,
+        A3: AxisExtension,
+        A4: AxisExtension,
+        A5: AxisExtension,
+        A6: AxisExtension,
+        A7: AxisExtension,
+    > AxisTuple for (A0, A1, A2, A3, A4, A5, A6, A7)
+{
+    const AXIS_COUNT: usize = 8;
+    const MAX_OUTPUT_BYTES: usize = {
+        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a7 = <A7 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let mut m = a0;
+        if a1 > m {
+            m = a1;
+        }
+        if a2 > m {
+            m = a2;
+        }
+        if a3 > m {
+            m = a3;
+        }
+        if a4 > m {
+            m = a4;
+        }
+        if a5 > m {
+            m = a5;
+        }
+        if a6 > m {
+            m = a6;
+        }
+        if a7 > m {
+            m = a7;
+        }
+        m
+    };
+    fn dispatch(
+        axis_index: u32,
+        kernel_id: u32,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+        match axis_index {
+            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            6 => <A6 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            7 => <A7 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            _ => Err(crate::enforcement::ShapeViolation {
+                shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
+                constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
+                property_iri: "https://uor.foundation/pipeline/axisIndex",
+                expected_range: "https://uor.foundation/pipeline/AxisIndex",
+                min_count: 0,
+                max_count: 8,
+                kind: crate::ViolationKind::ValueCheck,
+            }),
+        }
+    }
 }
 
 /// Foundation-internal seal module — `__` prefix and `#[doc(hidden)]`
@@ -564,7 +1193,7 @@ pub trait PrismModel<H, B, A>: __sdk_seal::Sealed
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple,
 {
     /// Input feature type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary.
@@ -617,7 +1246,7 @@ pub fn run_route<H, B, A, M>(
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
     M: PrismModel<H, B, A>,
 {
     // ADR-022 D5: read the route's term-tree arena from the model's
@@ -727,7 +1356,7 @@ where
 /// Maximum byte width any single `TermValue` carries during evaluation.
 /// Foundation-fixed at the maximum of the input/output buffer ceilings so a
 /// TermValue can carry the catamorphism's evaluation result (per ADR-028) and
-/// the input bytes a Variable/HasherProjection consumes (per ADR-023). On stable
+/// the input bytes a Variable/AxisInvocation consumes (per ADR-023). On stable
 /// Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`
 /// as a `const` expression in array-length position without `generic_const_exprs`,
 /// so foundation pins the value at the architectural maximum (currently 4096 — the
@@ -840,8 +1469,10 @@ impl TermValue {
 ///   until a Kleene fixpoint or `UNFOLD_MAX_ITERATIONS` is reached.
 /// - `Term::Try { body, handler }` — evaluate body; on failure, propagate
 ///   if `handler_index = u32::MAX`, otherwise evaluate handler.
-/// - `Term::HasherProjection { input }` — fold the input's bytes through the
-///   application's `Hasher` substitution-axis impl and emit the digest.
+/// - `Term::AxisInvocation { axis_index, kernel_id, input_index }` — dispatch
+///   the input's bytes to the application's `AxisTuple` (ADR-030); the
+///   foundation-canonical (axis_index=0, kernel_id=0) folds through the
+///   selected `Hasher` impl. Replaces the legacy `HasherProjection` variant.
 /// # Errors
 /// Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds
 /// index, level mismatch, exhausted match without wildcard arm, etc.).
@@ -850,7 +1481,7 @@ pub fn evaluate_term_tree<A>(
     input_bytes: &[u8],
 ) -> Result<TermValue, PipelineFailure>
 where
-    A: crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple,
 {
     if arena.is_empty() {
         // Identity route: output equals input bytes.
@@ -871,7 +1502,7 @@ fn evaluate_term_at<A>(
     unfold_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
-    A: crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple,
 {
     if idx >= arena.len() {
         return Err(PipelineFailure::ShapeViolation {
@@ -1203,7 +1834,22 @@ where
                 }
             }
         }
-        crate::enforcement::Term::HasherProjection { input_index } => {
+        crate::enforcement::Term::AxisInvocation {
+            axis_index,
+            kernel_id,
+            input_index,
+        } => {
+            // ADR-030: dispatch to the application's selected axis at
+            // `axis_index`, with `kernel_id` selecting the per-axis kernel.
+            // The catamorphism evaluates the input subtree to bytes and
+            // hands them to the AxisTuple's dispatch router; the dispatcher
+            // writes the kernel's output into a stack-resident buffer.
+            //
+            // The foundation-built blanket `impl<H: Hasher> AxisTuple for H`
+            // routes the canonical hash dispatch (axis 0, kernel 0)
+            // through the legacy Hasher API; user-declared axes via the
+            // `axis!` SDK macro extend the dispatch surface to additional
+            // (axis_index, kernel_id) combinations.
             let v = evaluate_term_at::<A>(
                 arena,
                 input_index as usize,
@@ -1211,16 +1857,54 @@ where
                 recurse_value,
                 unfold_value,
             )?;
-            let mut hasher = <A as crate::enforcement::Hasher>::initial();
-            hasher = hasher.fold_bytes(v.bytes());
-            let digest = hasher.finalize();
-            // Take the first `OUTPUT_BYTES` bytes of the digest as the canonical width.
-            let width = if A::OUTPUT_BYTES > TERM_VALUE_MAX_BYTES {
+            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let written = match <A as crate::pipeline::AxisTuple>::dispatch(
+                axis_index,
+                kernel_id,
+                v.bytes(),
+                &mut out,
+            ) {
+                Ok(n) => n,
+                Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
+            };
+            let width = if written > TERM_VALUE_MAX_BYTES {
                 TERM_VALUE_MAX_BYTES
             } else {
-                A::OUTPUT_BYTES
+                written
             };
-            Ok(TermValue::from_slice(&digest[..width]))
+            Ok(TermValue::from_slice(&out[..width]))
+        }
+        crate::enforcement::Term::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => {
+            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].
+            let v = evaluate_term_at::<A>(
+                arena,
+                source_index as usize,
+                input_bytes,
+                recurse_value,
+                unfold_value,
+            )?;
+            let bytes = v.bytes();
+            let start = byte_offset as usize;
+            let end = start.saturating_add(byte_length as usize);
+            if end > bytes.len() {
+                return Err(PipelineFailure::ShapeViolation {
+                    report: crate::enforcement::ShapeViolation {
+                        shape_iri: "https://uor.foundation/pipeline/ProjectFieldShape",
+                        constraint_iri:
+                            "https://uor.foundation/pipeline/ProjectFieldShape/inBounds",
+                        property_iri: "https://uor.foundation/pipeline/byteOffset",
+                        expected_range: "https://uor.foundation/pipeline/SourceByteRange",
+                        min_count: 0,
+                        max_count: 1,
+                        kind: crate::ViolationKind::ValueCheck,
+                    },
+                });
+            }
+            Ok(TermValue::from_slice(&bytes[start..end]))
         }
     }
 }
@@ -1235,7 +1919,7 @@ fn apply_primitive_op<A>(
     unfold_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
-    A: crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple,
 {
     // Unary ops: 1 arg. Binary ops: 2 args.
     let arity = match operator {
@@ -1695,6 +2379,761 @@ where
     A::CONSTRAINTS.len() + B::CONSTRAINTS.len()
 }
 
+/// ADR-032: per-Witt-level zero-sized marker types implementing
+/// `ConstrainedTypeShape`. The `prism_model!` proc-macro consumes
+/// these as the `<DomainTy>` operand of `first_admit(<DomainTy>, |i| …)`
+/// (G16): `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE` carries the
+/// domain's cardinality, which the macro lowers as the descent measure
+/// for the emitted `Term::Recurse`.
+/// Each level's `CYCLE_SIZE` is `2^bits_width`, saturated at
+/// `u64::MAX` for levels whose cardinality exceeds 64-bit range.
+/// The wiki's normative example `first_admit(WittLevel::W32, |nonce| …)`
+/// compiles on stable Rust 1.83 as `first_admit(witt_domain::W32, |nonce| …)`
+/// (`witt_domain::W32::CYCLE_SIZE = 4_294_967_296`).
+pub mod witt_domain {
+    use super::{ConstrainedTypeShape, ConstraintRef, PartitionProductFields};
+    use crate::enforcement::GroundedShape;
+    use crate::enforcement::ShapeViolation;
+    use crate::pipeline::__sdk_seal;
+    use crate::pipeline::IntoBindingValue;
+
+    /// ADR-032 Witt-level domain marker for `W8` (8-bit ring).
+    /// `CYCLE_SIZE = 2^8 = 256`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W8;
+    impl ConstrainedTypeShape for W8 {
+        const IRI: &'static str = "https://uor.foundation/witt/W8";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 256u64;
+    }
+    impl __sdk_seal::Sealed for W8 {}
+    impl IntoBindingValue for W8 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W8 {}
+    impl PartitionProductFields for W8 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W16` (16-bit ring).
+    /// `CYCLE_SIZE = 2^16 = 65536`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W16;
+    impl ConstrainedTypeShape for W16 {
+        const IRI: &'static str = "https://uor.foundation/witt/W16";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 65536u64;
+    }
+    impl __sdk_seal::Sealed for W16 {}
+    impl IntoBindingValue for W16 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W16 {}
+    impl PartitionProductFields for W16 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W24` (24-bit ring).
+    /// `CYCLE_SIZE = 2^24 = 16777216`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W24;
+    impl ConstrainedTypeShape for W24 {
+        const IRI: &'static str = "https://uor.foundation/witt/W24";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 16777216u64;
+    }
+    impl __sdk_seal::Sealed for W24 {}
+    impl IntoBindingValue for W24 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W24 {}
+    impl PartitionProductFields for W24 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W32` (32-bit ring).
+    /// `CYCLE_SIZE = 2^32 = 4294967296`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W32;
+    impl ConstrainedTypeShape for W32 {
+        const IRI: &'static str = "https://uor.foundation/witt/W32";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 4294967296u64;
+    }
+    impl __sdk_seal::Sealed for W32 {}
+    impl IntoBindingValue for W32 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W32 {}
+    impl PartitionProductFields for W32 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W40` (40-bit ring).
+    /// `CYCLE_SIZE = 2^40 = 1099511627776`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W40;
+    impl ConstrainedTypeShape for W40 {
+        const IRI: &'static str = "https://uor.foundation/witt/W40";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 1099511627776u64;
+    }
+    impl __sdk_seal::Sealed for W40 {}
+    impl IntoBindingValue for W40 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W40 {}
+    impl PartitionProductFields for W40 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W48` (48-bit ring).
+    /// `CYCLE_SIZE = 2^48 = 281474976710656`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W48;
+    impl ConstrainedTypeShape for W48 {
+        const IRI: &'static str = "https://uor.foundation/witt/W48";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 281474976710656u64;
+    }
+    impl __sdk_seal::Sealed for W48 {}
+    impl IntoBindingValue for W48 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W48 {}
+    impl PartitionProductFields for W48 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W56` (56-bit ring).
+    /// `CYCLE_SIZE = 2^56 = 72057594037927936`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W56;
+    impl ConstrainedTypeShape for W56 {
+        const IRI: &'static str = "https://uor.foundation/witt/W56";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 72057594037927936u64;
+    }
+    impl __sdk_seal::Sealed for W56 {}
+    impl IntoBindingValue for W56 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W56 {}
+    impl PartitionProductFields for W56 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W64` (64-bit ring).
+    /// `CYCLE_SIZE = 2^64 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W64;
+    impl ConstrainedTypeShape for W64 {
+        const IRI: &'static str = "https://uor.foundation/witt/W64";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W64 {}
+    impl IntoBindingValue for W64 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W64 {}
+    impl PartitionProductFields for W64 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W72` (72-bit ring).
+    /// `CYCLE_SIZE = 2^72 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W72;
+    impl ConstrainedTypeShape for W72 {
+        const IRI: &'static str = "https://uor.foundation/witt/W72";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W72 {}
+    impl IntoBindingValue for W72 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W72 {}
+    impl PartitionProductFields for W72 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W80` (80-bit ring).
+    /// `CYCLE_SIZE = 2^80 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W80;
+    impl ConstrainedTypeShape for W80 {
+        const IRI: &'static str = "https://uor.foundation/witt/W80";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W80 {}
+    impl IntoBindingValue for W80 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W80 {}
+    impl PartitionProductFields for W80 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W88` (88-bit ring).
+    /// `CYCLE_SIZE = 2^88 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W88;
+    impl ConstrainedTypeShape for W88 {
+        const IRI: &'static str = "https://uor.foundation/witt/W88";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W88 {}
+    impl IntoBindingValue for W88 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W88 {}
+    impl PartitionProductFields for W88 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W96` (96-bit ring).
+    /// `CYCLE_SIZE = 2^96 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W96;
+    impl ConstrainedTypeShape for W96 {
+        const IRI: &'static str = "https://uor.foundation/witt/W96";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W96 {}
+    impl IntoBindingValue for W96 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W96 {}
+    impl PartitionProductFields for W96 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W104` (104-bit ring).
+    /// `CYCLE_SIZE = 2^104 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W104;
+    impl ConstrainedTypeShape for W104 {
+        const IRI: &'static str = "https://uor.foundation/witt/W104";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W104 {}
+    impl IntoBindingValue for W104 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W104 {}
+    impl PartitionProductFields for W104 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W112` (112-bit ring).
+    /// `CYCLE_SIZE = 2^112 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W112;
+    impl ConstrainedTypeShape for W112 {
+        const IRI: &'static str = "https://uor.foundation/witt/W112";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W112 {}
+    impl IntoBindingValue for W112 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W112 {}
+    impl PartitionProductFields for W112 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W120` (120-bit ring).
+    /// `CYCLE_SIZE = 2^120 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W120;
+    impl ConstrainedTypeShape for W120 {
+        const IRI: &'static str = "https://uor.foundation/witt/W120";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W120 {}
+    impl IntoBindingValue for W120 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W120 {}
+    impl PartitionProductFields for W120 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W128` (128-bit ring).
+    /// `CYCLE_SIZE = 2^128 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W128;
+    impl ConstrainedTypeShape for W128 {
+        const IRI: &'static str = "https://uor.foundation/witt/W128";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W128 {}
+    impl IntoBindingValue for W128 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W128 {}
+    impl PartitionProductFields for W128 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W160` (160-bit ring).
+    /// `CYCLE_SIZE = 2^160 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W160;
+    impl ConstrainedTypeShape for W160 {
+        const IRI: &'static str = "https://uor.foundation/witt/W160";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W160 {}
+    impl IntoBindingValue for W160 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W160 {}
+    impl PartitionProductFields for W160 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W192` (192-bit ring).
+    /// `CYCLE_SIZE = 2^192 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W192;
+    impl ConstrainedTypeShape for W192 {
+        const IRI: &'static str = "https://uor.foundation/witt/W192";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W192 {}
+    impl IntoBindingValue for W192 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W192 {}
+    impl PartitionProductFields for W192 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W224` (224-bit ring).
+    /// `CYCLE_SIZE = 2^224 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W224;
+    impl ConstrainedTypeShape for W224 {
+        const IRI: &'static str = "https://uor.foundation/witt/W224";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W224 {}
+    impl IntoBindingValue for W224 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W224 {}
+    impl PartitionProductFields for W224 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W256` (256-bit ring).
+    /// `CYCLE_SIZE = 2^256 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W256;
+    impl ConstrainedTypeShape for W256 {
+        const IRI: &'static str = "https://uor.foundation/witt/W256";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W256 {}
+    impl IntoBindingValue for W256 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W256 {}
+    impl PartitionProductFields for W256 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W384` (384-bit ring).
+    /// `CYCLE_SIZE = 2^384 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W384;
+    impl ConstrainedTypeShape for W384 {
+        const IRI: &'static str = "https://uor.foundation/witt/W384";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W384 {}
+    impl IntoBindingValue for W384 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W384 {}
+    impl PartitionProductFields for W384 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W448` (448-bit ring).
+    /// `CYCLE_SIZE = 2^448 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W448;
+    impl ConstrainedTypeShape for W448 {
+        const IRI: &'static str = "https://uor.foundation/witt/W448";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W448 {}
+    impl IntoBindingValue for W448 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W448 {}
+    impl PartitionProductFields for W448 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W512` (512-bit ring).
+    /// `CYCLE_SIZE = 2^512 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W512;
+    impl ConstrainedTypeShape for W512 {
+        const IRI: &'static str = "https://uor.foundation/witt/W512";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W512 {}
+    impl IntoBindingValue for W512 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W512 {}
+    impl PartitionProductFields for W512 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W520` (520-bit ring).
+    /// `CYCLE_SIZE = 2^520 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W520;
+    impl ConstrainedTypeShape for W520 {
+        const IRI: &'static str = "https://uor.foundation/witt/W520";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W520 {}
+    impl IntoBindingValue for W520 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W520 {}
+    impl PartitionProductFields for W520 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W528` (528-bit ring).
+    /// `CYCLE_SIZE = 2^528 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W528;
+    impl ConstrainedTypeShape for W528 {
+        const IRI: &'static str = "https://uor.foundation/witt/W528";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W528 {}
+    impl IntoBindingValue for W528 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W528 {}
+    impl PartitionProductFields for W528 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W1024` (1024-bit ring).
+    /// `CYCLE_SIZE = 2^1024 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W1024;
+    impl ConstrainedTypeShape for W1024 {
+        const IRI: &'static str = "https://uor.foundation/witt/W1024";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W1024 {}
+    impl IntoBindingValue for W1024 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W1024 {}
+    impl PartitionProductFields for W1024 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W2048` (2048-bit ring).
+    /// `CYCLE_SIZE = 2^2048 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W2048;
+    impl ConstrainedTypeShape for W2048 {
+        const IRI: &'static str = "https://uor.foundation/witt/W2048";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W2048 {}
+    impl IntoBindingValue for W2048 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W2048 {}
+    impl PartitionProductFields for W2048 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W4096` (4096-bit ring).
+    /// `CYCLE_SIZE = 2^4096 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W4096;
+    impl ConstrainedTypeShape for W4096 {
+        const IRI: &'static str = "https://uor.foundation/witt/W4096";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W4096 {}
+    impl IntoBindingValue for W4096 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W4096 {}
+    impl PartitionProductFields for W4096 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W8192` (8192-bit ring).
+    /// `CYCLE_SIZE = 2^8192 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W8192;
+    impl ConstrainedTypeShape for W8192 {
+        const IRI: &'static str = "https://uor.foundation/witt/W8192";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W8192 {}
+    impl IntoBindingValue for W8192 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W8192 {}
+    impl PartitionProductFields for W8192 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W12288` (12288-bit ring).
+    /// `CYCLE_SIZE = 2^12288 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W12288;
+    impl ConstrainedTypeShape for W12288 {
+        const IRI: &'static str = "https://uor.foundation/witt/W12288";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W12288 {}
+    impl IntoBindingValue for W12288 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W12288 {}
+    impl PartitionProductFields for W12288 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W16384` (16384-bit ring).
+    /// `CYCLE_SIZE = 2^16384 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W16384;
+    impl ConstrainedTypeShape for W16384 {
+        const IRI: &'static str = "https://uor.foundation/witt/W16384";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W16384 {}
+    impl IntoBindingValue for W16384 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W16384 {}
+    impl PartitionProductFields for W16384 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+
+    /// ADR-032 Witt-level domain marker for `W32768` (32768-bit ring).
+    /// `CYCLE_SIZE = 2^32768 = u64::MAX (saturated)`. Used as the `<DomainTy>` operand of
+    /// `first_admit(<DomainTy>, |i| …)` (G16) in `prism_model!` closures.
+    pub struct W32768;
+    impl ConstrainedTypeShape for W32768 {
+        const IRI: &'static str = "https://uor.foundation/witt/W32768";
+        const SITE_COUNT: usize = 1;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = u64::MAX;
+    }
+    impl __sdk_seal::Sealed for W32768 {}
+    impl IntoBindingValue for W32768 {
+        const MAX_BYTES: usize = 0;
+        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
+            Ok(0)
+        }
+    }
+    impl GroundedShape for W32768 {}
+    impl PartitionProductFields for W32768 {
+        const FIELDS: &'static [(u32, u32)] = &[];
+        const FIELD_NAMES: &'static [&'static str] = &[];
+    }
+}
+
 /// Admit a downstream [`ConstrainedTypeShape`] into the reduction pipeline.
 /// Runs the full preflight chain on `T::CONSTRAINTS`:
 /// [`preflight_feasibility`] and [`preflight_package_coherence`]. On success,
@@ -1716,6 +3155,7 @@ where
 ///     const CONSTRAINTS: &'static [ConstraintRef] = &[
 ///         ConstraintRef::Residue { modulus: 5, residue: 2 },
 ///     ];
+///     const CYCLE_SIZE: u64 = 5;  // ADR-032: 5 residue classes mod 5
 /// }
 /// let validated = validate_constrained_type(MyShape).unwrap();
 /// # let _ = validated;

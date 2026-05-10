@@ -131,7 +131,7 @@ fn generate_sealed_module(f: &mut RustFile) {
 /// for ring-op evaluation. Deeper levels (if the ontology adds e.g. W128)
 /// get stored but not ring-op-wired until the foundation grows a code
 /// path for the wider primitives.
-fn witt_levels(ontology: &Ontology) -> Vec<(String, u32, usize)> {
+pub(crate) fn witt_levels(ontology: &Ontology) -> Vec<(String, u32, usize)> {
     let mut levels: Vec<(String, u32, usize)> = Vec::new();
     for ind in individuals_of_type(ontology, "https://uor.foundation/schema/WittLevel") {
         let bits = ind
@@ -2004,18 +2004,40 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Index of the handler term.");
     f.line("        handler_index: u32,");
     f.line("    },");
-    f.indented_doc_comment("Substitution-axis-realized verb projection (wiki ADR-029).");
+    f.indented_doc_comment("Substitution-axis-realized verb projection (wiki ADR-029 + ADR-030).");
     f.indented_doc_comment("");
-    f.indented_doc_comment("Delegates evaluation to the application's `Hasher` substitution-axis");
-    f.indented_doc_comment("impl: the catamorphism folds the input binding's bytes through");
-    f.indented_doc_comment("`<A as Hasher>::initial().fold_bytes(...)` and emits");
-    f.indented_doc_comment("`<A as Hasher>::finalize()` as the result. Emitted by");
     f.indented_doc_comment(
-        "`prism_model!` from the closure-body form `hash(input)` (ADR-026 G19).",
+        "Delegates evaluation to the application's `AxisTuple` substitution-axis",
     );
-    f.line("    HasherProjection {");
-    f.line("        /// Index of the input term in the arena (the bytes to hash).");
+    f.indented_doc_comment("impl: the catamorphism evaluates the input subtree, dispatches the");
+    f.indented_doc_comment("axis at `axis_index` to the kernel identified by `kernel_id`, and");
+    f.indented_doc_comment("emits the kernel's output as the result. Emitted by");
+    f.indented_doc_comment("`prism_model!` from the closure-body form `hash(input)` (ADR-026 G19,");
+    f.indented_doc_comment("which lowers to AxisInvocation against the application's HashAxis).");
+    f.line("    AxisInvocation {");
+    f.line("        /// Position of the axis in the application's `AxisTuple`.");
+    f.line("        axis_index: u32,");
+    f.line("        /// Per-axis kernel id (the SDK macro emits per-method `KERNEL_*` consts).");
+    f.line("        kernel_id: u32,");
+    f.line("        /// Input subtree's arena index (single input — current axes are 1-arg).");
     f.line("        input_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment("Field-access projection over a partition_product input (wiki");
+    f.indented_doc_comment("ADR-033 G20). The catamorphism's fold-rule evaluates `source`");
+    f.indented_doc_comment("and slices `[byte_offset .. byte_offset + byte_length]` from");
+    f.indented_doc_comment("the resulting bytes. Emitted by `prism_model!` and `verb!`");
+    f.indented_doc_comment("from the closure-body forms `<expr>.<index>` and");
+    f.indented_doc_comment("`<expr>.<field_name>` (named-field access requires the");
+    f.indented_doc_comment("`partition_product!` declaration to use the named-field form).");
+    f.indented_doc_comment("Coproduct field-access is rejected at macro-expansion time.");
+    f.line("    ProjectField {");
+    f.line("        /// Arena index of the source expression's term tree.");
+    f.line("        source_index: u32,");
+    f.line("        /// Byte offset into the source's evaluated bytes (proc-");
+    f.line("        /// macro-computed from factor MAX_BYTES).");
+    f.line("        byte_offset: u32,");
+    f.line("        /// Length of the projected slice in bytes.");
+    f.line("        byte_length: u32,");
     f.line("    },");
     f.line("}");
     f.blank();
@@ -2080,8 +2102,15 @@ fn generate_term_ast(f: &mut RustFile) {
         "            handler_index: if handler_index == u32::MAX { u32::MAX } else { handler_index + offset },",
     );
     f.line("        },");
-    f.line("        Term::HasherProjection { input_index } => Term::HasherProjection {");
+    f.line("        Term::AxisInvocation { axis_index, kernel_id, input_index } => Term::AxisInvocation {");
+    f.line("            axis_index,");
+    f.line("            kernel_id,");
     f.line("            input_index: input_index + offset,");
+    f.line("        },");
+    f.line("        Term::ProjectField { source_index, byte_offset, byte_length } => Term::ProjectField {");
+    f.line("            source_index: source_index + offset,");
+    f.line("            byte_offset,");
+    f.line("            byte_length,");
     f.line("        },");
     f.line("    }");
     f.line("}");
@@ -5010,7 +5039,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 3;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 4;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");
@@ -5131,6 +5160,62 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("Bytes `0..OUTPUT_BYTES` carry the hash result; bytes");
     f.indented_doc_comment("`OUTPUT_BYTES..FP_MAX` MUST be zero.");
     f.line("    fn finalize(self) -> [u8; FP_MAX];");
+    f.line("}");
+    f.blank();
+
+    // ADR-030: HashAxis<H> adapter — wraps any Hasher impl as an
+    // AxisExtension so applications can compose `(HashAxis<MyHasher>,)`
+    // (a 1-tuple AxisTuple) and reuse existing Hasher implementations.
+    // The single supported kernel id is HashAxis::KERNEL_HASH = 0, which
+    // folds the input bytes through the wrapped Hasher and writes the
+    // first `OUTPUT_BYTES` bytes of the digest.
+    f.doc_comment("ADR-030 adapter: wrap any [`Hasher`] impl as an");
+    f.doc_comment("[`crate::pipeline::AxisExtension`]. The lone supported kernel id");
+    f.doc_comment("is [`HashAxis::KERNEL_HASH`] = 0, which folds the input bytes");
+    f.doc_comment("through the wrapped Hasher and writes the first `OUTPUT_BYTES`");
+    f.doc_comment("digest bytes to the caller-provided buffer.");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("pub struct HashAxis<H: Hasher>(core::marker::PhantomData<H>);");
+    f.blank();
+    f.line("impl<H: Hasher> HashAxis<H> {");
+    f.indented_doc_comment("Canonical kernel id for the hash operation. The closure-body");
+    f.indented_doc_comment("grammar G19 form `hash(input)` lowers to");
+    f.indented_doc_comment(
+        "`Term::AxisInvocation { axis_index: 0, kernel_id: HashAxis::KERNEL_HASH, input_index }`.",
+    );
+    f.line("    pub const KERNEL_HASH: u32 = 0;");
+    f.line("}");
+    f.blank();
+    f.line("impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {");
+    f.line("    const AXIS_ADDRESS: &'static str = \"https://uor.foundation/axis/HashAxis\";");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;");
+    f.line("    fn dispatch_kernel(");
+    f.line("        kernel_id: u32,");
+    f.line("        input: &[u8],");
+    f.line("        out: &mut [u8],");
+    f.line("    ) -> Result<usize, ShapeViolation> {");
+    f.line("        if kernel_id != Self::KERNEL_HASH {");
+    f.line("            return Err(ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/axis/HashAxis\",");
+    f.line("                constraint_iri: \"https://uor.foundation/axis/HashAxis/kernelId\",");
+    f.line("                property_iri: \"https://uor.foundation/axis/kernelId\",");
+    f.line("                expected_range: \"https://uor.foundation/axis/HashAxis/KERNEL_HASH\",");
+    f.line("                min_count: 0,");
+    f.line("                max_count: 1,");
+    f.line("                kind: crate::ViolationKind::ValueCheck,");
+    f.line("            });");
+    f.line("        }");
+    f.line("        let mut hasher = <H as Hasher>::initial();");
+    f.line("        hasher = hasher.fold_bytes(input);");
+    f.line("        let digest = hasher.finalize();");
+    f.line("        let n = <H as Hasher>::OUTPUT_BYTES.min(out.len()).min(digest.len());");
+    f.line("        let mut i = 0;");
+    f.line("        while i < n {");
+    f.line("            out[i] = digest[i];");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        Ok(n)");
+    f.line("    }");
     f.line("}");
     f.blank();
     f.doc_comment("Sealed parametric content fingerprint.");
@@ -8890,7 +8975,7 @@ fn generate_prelude(f: &mut RustFile, ontology: &Ontology) {
 /// Returns the Limbs-backed Witt levels (bit_width > 128, multiple of 8).
 /// Each tuple is `(local_name, bit_width, limb_count)` where
 /// `limb_count = ⌈bit_width / 64⌉`.
-fn limbs_witt_levels(ontology: &Ontology) -> Vec<(String, u32, usize)> {
+pub(crate) fn limbs_witt_levels(ontology: &Ontology) -> Vec<(String, u32, usize)> {
     let mut levels: Vec<(String, u32, usize)> = Vec::new();
     for ind in individuals_of_type(ontology, "https://uor.foundation/schema/WittLevel") {
         let bits = ind

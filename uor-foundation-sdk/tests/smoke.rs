@@ -24,6 +24,7 @@ impl ConstrainedTypeShape for LeafA {
         ConstraintRef::Site { position: 0 },
         ConstraintRef::Site { position: 1 },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 pub struct LeafB;
@@ -35,6 +36,7 @@ impl ConstrainedTypeShape for LeafB {
         ConstraintRef::Carry { site: 1 },
         ConstraintRef::Site { position: 2 },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 // --- product_shape! -------------------------------------------------------
@@ -191,6 +193,7 @@ impl ConstrainedTypeShape for LeafAffine {
         coefficient_count: AFFINE_TWO_PLUS_THREE.1,
         bias: 0,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 product_shape!(LeafAffineTimesLeafB, LeafAffine, LeafB);
@@ -381,6 +384,7 @@ output_shape! {
         const IRI: &'static str = "https://example.org/sdk-smoke/OutputHash";
         const SITE_COUNT: usize = 32;
         const CONSTRAINTS: &'static [ConstraintRef] = &[];
+        const CYCLE_SIZE: u64 = 1;
     }
 }
 
@@ -479,8 +483,9 @@ fn prism_model_inlines_verb_fragment_for_local_verb_call() {
     // The arena contains exactly 10-Term-variant nodes — no
     // `Term::VerbReference` (eleventh variant was removed).
     assert_eq!(arena.len(), 1 + VERB_TERMS_SMOKE_SUCC.len());
-    // No VerbReference in the arena: every entry is one of the ten
-    // ADR-029 variants.
+    // No VerbReference in the arena: every entry is one of the eleven
+    // ADR-029 variants (ten from the original signature category plus
+    // Term::ProjectField from ADR-033).
     for (i, t) in arena.iter().enumerate() {
         match t {
             Term::Literal { .. }
@@ -492,7 +497,8 @@ fn prism_model_inlines_verb_fragment_for_local_verb_call() {
             | Term::Recurse { .. }
             | Term::Unfold { .. }
             | Term::Try { .. }
-            | Term::HasherProjection { .. } => {}
+            | Term::AxisInvocation { .. }
+            | Term::ProjectField { .. } => {}
         }
         let _ = i;
     }
@@ -874,7 +880,16 @@ prism_model! {
         type Output = ConstrainedTypeInput;
         type Route = FirstAdmitRoute;
         fn route(input: Self::Input) -> Self::Output {
-            first_admit(W8, |i| succ(i))
+            // ADR-032 (G5): domain type must implement ConstrainedTypeShape
+            // so the macro can read CYCLE_SIZE for the descent measure.
+            // The wiki's normative example
+            //   first_admit(WittLevel::W32, |nonce| …)
+            // compiles on stable Rust 1.83 as the closest analog
+            //   first_admit(witt_domain::W32, …)
+            // because inherent associated TYPES (the syntax the wiki uses)
+            // require nightly. Foundation emits one zero-sized marker per
+            // Witt level in `pipeline::witt_domain`.
+            first_admit(uor_foundation::pipeline::witt_domain::W8, |i| succ(i))
         }
     }
 }
@@ -886,6 +901,30 @@ fn prism_model_emits_recurse_term_for_g16_first_admit() {
     // base (Literal(0)), and step (predicate body).
     let last = arena.last().expect("non-empty arena");
     assert!(matches!(last, Term::Recurse { .. }));
+}
+
+/// ADR-032 (G5) regression: confirm `witt_domain::W8` carries
+/// `CYCLE_SIZE = 256` and `witt_domain::W16` carries `CYCLE_SIZE = 65536`,
+/// matching the wiki's normative declarations.
+#[test]
+fn witt_domain_cycle_size_matches_wiki_spec() {
+    assert_eq!(
+        <uor_foundation::pipeline::witt_domain::W8 as ConstrainedTypeShape>::CYCLE_SIZE,
+        256
+    );
+    assert_eq!(
+        <uor_foundation::pipeline::witt_domain::W16 as ConstrainedTypeShape>::CYCLE_SIZE,
+        65536
+    );
+    assert_eq!(
+        <uor_foundation::pipeline::witt_domain::W32 as ConstrainedTypeShape>::CYCLE_SIZE,
+        4_294_967_296
+    );
+    // W64+ saturate at u64::MAX (2^64 doesn't fit in u64).
+    assert_eq!(
+        <uor_foundation::pipeline::witt_domain::W64 as ConstrainedTypeShape>::CYCLE_SIZE,
+        u64::MAX
+    );
 }
 
 // =====================================================================
@@ -946,4 +985,147 @@ fn use_verbs_re_exports_verb_const_and_accessor() {
     let arena = inner_verb_term_arena();
     assert_eq!(arena.len(), 2);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+}
+
+// =====================================================================
+// ADR-033 G3 — named-field `partition_product!` form.
+// =====================================================================
+
+partition_product!(NamedFieldPp, lhs: LeafA, rhs: LeafB);
+
+#[test]
+fn partition_product_named_form_emits_field_names() {
+    use uor_foundation::pipeline::PartitionProductFields;
+    let names = <NamedFieldPp as PartitionProductFields>::FIELD_NAMES;
+    assert_eq!(names, &["lhs", "rhs"]);
+    let fields = <NamedFieldPp as PartitionProductFields>::FIELDS;
+    // First field starts at byte 0 with width LeafA::SITE_COUNT (=2);
+    // second starts at LeafA::SITE_COUNT (=2) with width LeafB::SITE_COUNT (=3).
+    assert_eq!(fields[0], (0u32, 2u32));
+    assert_eq!(fields[1], (2u32, 3u32));
+    assert_eq!(
+        <NamedFieldPp as PartitionProductFields>::field_index_by_name("lhs"),
+        0
+    );
+    assert_eq!(
+        <NamedFieldPp as PartitionProductFields>::field_index_by_name("rhs"),
+        1
+    );
+    // Missing names sentinel: usize::MAX.
+    assert_eq!(
+        <NamedFieldPp as PartitionProductFields>::field_index_by_name("missing"),
+        usize::MAX
+    );
+}
+
+#[test]
+fn partition_product_positional_form_emits_empty_field_names() {
+    use uor_foundation::pipeline::PartitionProductFields;
+    let names = <LeafAPpLeafB as PartitionProductFields>::FIELD_NAMES;
+    assert_eq!(names, &["", ""]);
+}
+
+// =====================================================================
+// ADR-033 G4 — chained field access in `prism_model!` closures.
+// =====================================================================
+
+// Two-level shape: outer factors are themselves named partition_products.
+partition_product!(InnerLR, lhs: LeafA, rhs: LeafB);
+partition_product!(OuterLR, outer: InnerLR, tail: LeafA);
+
+prism_model! {
+    pub struct ChainedFieldModel;
+    pub struct ChainedFieldRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ChainedFieldModel {
+        type Input = OuterLR;
+        type Output = ConstrainedTypeInput;
+        type Route = ChainedFieldRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            // ADR-033 G4 chained access: first project `outer` from
+            // OuterLR, then project `lhs` from InnerLR. The proc-macro
+            // resolves the inner type via
+            //   <OuterLR as PartitionProductFactor<{ field_index_by_name("outer") }>>::Factor
+            // = InnerLR
+            // and synthesizes the `<InnerLR as PartitionProductFields>::FIELDS`
+            // lookup for the outer ProjectField's offset/length.
+            input.outer.lhs
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_chained_project_field_terms() {
+    let arena = <ChainedFieldRoute as FoundationClosed>::arena_slice();
+    // Expected: [Variable(0), ProjectField(outer), ProjectField(lhs)]
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    let outer = match &arena[1] {
+        Term::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => (*source_index, *byte_offset, *byte_length),
+        other => panic!("expected ProjectField at [1], got {other:?}"),
+    };
+    assert_eq!(
+        outer.0, 0u32,
+        "first projection sources from the input variable"
+    );
+    // OuterLR layout: outer at offset 0 with width = InnerLR::SITE_COUNT
+    // (= 2 + 3 = 5); tail at offset 5 with width = LeafA::SITE_COUNT (= 2).
+    assert_eq!(outer.1, 0u32, "outer field starts at byte 0");
+    assert_eq!(outer.2, 5u32, "outer field width = InnerLR::SITE_COUNT (5)");
+    let inner = match &arena[2] {
+        Term::ProjectField {
+            source_index,
+            byte_offset,
+            byte_length,
+        } => (*source_index, *byte_offset, *byte_length),
+        other => panic!("expected ProjectField at [2], got {other:?}"),
+    };
+    assert_eq!(
+        inner.0, 1u32,
+        "second projection sources from the first projection"
+    );
+    // InnerLR layout: lhs at offset 0 width 2, rhs at offset 2 width 3.
+    assert_eq!(inner.1, 0u32, "lhs field starts at byte 0 within InnerLR");
+    assert_eq!(inner.2, 2u32, "lhs field width = LeafA::SITE_COUNT (2)");
+}
+
+// G4 with positional chained access: `input.0.0`.
+partition_product!(PosOuter, InnerLR, LeafA);
+
+prism_model! {
+    pub struct ChainedPosModel;
+    pub struct ChainedPosRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ChainedPosModel {
+        type Input = PosOuter;
+        type Output = ConstrainedTypeInput;
+        type Route = ChainedPosRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            // input.0 = InnerLR; input.0.0 = lhs (LeafA).
+            input.0.0
+        }
+    }
+}
+
+#[test]
+fn prism_model_emits_chained_positional_project_field_terms() {
+    let arena = <ChainedPosRoute as FoundationClosed>::arena_slice();
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+    assert!(matches!(
+        arena[2],
+        Term::ProjectField {
+            source_index: 1,
+            ..
+        }
+    ));
 }

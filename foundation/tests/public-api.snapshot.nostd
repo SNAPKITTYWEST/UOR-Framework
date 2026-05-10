@@ -110,6 +110,7 @@ foundation/src/enforcement.rs: struct GroundingDeclarationBuilder
 foundation/src/enforcement.rs: struct GroundingPrimitive
 foundation/src/enforcement.rs: struct GroundingProgram
 foundation/src/enforcement.rs: struct HammingMetric
+foundation/src/enforcement.rs: struct HashAxis
 foundation/src/enforcement.rs: struct HomologyClass
 foundation/src/enforcement.rs: struct InhabitanceCertificate
 foundation/src/enforcement.rs: struct InhabitanceImpossibilityWitness
@@ -302,7 +303,9 @@ foundation/src/lib.rs: use enforcement
 foundation/src/lib.rs: use enums
 foundation/src/lib.rs: use witness_scaffolds
 foundation/src/pipeline.rs: const AFFINE_MAX_COEFFS
+foundation/src/pipeline.rs: const AXIS_OUTPUT_BYTES_CEILING
 foundation/src/pipeline.rs: const CONJUNCTION_MAX_TERMS
+foundation/src/pipeline.rs: const MAX_AXIS_TUPLE_ARITY
 foundation/src/pipeline.rs: const INTERACTION_DIVERGENCE_BUDGET
 foundation/src/pipeline.rs: const FOLD_UNROLL_THRESHOLD
 foundation/src/pipeline.rs: const PREFLIGHT_CHECK_IRIS
@@ -352,6 +355,7 @@ foundation/src/pipeline.rs: fn run_tower_completeness
 foundation/src/pipeline.rs: fn runtime_timing
 foundation/src/pipeline.rs: fn validate_constrained_type
 foundation/src/pipeline.rs: mod __sdk_seal
+foundation/src/pipeline.rs: mod witt_domain
 foundation/src/pipeline.rs: struct CommutatorState
 foundation/src/pipeline.rs: struct InteractionDeclaration
 foundation/src/pipeline.rs: struct InteractionDriver
@@ -363,8 +367,12 @@ foundation/src/pipeline.rs: struct StageOutcome
 foundation/src/pipeline.rs: struct StreamDeclaration
 foundation/src/pipeline.rs: struct StreamDriver
 foundation/src/pipeline.rs: struct TermValue
+foundation/src/pipeline.rs: trait AxisExtension
+foundation/src/pipeline.rs: trait AxisTuple
 foundation/src/pipeline.rs: trait CartesianProductShape
 foundation/src/pipeline.rs: trait ConstrainedTypeShape
 foundation/src/pipeline.rs: trait FoundationClosed
 foundation/src/pipeline.rs: trait IntoBindingValue
+foundation/src/pipeline.rs: trait PartitionProductFactor
+foundation/src/pipeline.rs: trait PartitionProductFields
 foundation/src/pipeline.rs: trait PrismModel

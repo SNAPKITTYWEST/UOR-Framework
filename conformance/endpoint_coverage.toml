@@ -514,6 +514,40 @@ behavior = "behavior_fold_unroll_threshold"
 symbols = ["RECURSE_PLACEHOLDER_NAME_INDEX", "UNFOLD_PLACEHOLDER_NAME_INDEX", "UNFOLD_MAX_ITERATIONS"]
 behavior = "behavior_catamorphism_evaluator"
 
+# ─── Mapping: ADR-030 substitution-axis generalization ─────────────────
+# ADR-030 generalizes the substitution-axis "third position" from a
+# single `Hasher` to an open `AxisTuple` of substrate-extension axes.
+# `AxisExtension` is the per-axis sealed trait; `AxisTuple` is the
+# tuple dispatcher; `HashAxis<H>` adapts existing `Hasher` impls.
+# `MAX_AXIS_TUPLE_ARITY` and `AXIS_OUTPUT_BYTES_CEILING` are the
+# foundation-fixed bounds. `Term::AxisInvocation` (replaces the legacy
+# `HasherProjection`) encodes the route-level axis selection.
+[coverage.adr030_axis_extension]
+symbols = ["AxisExtension", "AxisTuple", "HashAxis", "MAX_AXIS_TUPLE_ARITY", "AXIS_OUTPUT_BYTES_CEILING"]
+behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-033 G20 field-access projection ──────────────────────
+# ADR-033 admits closure-body field access on `partition_product`-shaped
+# inputs (`<expr>.<index>` and `<expr>.<field_name>`). Lowered to
+# `Term::ProjectField`; the proc-macro synthesizes a const-eval lookup
+# against `<SourceTy as PartitionProductFields>::FIELDS[idx]` for the
+# byte offset and length. `PartitionProductFactor<I>` exposes the
+# factor-type at index I so chained field access (`input.outer.inner`)
+# can resolve the inner shape statically at proc-macro time.
+[coverage.adr033_field_projection]
+symbols = ["PartitionProductFields", "PartitionProductFactor"]
+behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-032 Witt-level domain types ──────────────────────────
+# ADR-032 commits foundation to per-Witt-level zero-sized marker types
+# implementing `ConstrainedTypeShape` with `CYCLE_SIZE = 2^bits` so the
+# SDK's `first_admit(<DomainTy>, |i| …)` lowering reads the correct
+# descent measure at proc-macro time. Foundation emits these in
+# `pipeline::witt_domain::W{n}`.
+[coverage.adr032_witt_domain]
+symbols = ["witt_domain"]
+behavior = "behavior_catamorphism_evaluator"
+
 # ─── Mapping: ADR-016 four UOR-domain mint primitives ──────────────────
 # ADR-016 commits foundation to public mint primitives that are the
 # cross-crate construction surface for the four UOR-domain sealed

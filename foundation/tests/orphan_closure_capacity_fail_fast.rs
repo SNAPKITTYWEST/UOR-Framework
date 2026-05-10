@@ -25,6 +25,7 @@ impl ConstrainedTypeShape for TooManyConstraints {
         ConstraintRef::Site { position: 3 },
         ConstraintRef::Site { position: 0 },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 /// 9 sites — one over the cap.
@@ -34,6 +35,7 @@ impl ConstrainedTypeShape for TooManySites {
     const IRI: &'static str = "https://test.local/TooManySites";
     const SITE_COUNT: usize = 9;
     const CONSTRAINTS: &'static [ConstraintRef] = &[ConstraintRef::Site { position: 0 }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 /// Exactly at the caps — must still succeed.
@@ -52,6 +54,7 @@ impl ConstrainedTypeShape for AtCaps {
         ConstraintRef::Site { position: 6 },
         ConstraintRef::Site { position: 7 },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 fn has_identity(err: &GenericImpossibilityWitness, expected: &str) -> bool {

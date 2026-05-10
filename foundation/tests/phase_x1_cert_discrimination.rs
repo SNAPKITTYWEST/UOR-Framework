@@ -36,6 +36,7 @@ impl ConstrainedTypeShape for Probe {
         modulus: 3,
         residue: 1,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 fn probe_validated() -> uor_foundation::enforcement::Validated<Probe> {

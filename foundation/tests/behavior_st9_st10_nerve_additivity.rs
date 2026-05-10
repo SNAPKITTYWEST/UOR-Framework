@@ -77,6 +77,7 @@ impl ConstrainedTypeShape for CircleNerve {
             bias: 0,
         },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 // TetrahedronBoundary — four Affine constraints forming the 2-skeleton of
@@ -107,6 +108,7 @@ impl ConstrainedTypeShape for TetrahedronBoundary {
             bias: 0,
         },
     ];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 /// Compute Euler characteristic from a Betti profile via the alternating

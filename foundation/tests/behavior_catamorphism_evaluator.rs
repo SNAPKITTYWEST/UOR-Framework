@@ -13,7 +13,8 @@
 //! 2. The empty arena (identity route) returns the input bytes.
 //! 3. `Term::Literal` evaluates to its literal value's big-endian bytes.
 //! 4. `Term::Application` over `PrimitiveOp::Add` adds the args' values.
-//! 5. `Term::HasherProjection` folds the input through the selected Hasher.
+//! 5. `Term::AxisInvocation` folds the input through the selected Hasher
+//!    (axis 0, kernel 0 = the canonical hash projection).
 //! 6. `TERM_VALUE_MAX_BYTES` is the foundation-fixed per-value ceiling.
 
 use uor_foundation::enforcement::{Hasher, Term, TermList};
@@ -106,13 +107,17 @@ fn application_add_combines_args() {
 
 #[test]
 fn hasher_projection_delegates_to_substitution_axis() {
-    // Term::HasherProjection { input_index: 0 } applied to a Variable
-    // input — the catamorphism reaches the Hasher axis and emits the
-    // digest. ZeroHasher returns a fixed pattern so the assertion is
-    // distinguishable from input bytes.
+    // Term::AxisInvocation { axis_index: 0, kernel_id: 0, input_index: 0 }
+    // applied to a Variable input — the catamorphism reaches the Hasher
+    // axis and emits the digest. ZeroHasher returns a fixed pattern so
+    // the assertion is distinguishable from input bytes.
     let arena = [
         Term::Variable { name_index: 0 },
-        Term::HasherProjection { input_index: 0 },
+        Term::AxisInvocation {
+            axis_index: 0,
+            kernel_id: 0,
+            input_index: 0,
+        },
     ];
     let input = [0x11, 0x22, 0x33];
     let result =
@@ -361,6 +366,98 @@ fn try_term_propagates_success() {
     ];
     let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("try success evaluates");
     assert_eq!(result.bytes(), &[0x77][..]);
+}
+
+#[test]
+fn axis_invocation_canonical_hash_routes_through_axis_tuple() {
+    // ADR-030: Term::AxisInvocation { axis_index: 0, kernel_id: 0, ... }
+    // dispatches via the application's AxisTuple. Foundation's blanket
+    // `impl<H: Hasher> AxisTuple for H` routes the canonical (0, 0)
+    // dispatch through the legacy Hasher API. This test pins that the
+    // catamorphism's AxisInvocation arm correctly forwards to AxisTuple's
+    // dispatch surface (per the wiki's evaluate_term_tree<A: AxisTuple>).
+    let arena = [
+        Term::Variable { name_index: 0 },
+        Term::AxisInvocation {
+            axis_index: 0,
+            kernel_id: 0,
+            input_index: 0,
+        },
+    ];
+    let input = [0xaa, 0xbb];
+    let result =
+        evaluate_term_tree::<ZeroHasher>(&arena, &input).expect("axis invocation evaluates");
+    // ZeroHasher's AxisTuple dispatch returns its OUTPUT_BYTES (4) bytes
+    // of the canonical pattern.
+    assert_eq!(result.bytes(), &[0xab, 0xcd, 0xef, 0x01][..]);
+}
+
+#[test]
+fn axis_invocation_non_canonical_dispatch_rejects() {
+    // Non-canonical (axis_index, kernel_id) combinations against the
+    // foundation-built blanket AxisTuple-for-Hasher impl produce a
+    // ShapeViolation. User-declared AxisTuple impls (via the `axis!`
+    // SDK macro and tuple composition) extend the dispatch surface.
+    let arena = [
+        Term::Variable { name_index: 0 },
+        Term::AxisInvocation {
+            axis_index: 1, // out of range for the blanket 1-axis dispatcher
+            kernel_id: 0,
+            input_index: 0,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[1, 2, 3]);
+    assert!(
+        result.is_err(),
+        "non-canonical axis dispatch must produce a ShapeViolation"
+    );
+}
+
+#[test]
+fn project_field_term_slices_source_bytes() {
+    // ADR-033 G20: Term::ProjectField { source_index, byte_offset,
+    // byte_length } slices the source's evaluated bytes per the offset
+    // and length the proc-macro computes from PartitionProductFields.
+    let arena = [
+        // 0: Source — a 4-byte literal (treated as a partition_product
+        // of two 2-byte halves at byte offsets 0 and 2).
+        Term::Literal {
+            value: 0xdeadbeef,
+            level: WittLevel::W32,
+        },
+        // 1: Project field 1 → bytes [2..4] = [0xbe, 0xef].
+        Term::ProjectField {
+            source_index: 0,
+            byte_offset: 2,
+            byte_length: 2,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("project_field evaluates");
+    assert_eq!(result.bytes(), &[0xbe, 0xef][..]);
+}
+
+#[test]
+fn project_field_out_of_bounds_rejects() {
+    // ADR-033: byte_offset + byte_length > source length must produce a
+    // ShapeViolation rather than panic. The proc-macro generates valid
+    // offsets/lengths from PartitionProductFields, but hand-built arenas
+    // and replay-from-trace paths may exercise this guard.
+    let arena = [
+        Term::Literal {
+            value: 0x42,
+            level: WittLevel::W8,
+        },
+        Term::ProjectField {
+            source_index: 0,
+            byte_offset: 0,
+            byte_length: 16, // way beyond the 1-byte source
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]);
+    assert!(
+        result.is_err(),
+        "ProjectField overflowing source must produce ShapeViolation"
+    );
 }
 
 // ── PrimitiveOp coverage (ADR-013/TR-08 substrate amendment) ─────────────

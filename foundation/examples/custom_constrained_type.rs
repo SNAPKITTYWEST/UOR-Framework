@@ -31,6 +31,7 @@ impl ConstrainedTypeShape for ModSeven4Site {
         modulus: 7,
         residue: 3,
     }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 /// A second shape with distinct structure — demonstrates input-variation
@@ -41,6 +42,7 @@ impl ConstrainedTypeShape for HammingBounded {
     const IRI: &'static str = "https://example.org/HammingBounded";
     const SITE_COUNT: usize = 8;
     const CONSTRAINTS: &'static [ConstraintRef] = &[ConstraintRef::Hamming { bound: 1024 }];
+    const CYCLE_SIZE: u64 = 1;
 }
 
 fn main() {
@@ -83,6 +85,7 @@ fn main() {
             modulus: 5,
             residue: 10,
         }];
+        const CYCLE_SIZE: u64 = 1;
     }
 
     match validate_constrained_type(Invalid) {
