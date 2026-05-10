@@ -44,7 +44,7 @@ There are no free-standing `FINGERPRINT_MIN_BYTES` / `FINGERPRINT_MAX_BYTES` / `
 
 | Concept | Realization |
 |---|---|
-| Signature endofunctor F | The eleven [`enforcement::Term`](foundation/src/enforcement.rs) variants — `Literal`, `Application`, `Lift`, `Project`, `Variable`, `Match`, `Recurse`, `Unfold`, `Try`, `AxisInvocation` (ADR-030, replaces the legacy `HasherProjection`), `ProjectField` (ADR-033) |
+| Signature endofunctor F | The twelve [`enforcement::Term`](foundation/src/enforcement.rs) variants — `Literal`, `Application`, `Lift`, `Project`, `Variable`, `Match`, `Recurse`, `Unfold`, `Try`, `AxisInvocation` (ADR-030, replaces the legacy `HasherProjection`), `ProjectField` (ADR-033), `FirstAdmit` (ADR-034) |
 | Initial algebra of F | [`enforcement::Term`](foundation/src/enforcement.rs) itself — the free term language F generates |
 | Catamorphism into the runtime carrier | [`pipeline::run`](foundation/src/pipeline.rs) — unique homomorphism induced by initiality |
 | Anamorphism's witness object | `Trace` — produced by [`enforcement::Derivation::replay`](foundation/src/enforcement.rs) and consumed by [`enforcement::replay::certify_from_trace`](foundation/src/enforcement.rs) |
@@ -137,6 +137,8 @@ The catamorphism `pipeline::run` actually evaluates the route's Term tree (ADR-0
 `Term::AxisInvocation { axis_index, kernel_id, input_index }` — the substitution-axis-realized verb form (ADR-029 + ADR-030, replaces the legacy `HasherProjection`): the catamorphism delegates evaluation to the application's selected axis at `axis_index` via the `kernel_id` selector. The foundation-canonical case (`axis_index = 0`, `kernel_id = 0`) folds the input bytes through `<A as Hasher>::initial().fold_bytes(...)` and emits `<A as Hasher>::finalize()`; user-defined axes declared via the `axis!` SDK macro extend the dispatch surface. The `prism_model!` macro emits the canonical case from the closure-body form `hash(input)` (ADR-026 G19).
 
 `Term::ProjectField { source_index, byte_offset, byte_length }` — the eleventh Term variant (ADR-033 G20): byte-slice projection over a `partition_product`-shaped input. Lowered from the closure-body forms `<expr>.<index>` (positional) and `<expr>.<field_name>` (named); the proc-macro synthesizes a const-eval lookup against `<SourceTy as PartitionProductFields>::FIELDS[idx]` so the offset/length are computed by the trait impl at the consumer's compile time.
+
+`Term::FirstAdmit { domain_size_index, predicate_index }` — the twelfth Term variant (ADR-034 Mechanism 2): bounded structural search with early termination. The catamorphism iterates `idx` ascending in `0..<DomainTy>::CYCLE_SIZE`, evaluating the predicate body with `FIRST_ADMIT_IDX_NAME_INDEX = u32::MAX - 4` bound to the current `idx` packed at the domain's byte width. The fold returns a coproduct value: `(0x01, idx_bytes)` on the first non-zero predicate result, or `(0x00, idx-width zero bytes)` if no idx admits. Lowered by `prism_model!`/`verb!` from the closure-body form `first_admit(<DomainTy>, |idx| <pred>)` (G16). ADR-034 Mechanism 1 also extends `Term::Recurse`: the two-parameter closure form `recurse(measure, base, |self, idx| step)` admits a fresh idx-ident the proc-macro lowers to `Term::Variable { name_index: RECURSE_IDX_NAME_INDEX = u32::MAX - 3 }`; the catamorphism's `Term::Recurse` fold-rule binds it to the current descent-measure value (the iteration counter).
 
 ## Three-layer algebraic closure (wiki ADR-024 + ADR-025 + ADR-026)
 

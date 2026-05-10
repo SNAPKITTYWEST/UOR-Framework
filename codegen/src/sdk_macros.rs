@@ -1620,6 +1620,27 @@ enum TermSpec {
         byte_offset: proc_macro2::TokenStream,
         byte_length: proc_macro2::TokenStream,
     },
+    /// `Term::FirstAdmit { domain_size_index, predicate_index }` — wiki
+    /// ADR-034 Mechanism 2. Bounded structural search over a domain of
+    /// size N (read from the domain type's `CYCLE_SIZE` per ADR-032);
+    /// the catamorphism iterates `idx` ascending and short-circuits on
+    /// the first non-zero predicate result.
+    FirstAdmit {
+        domain_size_index: u32,
+        predicate_index: u32,
+    },
+    /// FirstAdmit candidate-value placeholder — wiki ADR-034 Mechanism 2.
+    /// Lowers to `Term::Variable { name_index: FIRST_ADMIT_IDX_NAME_INDEX }`.
+    /// The catamorphism's Variable handler returns the threaded
+    /// `first_admit_idx_value` (the current candidate `idx` packed at the
+    /// domain's byte width).
+    FirstAdmitIdxPlaceholder,
+    /// Recurse iteration-counter placeholder — wiki ADR-034 Mechanism 1.
+    /// Lowers to `Term::Variable { name_index: RECURSE_IDX_NAME_INDEX }`.
+    /// The catamorphism's Variable handler returns the threaded
+    /// `recurse_idx_value` (the current measure value, i.e. the
+    /// iteration counter at this descent).
+    RecurseIdxPlaceholder,
     /// `Term::Literal { value: <const-eval expr>, level: <expr> }` — a
     /// Literal whose value is a const-eval token stream rather than a
     /// macro-time u64. Used by ADR-032's `first_admit` lowering to read
@@ -2149,6 +2170,12 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
         TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
         TermSpec::RecursePlaceholder => TermSpec::RecursePlaceholder,
         TermSpec::UnfoldPlaceholder => TermSpec::UnfoldPlaceholder,
+        TermSpec::FirstAdmit { domain_size_index, predicate_index } => TermSpec::FirstAdmit {
+            domain_size_index: *domain_size_index,
+            predicate_index: *predicate_index,
+        },
+        TermSpec::FirstAdmitIdxPlaceholder => TermSpec::FirstAdmitIdxPlaceholder,
+        TermSpec::RecurseIdxPlaceholder => TermSpec::RecurseIdxPlaceholder,
     }
 }
 
@@ -2499,10 +2526,14 @@ fn emit_term_for_call(
                 ));
             }
         };
-        if step_closure.inputs.len() != 1 {
+        // ADR-022 D3 G7 + ADR-034 Mechanism 1: the step closure admits
+        // either 1 parameter (`|self_ident|`, the recursive-call
+        // placeholder) or 2 parameters (`|self_ident, idx_ident|`, the
+        // recursive-call placeholder + the iteration counter).
+        if step_closure.inputs.is_empty() || step_closure.inputs.len() > 2 {
             return Err(syn::Error::new_spanned(
                 step_closure,
-                "closure violation: `recurse`'s step closure expects exactly 1 parameter (the recursive-call placeholder, G7)",
+                "closure violation: `recurse`'s step closure expects 1 parameter (`|self_ident| <step>` per G7) or 2 parameters (`|self_ident, idx_ident| <step>` per ADR-034 Mechanism 1)",
             ));
         }
         let self_ident = match &step_closure.inputs[0] {
@@ -2514,18 +2545,36 @@ fn emit_term_for_call(
                 ));
             }
         };
+        let idx_ident_opt: Option<Ident> = if step_closure.inputs.len() == 2 {
+            match &step_closure.inputs[1] {
+                syn::Pat::Ident(p) => Some(p.ident.clone()),
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        other,
+                        "closure violation: `recurse`'s iteration-counter parameter must be a plain identifier (ADR-034 Mechanism 1)",
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         // Wiki ADR-029: emit a `Term::Variable { name_index =
         // RECURSE_PLACEHOLDER_NAME_INDEX }` BEFORE the step body and
-        // bind `self_ident` to that Variable's arena index. References
-        // to `self_ident` in step body resolve to that Variable; the
-        // catamorphism's Variable handler returns the threaded
-        // recurse_value (the previous iteration's accumulator) per
-        // ADR-029's recursive fold rule.
+        // bind `self_ident` to that Variable's arena index. ADR-034 M1:
+        // when the two-parameter form is used, also emit a
+        // `Term::Variable { name_index = RECURSE_IDX_NAME_INDEX }`
+        // placeholder and bind `idx_ident` to it.
         let mut step_scope = scope.clone();
         step_scope.shadow_check(&self_ident)?;
-        let placeholder_idx = arena.len();
+        let self_placeholder_idx = arena.len();
         arena.push(TermSpec::RecursePlaceholder);
-        step_scope.push(self_ident, placeholder_idx);
+        step_scope.push(self_ident, self_placeholder_idx);
+        if let Some(idx_ident) = idx_ident_opt {
+            step_scope.shadow_check(&idx_ident)?;
+            let idx_placeholder_idx = arena.len();
+            arena.push(TermSpec::RecurseIdxPlaceholder);
+            step_scope.push(idx_ident, idx_placeholder_idx);
+        }
         let step_root =
             emit_term_for_expr(&step_closure.body, route_input, arena, &mut step_scope)?;
         let idx = arena.len();
@@ -2818,38 +2867,39 @@ fn emit_term_for_call(
                 ));
             }
         };
-        // ADR-032 + ADR-026 G16: the descent measure is the domain's
-        // cardinality, read from `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE`
-        // at the consumer's compile time. Emit a `LiteralExpr` whose
-        // `value` is the const-eval lookup. The `level` is `WittLevel::W64`
-        // since CYCLE_SIZE is `u64` and may saturate to `u64::MAX` for
-        // wide domains.
+        // ADR-034 Mechanism 2: the lowering target shifted from
+        // `Term::Recurse` to `Term::FirstAdmit`. Emit:
+        //   - a `Term::Literal` carrying the domain's CYCLE_SIZE (read
+        //     from `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE` per
+        //     ADR-032);
+        //   - a placeholder Variable carrying the foundation-fixed
+        //     FIRST_ADMIT_IDX_NAME_INDEX, which idx_ident references in
+        //     the predicate body lower to;
+        //   - the predicate body in extended scope where idx_ident
+        //     resolves to the placeholder's arena index.
+        // Then push `Term::FirstAdmit { domain_size_index, predicate_index }`.
         let domain_path = &domain_arg.path;
-        let measure_root = arena.len();
+        let domain_size_root = arena.len();
         arena.push(TermSpec::LiteralExpr {
             value: quote::quote! {
                 <#domain_path as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE
             },
             level: quote::quote! { ::uor_foundation::WittLevel::new(64) },
         });
-        // Base case: Literal(0) — "no admitting index found" sentinel.
-        let base_root = arena.len();
-        arena.push(TermSpec::Literal(0));
-        // Step: the predicate's term tree, with idx_ident bound to the
-        // current iteration via the binding scope (Variable lookup).
-        let mut step_scope = scope.clone();
-        step_scope.shadow_check(&idx_ident)?;
-        // The recursive-call placeholder for first_admit IS the next
-        // iteration index (which the implementation runtime increments).
-        // Foundation binds idx_ident to the measure root for now; the
-        // structural declaration is what matters per ADR-024.
-        step_scope.push(idx_ident, measure_root);
-        let step_root = emit_term_for_expr(&pred_closure.body, route_input, arena, &mut step_scope)?;
+        // ADR-034 Mechanism 2: emit a placeholder Variable BEFORE the
+        // predicate body and bind idx_ident to that placeholder's arena
+        // index, so any reference to idx_ident inside pred lowers to
+        // the placeholder Variable.
+        let mut pred_scope = scope.clone();
+        pred_scope.shadow_check(&idx_ident)?;
+        let placeholder_idx = arena.len();
+        arena.push(TermSpec::FirstAdmitIdxPlaceholder);
+        pred_scope.push(idx_ident, placeholder_idx);
+        let pred_root = emit_term_for_expr(&pred_closure.body, route_input, arena, &mut pred_scope)?;
         let idx = arena.len();
-        arena.push(TermSpec::Recurse {
-            measure_index: measure_root as u32,
-            base_index: base_root as u32,
-            step_index: step_root as u32,
+        arena.push(TermSpec::FirstAdmit {
+            domain_size_index: domain_size_root as u32,
+            predicate_index: pred_root as u32,
         });
         return Ok(idx);
     }
@@ -3055,6 +3105,14 @@ fn emit_term_for_call(
                 TermSpec::WildcardSentinel => TermSpec::WildcardSentinel,
                 TermSpec::RecursePlaceholder => TermSpec::RecursePlaceholder,
                 TermSpec::UnfoldPlaceholder => TermSpec::UnfoldPlaceholder,
+                TermSpec::FirstAdmit { domain_size_index, predicate_index } => {
+                    TermSpec::FirstAdmit {
+                        domain_size_index: *domain_size_index,
+                        predicate_index: *predicate_index,
+                    }
+                }
+                TermSpec::FirstAdmitIdxPlaceholder => TermSpec::FirstAdmitIdxPlaceholder,
+                TermSpec::RecurseIdxPlaceholder => TermSpec::RecurseIdxPlaceholder,
             };
             arena.push(dup);
         }
@@ -3224,6 +3282,26 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     name_index: ::uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX,
                 }
             },
+            TermSpec::FirstAdmit { domain_size_index, predicate_index } => {
+                let d = *domain_size_index;
+                let p = *predicate_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::FirstAdmit {
+                        domain_size_index: #d,
+                        predicate_index: #p,
+                    }
+                }
+            }
+            TermSpec::FirstAdmitIdxPlaceholder => quote! {
+                ::uor_foundation::enforcement::Term::Variable {
+                    name_index: ::uor_foundation::pipeline::FIRST_ADMIT_IDX_NAME_INDEX,
+                }
+            },
+            TermSpec::RecurseIdxPlaceholder => quote! {
+                ::uor_foundation::enforcement::Term::Variable {
+                    name_index: ::uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX,
+                }
+            },
         })
         .collect()
 }
@@ -3385,6 +3463,26 @@ fn render_atomic_term_in_builder(
         TermSpec::UnfoldPlaceholder => quote! {
             ::uor_foundation::enforcement::Term::Variable {
                 name_index: ::uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX,
+            }
+        },
+        TermSpec::FirstAdmit { domain_size_index, predicate_index } => {
+            let d = pos_at(*domain_size_index);
+            let p = pos_at(*predicate_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::FirstAdmit {
+                    domain_size_index: (#d) as u32,
+                    predicate_index: (#p) as u32,
+                }
+            }
+        }
+        TermSpec::FirstAdmitIdxPlaceholder => quote! {
+            ::uor_foundation::enforcement::Term::Variable {
+                name_index: ::uor_foundation::pipeline::FIRST_ADMIT_IDX_NAME_INDEX,
+            }
+        },
+        TermSpec::RecurseIdxPlaceholder => quote! {
+            ::uor_foundation::enforcement::Term::Variable {
+                name_index: ::uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX,
             }
         },
         TermSpec::VerbSplice { .. } => quote! {

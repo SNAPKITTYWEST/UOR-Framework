@@ -2039,6 +2039,28 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Length of the projected slice in bytes.");
     f.line("        byte_length: u32,");
     f.line("    },");
+    f.indented_doc_comment("Bounded search with structural early termination (wiki ADR-034).");
+    f.indented_doc_comment("The catamorphism iterates `idx` from 0 up to (but excluding) the");
+    f.indented_doc_comment("evaluated `domain_size`; for each iteration it evaluates");
+    f.indented_doc_comment("`predicate` with `FIRST_ADMIT_IDX_NAME_INDEX` bound to `idx`.");
+    f.indented_doc_comment("On the first non-zero predicate result the fold emits the");
+    f.indented_doc_comment("coproduct value `(0x01, idx_bytes)` and terminates iteration; if");
+    f.indented_doc_comment("no `idx` admits, the fold emits `(0x00, idx-width zero bytes)`.");
+    f.indented_doc_comment("Emitted by `prism_model!` and `verb!` from the closure-body");
+    f.indented_doc_comment("form `first_admit(<DomainTy>, |idx| <pred>)` (ADR-026 G16; the");
+    f.indented_doc_comment("lowering target shifted from `Term::Recurse` to `Term::FirstAdmit`");
+    f.indented_doc_comment("per ADR-034's structural-search commitment).");
+    f.line("    FirstAdmit {");
+    f.line("        /// Arena index of the domain-cardinality term (typically a");
+    f.line(
+        "        /// `Term::Literal` carrying `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE`).",
+    );
+    f.line("        domain_size_index: u32,");
+    f.line("        /// Arena index of the predicate body. Evaluation visits");
+    f.line("        /// `predicate` with `FIRST_ADMIT_IDX_NAME_INDEX` bound to the");
+    f.line("        /// current candidate `idx`.");
+    f.line("        predicate_index: u32,");
+    f.line("    },");
     f.line("}");
     f.blank();
 
@@ -2111,6 +2133,10 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("            source_index: source_index + offset,");
     f.line("            byte_offset,");
     f.line("            byte_length,");
+    f.line("        },");
+    f.line("        Term::FirstAdmit { domain_size_index, predicate_index } => Term::FirstAdmit {");
+    f.line("            domain_size_index: domain_size_index + offset,");
+    f.line("            predicate_index: predicate_index + offset,");
     f.line("        },");
     f.line("    }");
     f.line("}");
@@ -5039,7 +5065,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 4;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 5;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");

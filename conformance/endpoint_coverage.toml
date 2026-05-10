@@ -548,6 +548,21 @@ behavior = "behavior_catamorphism_evaluator"
 symbols = ["witt_domain"]
 behavior = "behavior_catamorphism_evaluator"
 
+# ─── Mapping: ADR-034 iteration-counter + structural search ────────────
+# ADR-034 Mechanism 1: `RECURSE_IDX_NAME_INDEX` binds the iteration
+# counter inside `Term::Recurse`'s step body, exposed via the
+# two-parameter closure form `recurse(measure, base, |self, idx| step)`.
+# ADR-034 Mechanism 2: `FIRST_ADMIT_IDX_NAME_INDEX` binds the candidate
+# value inside `Term::FirstAdmit`'s predicate body. The grammar form
+# `first_admit(<DomainTy>, |idx| <pred>)` lowers to `Term::FirstAdmit`
+# (replacing the legacy `Term::Recurse` lowering); the catamorphism's
+# fold-rule iterates idx in 0..N ascending and short-circuits on the
+# first non-zero predicate result, emitting `(0x01, idx_bytes)` or
+# `(0x00, padding)`.
+[coverage.adr034_first_admit_recurse_idx]
+symbols = ["RECURSE_IDX_NAME_INDEX", "FIRST_ADMIT_IDX_NAME_INDEX"]
+behavior = "behavior_catamorphism_evaluator"
+
 # ─── Mapping: ADR-016 four UOR-domain mint primitives ──────────────────
 # ADR-016 commits foundation to public mint primitives that are the
 # cross-crate construction surface for the four UOR-domain sealed

@@ -498,7 +498,8 @@ fn prism_model_inlines_verb_fragment_for_local_verb_call() {
             | Term::Unfold { .. }
             | Term::Try { .. }
             | Term::AxisInvocation { .. }
-            | Term::ProjectField { .. } => {}
+            | Term::ProjectField { .. }
+            | Term::FirstAdmit { .. } => {}
         }
         let _ = i;
     }
@@ -895,12 +896,12 @@ prism_model! {
 }
 
 #[test]
-fn prism_model_emits_recurse_term_for_g16_first_admit() {
+fn prism_model_emits_first_admit_term_for_g16_first_admit() {
+    // ADR-034 Mechanism 2: first_admit(<DomainTy>, |i| pred) lowers to
+    // Term::FirstAdmit (replacing the legacy Term::Recurse lowering).
     let arena = <FirstAdmitRoute as FoundationClosed>::arena_slice();
-    // first_admit(W8, |i| succ(i)) → Term::Recurse with measure (Literal),
-    // base (Literal(0)), and step (predicate body).
     let last = arena.last().expect("non-empty arena");
-    assert!(matches!(last, Term::Recurse { .. }));
+    assert!(matches!(last, Term::FirstAdmit { .. }));
 }
 
 /// ADR-032 (G5) regression: confirm `witt_domain::W8` carries

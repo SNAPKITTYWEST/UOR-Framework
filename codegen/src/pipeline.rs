@@ -2855,6 +2855,26 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("and iterates step until a Kleene fixpoint or [`UNFOLD_MAX_ITERATIONS`].");
     f.line("pub const UNFOLD_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 2;");
     f.blank();
+    f.doc_comment("Wiki ADR-034 Mechanism 1: the foundation-fixed name-index for the");
+    f.doc_comment("iteration-counter binding inside `Term::Recurse`'s step body. The");
+    f.doc_comment(
+        "two-parameter closure form `recurse(measure, base, |self_ident, idx_ident| step)`",
+    );
+    f.doc_comment("lowers `idx_ident` references to");
+    f.doc_comment("`Term::Variable { name_index: RECURSE_IDX_NAME_INDEX }`; the");
+    f.doc_comment("catamorphism's per-variant fold-rule binds it to a `TermValue`");
+    f.doc_comment("carrying the current measure value at each descent.");
+    f.line("pub const RECURSE_IDX_NAME_INDEX: u32 = u32::MAX - 3;");
+    f.blank();
+    f.doc_comment("Wiki ADR-034 Mechanism 2: the foundation-fixed name-index for the");
+    f.doc_comment("candidate-value binding inside `Term::FirstAdmit`'s predicate body.");
+    f.doc_comment("The grammar form `first_admit(<domain>, |idx_ident| <pred>)` lowers");
+    f.doc_comment("`idx_ident` references to");
+    f.doc_comment("`Term::Variable { name_index: FIRST_ADMIT_IDX_NAME_INDEX }`; the");
+    f.doc_comment("catamorphism's per-variant fold-rule binds it to the current");
+    f.doc_comment("candidate `idx` (ranging `0..<Domain>::CYCLE_SIZE`).");
+    f.line("pub const FIRST_ADMIT_IDX_NAME_INDEX: u32 = u32::MAX - 4;");
+    f.blank();
     f.doc_comment("Wiki ADR-029: bound on the anamorphic fixpoint iteration for");
     f.doc_comment("`Term::Unfold`. The fold rule iterates `step(state)` until either the");
     f.doc_comment("state reaches a Kleene fixpoint (`step(state) == state`) or this");
@@ -2960,7 +2980,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None)");
+    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None, None, None)");
     f.line("}");
     f.blank();
 
@@ -2975,12 +2995,15 @@ fn emit_prism_model(f: &mut RustFile) {
     // depth equals compile-time tree depth, no separate guard is
     // required. The Term enum carries exactly the ten variants ADR-029
     // enumerates.
+    f.line("#[allow(clippy::too_many_arguments)]");
     f.line("fn evaluate_term_at<A>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    idx: usize,");
     f.line("    input_bytes: &[u8],");
     f.line("    recurse_value: Option<&[u8]>,");
+    f.line("    recurse_idx_value: Option<&[u8]>,");
     f.line("    unfold_value: Option<&[u8]>,");
+    f.line("    first_admit_idx_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple,");
@@ -3025,19 +3048,29 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {");
     f.line("                return Ok(TermValue::from_slice(recurse_value.unwrap_or(&[])));");
     f.line("            }");
+    f.line("            // ADR-034 Mechanism 1: iteration-counter binding for Recurse.");
+    f.line("            if name_index == RECURSE_IDX_NAME_INDEX {");
+    f.line("                return Ok(TermValue::from_slice(recurse_idx_value.unwrap_or(&[])));");
+    f.line("            }");
     f.line("            if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {");
     f.line("                return Ok(TermValue::from_slice(unfold_value.unwrap_or(&[])));");
+    f.line("            }");
+    f.line("            // ADR-034 Mechanism 2: candidate-value binding for FirstAdmit.");
+    f.line("            if name_index == FIRST_ADMIT_IDX_NAME_INDEX {");
+    f.line(
+        "                return Ok(TermValue::from_slice(first_admit_idx_value.unwrap_or(&[])));",
+    );
     f.line("            }");
     f.line("            Ok(TermValue::from_slice(input_bytes))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, recurse_value, unfold_value)");
+    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -3056,7 +3089,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -3069,7 +3102,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -3085,13 +3118,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, unfold_value);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes, recurse_value, unfold_value)?;",
+        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, unfold_value);");
+    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -3126,11 +3159,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // forms within the measure/base computations; step body uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            let n = bytes_to_u64_be(measure.bytes());");
     f.line(
-        "            let base_val = evaluate_term_at::<A>(arena, base_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let base_val = evaluate_term_at::<A>(arena, base_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            if n == 0 {");
     f.line("                return Ok(base_val);");
@@ -3147,12 +3180,21 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }");
     f.line("            let mut iter = 0u64;");
     f.line("            while iter < n {");
+    f.line("                // ADR-034 Mechanism 1: bind RECURSE_IDX_NAME_INDEX to the");
+    f.line("                // current measure value (the iteration counter at this");
+    f.line("                // descent). At iter=0 the descent measure is N; at iter=k");
+    f.line("                // it is N-k. The byte width follows the measure's BE-truncated");
+    f.line("                // u64 packing so callers can read it as a u64-shaped value.");
+    f.line("                let descent_measure: u64 = n - iter;");
+    f.line("                let descent_bytes = descent_measure.to_be_bytes();");
     f.line("                let next = evaluate_term_at::<A>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
     f.line("                    input_bytes,");
     f.line("                    Some(&current_buf[..current_len]),");
+    f.line("                    Some(&descent_bytes[..]),");
     f.line("                    unfold_value,");
+    f.line("                    first_admit_idx_value,");
     f.line("                )?;");
     f.line("                let nb = next.bytes();");
     f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
@@ -3176,7 +3218,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // within the seed; step body's state placeholder uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let seed_val = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, recurse_value, unfold_value)?;",
+        "            let seed_val = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];");
     f.line("            let mut state_len = seed_val.bytes().len();");
@@ -3192,7 +3234,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    step_index as usize,");
     f.line("                    input_bytes,");
     f.line("                    recurse_value,");
+    f.line("                    recurse_idx_value,");
     f.line("                    Some(&state_buf[..state_len]),");
+    f.line("                    first_admit_idx_value,");
     f.line("                )?;");
     f.line("                let nb = next.bytes();");
     f.line("                // Kleene fixpoint check: if step(state) == state, return.");
@@ -3211,14 +3255,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            Ok(TermValue::from_slice(&state_buf[..state_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, recurse_value, unfold_value) {");
+    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, recurse_value, unfold_value)",
+        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)",
     );
     f.line("                    }");
     f.line("                }");
@@ -3236,7 +3280,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // through the legacy Hasher API; user-declared axes via the");
     f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
     f.line("            // (axis_index, kernel_id) combinations.");
-    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, recurse_value, unfold_value)?;");
+    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
     f.line("            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
     f.line("            let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                Ok(n) => n,");
@@ -3249,7 +3293,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
     f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
-    f.line("            let v = evaluate_term_at::<A>(arena, source_index as usize, input_bytes, recurse_value, unfold_value)?;");
+    f.line("            let v = evaluate_term_at::<A>(arena, source_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
     f.line("            let bytes = v.bytes();");
     f.line("            let start = byte_offset as usize;");
     f.line("            let end = start.saturating_add(byte_length as usize);");
@@ -3270,11 +3314,83 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }");
     f.line("            Ok(TermValue::from_slice(&bytes[start..end]))");
     f.line("        }");
+    f.line(
+        "        crate::enforcement::Term::FirstAdmit { domain_size_index, predicate_index } => {",
+    );
+    f.line("            // ADR-034 Mechanism 2: bounded search with structural early");
+    f.line("            // termination. Evaluate the domain size N; iterate idx in 0..N");
+    f.line("            // ascending; for each idx, evaluate predicate with");
+    f.line("            // FIRST_ADMIT_IDX_NAME_INDEX bound to idx. Return on the first");
+    f.line("            // non-zero predicate result (the \"found\" coproduct value");
+    f.line("            // 0x01 || idx_bytes); after exhausting the domain return the");
+    f.line("            // \"not-found\" coproduct value 0x00 || idx-width zero bytes.");
+    f.line(
+        "            let domain_size = evaluate_term_at::<A>(arena, domain_size_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+    );
+    f.line("            let n = bytes_to_u64_be(domain_size.bytes());");
+    f.line("            // Determine the idx byte width from the domain size's");
+    f.line("            // BE-truncated u64 packing (use the smallest non-zero count of");
+    f.line("            // bytes needed to represent N). For N=0 fall back to 1 byte so");
+    f.line("            // the not-found sentinel still has the canonical (disc, idx) shape.");
+    f.line("            let idx_byte_width: usize = if n == 0 {");
+    f.line("                1");
+    f.line("            } else {");
+    f.line("                let mut w = 8usize;");
+    f.line("                while w > 1 && (n >> ((w - 1) * 8)) == 0 {");
+    f.line("                    w -= 1;");
+    f.line("                }");
+    f.line("                w");
+    f.line("            };");
+    f.line("            let mut idx_iter: u64 = 0;");
+    f.line("            while idx_iter < n {");
+    f.line("                let idx_bytes_full = idx_iter.to_be_bytes();");
+    f.line("                let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];");
+    f.line("                let pred_val = evaluate_term_at::<A>(");
+    f.line("                    arena,");
+    f.line("                    predicate_index as usize,");
+    f.line("                    input_bytes,");
+    f.line("                    recurse_value,");
+    f.line("                    recurse_idx_value,");
+    f.line("                    unfold_value,");
+    f.line("                    Some(idx_bytes),");
+    f.line("                )?;");
+    f.line("                // ADR-029 zero/non-zero convention: any TermValue whose");
+    f.line("                // byte sequence has at least one non-zero byte counts as");
+    f.line("                // \"true\". An empty TermValue is treated as \"false\".");
+    f.line("                let pb = pred_val.bytes();");
+    f.line("                let mut admitted = false;");
+    f.line("                let mut bi = 0;");
+    f.line("                while bi < pb.len() {");
+    f.line("                    if pb[bi] != 0 {");
+    f.line("                        admitted = true;");
+    f.line("                        break;");
+    f.line("                    }");
+    f.line("                    bi += 1;");
+    f.line("                }");
+    f.line("                if admitted {");
+    f.line("                    let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("                    out_buf[0] = 0x01;");
+    f.line("                    let mut k = 0;");
+    f.line("                    while k < idx_byte_width {");
+    f.line("                        out_buf[1 + k] = idx_bytes[k];");
+    f.line("                        k += 1;");
+    f.line("                    }");
+    f.line("                    return Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]));");
+    f.line("                }");
+    f.line("                idx_iter += 1;");
+    f.line("            }");
+    f.line("            // No idx admitted — emit not-found coproduct value.");
+    f.line("            let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            out_buf[0] = 0x00;");
+    f.line("            // bytes 1..1+idx_byte_width remain zero (structural padding).");
+    f.line("            Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]))");
+    f.line("        }");
     f.line("    }");
     f.line("}");
     f.blank();
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
+    f.line("#[allow(clippy::too_many_arguments)]");
     f.line("fn apply_primitive_op<A>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    operator: crate::PrimitiveOp,");
@@ -3282,7 +3398,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    args_len: usize,");
     f.line("    input_bytes: &[u8],");
     f.line("    recurse_value: Option<&[u8]>,");
+    f.line("    recurse_idx_value: Option<&[u8]>,");
     f.line("    unfold_value: Option<&[u8]>,");
+    f.line("    first_admit_idx_value: Option<&[u8]>,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple,");
@@ -3324,7 +3442,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    }");
     f.line("    if arity == 1 {");
     f.line(
-        "        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;",
+        "        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
@@ -3355,9 +3473,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    } else {");
     f.line(
-        "        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;",
+        "        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
     );
-    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, recurse_value, unfold_value)?;");
+    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
     f.line("        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and");
     f.line("        // comparison primitives bypass the u64 fold and operate on the");
     f.line("        // operands' full byte sequences.");

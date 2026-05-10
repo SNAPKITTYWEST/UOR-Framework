@@ -1890,6 +1890,26 @@ pub enum Term {
         /// Length of the projected slice in bytes.
         byte_length: u32,
     },
+    /// Bounded search with structural early termination (wiki ADR-034).
+    /// The catamorphism iterates `idx` from 0 up to (but excluding) the
+    /// evaluated `domain_size`; for each iteration it evaluates
+    /// `predicate` with `FIRST_ADMIT_IDX_NAME_INDEX` bound to `idx`.
+    /// On the first non-zero predicate result the fold emits the
+    /// coproduct value `(0x01, idx_bytes)` and terminates iteration; if
+    /// no `idx` admits, the fold emits `(0x00, idx-width zero bytes)`.
+    /// Emitted by `prism_model!` and `verb!` from the closure-body
+    /// form `first_admit(<DomainTy>, |idx| <pred>)` (ADR-026 G16; the
+    /// lowering target shifted from `Term::Recurse` to `Term::FirstAdmit`
+    /// per ADR-034's structural-search commitment).
+    FirstAdmit {
+        /// Arena index of the domain-cardinality term (typically a
+        /// `Term::Literal` carrying `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE`).
+        domain_size_index: u32,
+        /// Arena index of the predicate body. Evaluation visits
+        /// `predicate` with `FIRST_ADMIT_IDX_NAME_INDEX` bound to the
+        /// current candidate `idx`.
+        predicate_index: u32,
+    },
 }
 
 /// Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index
@@ -1980,6 +2000,13 @@ pub const fn shift_term(term: Term, offset: u32) -> Term {
             source_index: source_index + offset,
             byte_offset,
             byte_length,
+        },
+        Term::FirstAdmit {
+            domain_size_index,
+            predicate_index,
+        } => Term::FirstAdmit {
+            domain_size_index: domain_size_index + offset,
+            predicate_index: predicate_index + offset,
         },
     }
 }
@@ -6514,7 +6541,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 4;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 5;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate

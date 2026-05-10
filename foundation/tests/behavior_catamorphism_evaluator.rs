@@ -369,6 +369,101 @@ fn try_term_propagates_success() {
 }
 
 #[test]
+fn recurse_two_param_form_binds_iteration_counter() {
+    // ADR-034 Mechanism 1: the two-parameter `recurse(measure, base,
+    // |self, idx| step)` form binds the iteration counter to
+    // RECURSE_IDX_NAME_INDEX. At iter=0 the descent measure is N,
+    // decreasing each step. With measure=3, base=0, step = idx (just
+    // return the iteration counter), the final value is 1 (the descent
+    // measure at the LAST iteration before zero).
+    use uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX;
+    let arena = [
+        // 0: measure literal — 3
+        Term::Literal {
+            value: 3,
+            level: WittLevel::W8,
+        },
+        // 1: base literal — 0
+        Term::Literal {
+            value: 0,
+            level: WittLevel::W8,
+        },
+        // 2: step body — Variable referencing the iteration counter
+        Term::Variable {
+            name_index: RECURSE_IDX_NAME_INDEX,
+        },
+        // 3: Recurse { measure: 0, base: 1, step: 2 }
+        Term::Recurse {
+            measure_index: 0,
+            base_index: 1,
+            step_index: 2,
+        },
+    ];
+    let result =
+        evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse with idx binding evaluates");
+    // The descent at the final iteration (iter=2 → measure=N-iter=1) is
+    // the last value the step body sees; that's what becomes the result.
+    // The 8-byte BE encoding of 1u64 ends in 0x01.
+    assert_eq!(result.bytes().last(), Some(&1));
+}
+
+#[test]
+fn first_admit_returns_found_coproduct_on_admission() {
+    // ADR-034 Mechanism 2: first_admit iterates idx in 0..N and returns
+    // the first idx for which predicate evaluates non-zero. Result
+    // shape: (0x01, idx_bytes). With domain = 5 (1 idx byte, fits W8),
+    // predicate = `idx`, the first non-zero idx is 1 → result =
+    // [0x01, 0x01].
+    use uor_foundation::pipeline::FIRST_ADMIT_IDX_NAME_INDEX;
+    let arena = [
+        // 0: domain size = 5
+        Term::Literal {
+            value: 5,
+            level: WittLevel::W8,
+        },
+        // 1: predicate body = Variable referencing the candidate idx
+        Term::Variable {
+            name_index: FIRST_ADMIT_IDX_NAME_INDEX,
+        },
+        // 2: FirstAdmit { domain_size_index: 0, predicate_index: 1 }
+        Term::FirstAdmit {
+            domain_size_index: 0,
+            predicate_index: 1,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("first_admit evaluates");
+    // 5 fits in 1 byte → idx_byte_width = 1 → result is 2 bytes:
+    //   discriminator 0x01 ("found") + idx 1.
+    assert_eq!(result.bytes(), &[0x01, 0x01][..]);
+}
+
+#[test]
+fn first_admit_returns_not_found_coproduct_on_exhausted_search() {
+    // ADR-034: when no idx admits across the full domain, emit the
+    // not-found coproduct value (0x00, idx-width zero padding).
+    let arena = [
+        // 0: domain size = 4
+        Term::Literal {
+            value: 4,
+            level: WittLevel::W8,
+        },
+        // 1: predicate body = Literal(0) — always rejects.
+        Term::Literal {
+            value: 0,
+            level: WittLevel::W8,
+        },
+        // 2: FirstAdmit
+        Term::FirstAdmit {
+            domain_size_index: 0,
+            predicate_index: 1,
+        },
+    ];
+    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[])
+        .expect("first_admit (no admission) evaluates");
+    assert_eq!(result.bytes(), &[0x00, 0x00][..]);
+}
+
+#[test]
 fn axis_invocation_canonical_hash_routes_through_axis_tuple() {
     // ADR-030: Term::AxisInvocation { axis_index: 0, kernel_id: 0, ... }
     // dispatches via the application's AxisTuple. Foundation's blanket

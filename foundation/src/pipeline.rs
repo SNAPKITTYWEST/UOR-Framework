@@ -1387,6 +1387,24 @@ pub const RECURSE_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 1;
 /// and iterates step until a Kleene fixpoint or [`UNFOLD_MAX_ITERATIONS`].
 pub const UNFOLD_PLACEHOLDER_NAME_INDEX: u32 = u32::MAX - 2;
 
+/// Wiki ADR-034 Mechanism 1: the foundation-fixed name-index for the
+/// iteration-counter binding inside `Term::Recurse`'s step body. The
+/// two-parameter closure form `recurse(measure, base, |self_ident, idx_ident| step)`
+/// lowers `idx_ident` references to
+/// `Term::Variable { name_index: RECURSE_IDX_NAME_INDEX }`; the
+/// catamorphism's per-variant fold-rule binds it to a `TermValue`
+/// carrying the current measure value at each descent.
+pub const RECURSE_IDX_NAME_INDEX: u32 = u32::MAX - 3;
+
+/// Wiki ADR-034 Mechanism 2: the foundation-fixed name-index for the
+/// candidate-value binding inside `Term::FirstAdmit`'s predicate body.
+/// The grammar form `first_admit(<domain>, |idx_ident| <pred>)` lowers
+/// `idx_ident` references to
+/// `Term::Variable { name_index: FIRST_ADMIT_IDX_NAME_INDEX }`; the
+/// catamorphism's per-variant fold-rule binds it to the current
+/// candidate `idx` (ranging `0..<Domain>::CYCLE_SIZE`).
+pub const FIRST_ADMIT_IDX_NAME_INDEX: u32 = u32::MAX - 4;
+
 /// Wiki ADR-029: bound on the anamorphic fixpoint iteration for
 /// `Term::Unfold`. The fold rule iterates `step(state)` until either the
 /// state reaches a Kleene fixpoint (`step(state) == state`) or this
@@ -1491,15 +1509,18 @@ where
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
-    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None)
+    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None, None, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn evaluate_term_at<A>(
     arena: &[crate::enforcement::Term],
     idx: usize,
     input_bytes: &[u8],
     recurse_value: Option<&[u8]>,
+    recurse_idx_value: Option<&[u8]>,
     unfold_value: Option<&[u8]>,
+    first_admit_idx_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple,
@@ -1546,8 +1567,16 @@ where
             if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {
                 return Ok(TermValue::from_slice(recurse_value.unwrap_or(&[])));
             }
+            // ADR-034 Mechanism 1: iteration-counter binding for Recurse.
+            if name_index == RECURSE_IDX_NAME_INDEX {
+                return Ok(TermValue::from_slice(recurse_idx_value.unwrap_or(&[])));
+            }
             if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {
                 return Ok(TermValue::from_slice(unfold_value.unwrap_or(&[])));
+            }
+            // ADR-034 Mechanism 2: candidate-value binding for FirstAdmit.
+            if name_index == FIRST_ADMIT_IDX_NAME_INDEX {
+                return Ok(TermValue::from_slice(first_admit_idx_value.unwrap_or(&[])));
             }
             Ok(TermValue::from_slice(input_bytes))
         }
@@ -1561,7 +1590,9 @@ where
                 len,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )
         }
         crate::enforcement::Term::Lift {
@@ -1573,7 +1604,9 @@ where
                 operand_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
@@ -1606,7 +1639,9 @@ where
                 operand_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let target_width = (target.witt_length() / 8) as usize;
             let target_width = if target_width > TERM_VALUE_MAX_BYTES {
@@ -1630,7 +1665,9 @@ where
                 scrutinee_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let start = arms.start as usize;
             let count = arms.len as usize;
@@ -1649,7 +1686,9 @@ where
                         body_idx,
                         input_bytes,
                         recurse_value,
+                        recurse_idx_value,
                         unfold_value,
+                        first_admit_idx_value,
                     );
                 }
                 let pattern_val = evaluate_term_at::<A>(
@@ -1657,7 +1696,9 @@ where
                     pattern_idx,
                     input_bytes,
                     recurse_value,
+                    recurse_idx_value,
                     unfold_value,
+                    first_admit_idx_value,
                 )?;
                 if pattern_val.bytes() == scrutinee.bytes() {
                     return evaluate_term_at::<A>(
@@ -1665,7 +1706,9 @@ where
                         body_idx,
                         input_bytes,
                         recurse_value,
+                        recurse_idx_value,
                         unfold_value,
+                        first_admit_idx_value,
                     );
                 }
                 i += 2;
@@ -1704,7 +1747,9 @@ where
                 measure_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let n = bytes_to_u64_be(measure.bytes());
             let base_val = evaluate_term_at::<A>(
@@ -1712,7 +1757,9 @@ where
                 base_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             if n == 0 {
                 return Ok(base_val);
@@ -1729,12 +1776,21 @@ where
             }
             let mut iter = 0u64;
             while iter < n {
+                // ADR-034 Mechanism 1: bind RECURSE_IDX_NAME_INDEX to the
+                // current measure value (the iteration counter at this
+                // descent). At iter=0 the descent measure is N; at iter=k
+                // it is N-k. The byte width follows the measure's BE-truncated
+                // u64 packing so callers can read it as a u64-shaped value.
+                let descent_measure: u64 = n - iter;
+                let descent_bytes = descent_measure.to_be_bytes();
                 let next = evaluate_term_at::<A>(
                     arena,
                     step_index as usize,
                     input_bytes,
                     Some(&current_buf[..current_len]),
+                    Some(&descent_bytes[..]),
                     unfold_value,
+                    first_admit_idx_value,
                 )?;
                 let nb = next.bytes();
                 let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES {
@@ -1769,7 +1825,9 @@ where
                 seed_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];
             let mut state_len = seed_val.bytes().len();
@@ -1785,7 +1843,9 @@ where
                     step_index as usize,
                     input_bytes,
                     recurse_value,
+                    recurse_idx_value,
                     Some(&state_buf[..state_len]),
+                    first_admit_idx_value,
                 )?;
                 let nb = next.bytes();
                 // Kleene fixpoint check: if step(state) == state, return.
@@ -1816,7 +1876,9 @@ where
                 body_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             ) {
                 Ok(v) => Ok(v),
                 Err(e) => {
@@ -1828,7 +1890,9 @@ where
                             handler_index as usize,
                             input_bytes,
                             recurse_value,
+                            recurse_idx_value,
                             unfold_value,
+                            first_admit_idx_value,
                         )
                     }
                 }
@@ -1855,7 +1919,9 @@ where
                 input_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];
             let written = match <A as crate::pipeline::AxisTuple>::dispatch(
@@ -1885,7 +1951,9 @@ where
                 source_index as usize,
                 input_bytes,
                 recurse_value,
+                recurse_idx_value,
                 unfold_value,
+                first_admit_idx_value,
             )?;
             let bytes = v.bytes();
             let start = byte_offset as usize;
@@ -1906,9 +1974,88 @@ where
             }
             Ok(TermValue::from_slice(&bytes[start..end]))
         }
+        crate::enforcement::Term::FirstAdmit {
+            domain_size_index,
+            predicate_index,
+        } => {
+            // ADR-034 Mechanism 2: bounded search with structural early
+            // termination. Evaluate the domain size N; iterate idx in 0..N
+            // ascending; for each idx, evaluate predicate with
+            // FIRST_ADMIT_IDX_NAME_INDEX bound to idx. Return on the first
+            // non-zero predicate result (the "found" coproduct value
+            // 0x01 || idx_bytes); after exhausting the domain return the
+            // "not-found" coproduct value 0x00 || idx-width zero bytes.
+            let domain_size = evaluate_term_at::<A>(
+                arena,
+                domain_size_index as usize,
+                input_bytes,
+                recurse_value,
+                recurse_idx_value,
+                unfold_value,
+                first_admit_idx_value,
+            )?;
+            let n = bytes_to_u64_be(domain_size.bytes());
+            // Determine the idx byte width from the domain size's
+            // BE-truncated u64 packing (use the smallest non-zero count of
+            // bytes needed to represent N). For N=0 fall back to 1 byte so
+            // the not-found sentinel still has the canonical (disc, idx) shape.
+            let idx_byte_width: usize = if n == 0 {
+                1
+            } else {
+                let mut w = 8usize;
+                while w > 1 && (n >> ((w - 1) * 8)) == 0 {
+                    w -= 1;
+                }
+                w
+            };
+            let mut idx_iter: u64 = 0;
+            while idx_iter < n {
+                let idx_bytes_full = idx_iter.to_be_bytes();
+                let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];
+                let pred_val = evaluate_term_at::<A>(
+                    arena,
+                    predicate_index as usize,
+                    input_bytes,
+                    recurse_value,
+                    recurse_idx_value,
+                    unfold_value,
+                    Some(idx_bytes),
+                )?;
+                // ADR-029 zero/non-zero convention: any TermValue whose
+                // byte sequence has at least one non-zero byte counts as
+                // "true". An empty TermValue is treated as "false".
+                let pb = pred_val.bytes();
+                let mut admitted = false;
+                let mut bi = 0;
+                while bi < pb.len() {
+                    if pb[bi] != 0 {
+                        admitted = true;
+                        break;
+                    }
+                    bi += 1;
+                }
+                if admitted {
+                    let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];
+                    out_buf[0] = 0x01;
+                    let mut k = 0;
+                    while k < idx_byte_width {
+                        out_buf[1 + k] = idx_bytes[k];
+                        k += 1;
+                    }
+                    return Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]));
+                }
+                idx_iter += 1;
+            }
+            // No idx admitted — emit not-found coproduct value.
+            let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            out_buf[0] = 0x00;
+            // bytes 1..1+idx_byte_width remain zero (structural padding).
+            Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]))
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_primitive_op<A>(
     arena: &[crate::enforcement::Term],
     operator: crate::PrimitiveOp,
@@ -1916,7 +2063,9 @@ fn apply_primitive_op<A>(
     args_len: usize,
     input_bytes: &[u8],
     recurse_value: Option<&[u8]>,
+    recurse_idx_value: Option<&[u8]>,
     unfold_value: Option<&[u8]>,
+    first_admit_idx_value: Option<&[u8]>,
 ) -> Result<TermValue, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple,
@@ -1953,7 +2102,15 @@ where
         });
     }
     if arity == 1 {
-        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;
+        let v = evaluate_term_at::<A>(
+            arena,
+            args_start,
+            input_bytes,
+            recurse_value,
+            recurse_idx_value,
+            unfold_value,
+            first_admit_idx_value,
+        )?;
         let x = bytes_to_u64_be(v.bytes());
         let r =
             match operator {
@@ -1978,14 +2135,23 @@ where
         let arr = r.to_be_bytes();
         Ok(TermValue::from_slice(&arr[8 - width..]))
     } else {
-        let lhs =
-            evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, unfold_value)?;
+        let lhs = evaluate_term_at::<A>(
+            arena,
+            args_start,
+            input_bytes,
+            recurse_value,
+            recurse_idx_value,
+            unfold_value,
+            first_admit_idx_value,
+        )?;
         let rhs = evaluate_term_at::<A>(
             arena,
             args_start + 1,
             input_bytes,
             recurse_value,
+            recurse_idx_value,
             unfold_value,
+            first_admit_idx_value,
         )?;
         // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and
         // comparison primitives bypass the u64 fold and operate on the
