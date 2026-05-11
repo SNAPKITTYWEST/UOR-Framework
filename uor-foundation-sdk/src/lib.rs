@@ -1598,6 +1598,91 @@ impl Parse for PrismModelInput {
 
 /// One spec entry in the term arena being built. Maps to a `Term::*`
 /// variant token stream at emission time.
+/// Wiki ADR-035 receiver-shape kinds for ψ-chain compatibility checks.
+/// The closure-body parser tags each emitted TermSpec with its produced
+/// shape and validates ψ-chain operand-shape mismatches at proc-macro
+/// expansion (`chain_complex` requires a simplicial-complex operand,
+/// `homology_groups` requires a chain-complex operand, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PsiShape {
+    /// Byte sequence — Literal, Variable, Application, ProjectField,
+    /// Try, Recurse, Unfold, Match, Lift, Project. Also the output of
+    /// `Term::Betti` (the β-vector serialization, a byte sequence) and
+    /// `Term::KInvariants` (the κ-label byte serialization).
+    Byte,
+    /// SimplicialComplex — output of `Term::Nerve` (ψ_1).
+    SimplicialComplex,
+    /// ChainComplex — output of `Term::ChainComplex` (ψ_2).
+    ChainComplex,
+    /// HomologyGroups — output of `Term::HomologyGroups` (ψ_3).
+    HomologyGroups,
+    /// CochainComplex — output of `Term::CochainComplex` (ψ_5).
+    CochainComplex,
+    /// CohomologyGroups — output of `Term::CohomologyGroups` (ψ_6).
+    CohomologyGroups,
+    /// PostnikovTower — output of `Term::PostnikovTower` (ψ_7).
+    PostnikovTower,
+    /// HomotopyGroups — output of `Term::HomotopyGroups` (ψ_8).
+    HomotopyGroups,
+}
+
+impl PsiShape {
+    /// Human-readable description used in receiver-shape violation
+    /// error messages.
+    fn describe(self) -> &'static str {
+        match self {
+            PsiShape::Byte => "byte-shaped",
+            PsiShape::SimplicialComplex => "simplicial-complex-shaped",
+            PsiShape::ChainComplex => "chain-complex-shaped",
+            PsiShape::HomologyGroups => "homology-groups-shaped",
+            PsiShape::CochainComplex => "cochain-complex-shaped",
+            PsiShape::CohomologyGroups => "cohomology-groups-shaped",
+            PsiShape::PostnikovTower => "Postnikov-tower-shaped",
+            PsiShape::HomotopyGroups => "homotopy-groups-shaped",
+        }
+    }
+}
+
+/// Determine the produced shape of a TermSpec. Combinatorial Term
+/// variants produce byte-shaped values; ψ-Term variants produce their
+/// per-stage ontology-defined shape (per ADR-035's nine ψ-maps).
+fn term_spec_shape(spec: &TermSpec) -> PsiShape {
+    match spec {
+        TermSpec::Nerve { .. } => PsiShape::SimplicialComplex,
+        TermSpec::ChainComplex { .. } => PsiShape::ChainComplex,
+        TermSpec::HomologyGroups { .. } => PsiShape::HomologyGroups,
+        TermSpec::CochainComplex { .. } => PsiShape::CochainComplex,
+        TermSpec::CohomologyGroups { .. } => PsiShape::CohomologyGroups,
+        TermSpec::PostnikovTower { .. } => PsiShape::PostnikovTower,
+        TermSpec::HomotopyGroups { .. } => PsiShape::HomotopyGroups,
+        // `Betti` extracts a β-vector serialization — byte-shaped at the
+        // catamorphism's TermValue level. `KInvariants` produces the
+        // κ-label byte serialization — byte-shaped. All other Term
+        // variants are byte-shaped per the existing closure-body
+        // grammar (ADR-022 D3 G1..G20).
+        _ => PsiShape::Byte,
+    }
+}
+
+/// Receiver-shape compatibility per wiki ADR-035:
+///   - `nerve` (G21): operand must be byte-shaped (per-value bytes).
+///   - All other ψ-Term variants (G22..G29): operand must be the exact
+///     upstream ψ-stage shape — receiver and operand match exactly.
+fn psi_shape_compatible(expected: PsiShape, actual: PsiShape) -> bool {
+    expected == actual
+}
+
+// `TermSpec::AxisInvocation`, `TermSpec::FirstAdmit`,
+// `TermSpec::FirstAdmitIdxPlaceholder`, and `TermSpec::LiteralExpr` are
+// retained as inert variants for substrate compatibility with prior
+// macro-emitter shapes. Under the wiki ADR-035 ψ-residuals discipline,
+// the closure-body parser rejects `first_admit(...)`, `hash(...)`, and
+// byte-comparison/concat operators at emission time, so these variants
+// are not constructed by the current verb-body emitter. The match arms
+// against them survive in clone/render paths to keep the enum
+// total-functioned should non-verb-body callers (conformance generators,
+// trace replay) emit a TermSpec arena containing them.
+#[allow(dead_code)]
 enum TermSpec {
     /// `Term::Literal { value, level: WittLevel::W8 }`
     Literal(u64),
@@ -2082,11 +2167,47 @@ fn emit_term_for_match(
     Ok(idx)
 }
 
+/// Build the closure-violation error for a ψ-residual op emission per
+/// wiki ADR-035. The error spans the offending syntactic form and
+/// names the ψ-residual category + the architectural reason +
+/// the canonical alternative (ψ-chain composition).
+fn reject_psi_residual_op<E: quote::ToTokens>(
+    expr: &E,
+    op_syntax: &str,
+    op_name: &str,
+) -> Result<usize> {
+    let message = format!(
+        "ψ-residual violation (wiki ADR-035): byte-comparison `{op_syntax}` \
+         (`PrimitiveOp::{op_name}`) is excluded from verb-body composition. \
+         The canonical compiled form is structural — admission is a property \
+         of the value's k-invariant signature, not a comparison predicate. \
+         Express the admission relation through the ψ-chain (G21..G29) \
+         instead: e.g. `k_invariants(homotopy_groups(postnikov_tower(nerve(input))))` \
+         produces the κ-label that classifies the input's homotopy type."
+    );
+    Err(syn::Error::new_spanned(expr, message))
+}
+
+/// Build the closure-violation error for a ψ-residual call form.
+fn reject_psi_residual_call<E: quote::ToTokens>(
+    expr: &E,
+    form: &str,
+    term_variant: &str,
+    rationale: &str,
+) -> Result<usize> {
+    let message = format!(
+        "ψ-residual violation (wiki ADR-035): `{form}` lowers to `Term::{term_variant}` \
+         and is excluded from verb-body composition. {rationale}"
+    );
+    Err(syn::Error::new_spanned(expr, message))
+}
+
 /// Map a binary operator expression to a `Term::Application` with the
 /// corresponding `PrimitiveOp` discriminant. Wiki ADR-013/TR-08 substrate
 /// amendment: foundation extends `PrimitiveOp` with `Le`, `Lt`, `Ge`,
-/// `Gt` (byte-level comparison) so the closure-body grammar G3 admits
-/// `<=`, `<`, `>=`, `>` operators alongside the arithmetic primitives.
+/// `Gt` (byte-level comparison) — those discriminants remain in the
+/// substrate for non-verb-body contexts but are rejected here per
+/// ADR-035's ψ-residuals discipline.
 fn emit_term_for_binary(
     expr: &syn::ExprBinary,
     route_input: &Ident,
@@ -2094,10 +2215,17 @@ fn emit_term_for_binary(
     scope: &mut BindingScope,
 ) -> Result<usize> {
     let operator = match expr.op {
-        syn::BinOp::Le(_) => quote! { ::uor_foundation::PrimitiveOp::Le },
-        syn::BinOp::Lt(_) => quote! { ::uor_foundation::PrimitiveOp::Lt },
-        syn::BinOp::Ge(_) => quote! { ::uor_foundation::PrimitiveOp::Ge },
-        syn::BinOp::Gt(_) => quote! { ::uor_foundation::PrimitiveOp::Gt },
+        // Wiki ADR-035 ψ-residuals discipline: byte-comparison
+        // PrimitiveOps (Le, Lt, Ge, Gt) are ψ-enumeration residuals of
+        // search-based admission predicates and excluded from verb-body
+        // composition. The canonical compiled form is structural —
+        // admission is a property of the value's k-invariant signature,
+        // not a comparison predicate. Express admission through the
+        // ψ-chain (G21..G29) instead.
+        syn::BinOp::Le(_) => return reject_psi_residual_op(expr, "<=", "Le"),
+        syn::BinOp::Lt(_) => return reject_psi_residual_op(expr, "<", "Lt"),
+        syn::BinOp::Ge(_) => return reject_psi_residual_op(expr, ">=", "Ge"),
+        syn::BinOp::Gt(_) => return reject_psi_residual_op(expr, ">", "Gt"),
         syn::BinOp::Add(_) => quote! { ::uor_foundation::PrimitiveOp::Add },
         syn::BinOp::Sub(_) => quote! { ::uor_foundation::PrimitiveOp::Sub },
         syn::BinOp::Mul(_) => quote! { ::uor_foundation::PrimitiveOp::Mul },
@@ -2107,7 +2235,7 @@ fn emit_term_for_binary(
         _ => {
             return Err(syn::Error::new_spanned(
                 expr,
-                "closure violation: binary operator is not in the closure-body grammar; recognised operators are arithmetic (+, -, *), bitwise (^, &, |), and byte-level comparison (<=, <, >=, >)",
+                "closure violation: binary operator is not in the closure-body grammar; recognised operators are arithmetic (+, -, *) and bitwise (^, &, |). Byte-level comparison (<=, <, >=, >) is excluded by the ADR-035 ψ-residuals discipline.",
             ));
         }
     };
@@ -2905,180 +3033,90 @@ fn emit_term_for_call(
         return Ok(current_level[0]);
     }
 
-    // ADR-026 G16: `first_admit(<domain_type>, |i| pred)` lowers to a
-    // structural declaration over the domain's successor structure.
-    // Foundation emits `Term::Recurse { measure, base, step }` where:
-    //   - measure: a Literal carrying the domain's cardinality (foundation
-    //     reads the type-level `<DomainTy as ConstrainedTypeShape>::SITE_COUNT`
-    //     when available; otherwise uses W8's 256 as a default ceiling)
-    //   - base: a Literal(0) sentinel (zero meaning "not found", matching
-    //     Term::Recurse's measure-zero termination semantics)
-    //   - step: the predicate's term tree, evaluated at the recursive call
-    //     placeholder bound to the iteration index
-    // Implementations override the runtime per ADR-024 to provide actual
-    // search; foundation's catamorphism walks the declaration.
+    // Wiki ADR-035 ψ-residuals discipline: `first_admit` lowers to
+    // `Term::FirstAdmit` — ψ-enumeration over a counter domain, which
+    // recovers structural admission by brute-force search rather than by
+    // structural witness. The grammar form remains recognized so the
+    // proc-macro can emit a precise error rather than silently emitting a
+    // non-conforming arena; `Term::FirstAdmit` itself remains in the
+    // substrate for non-verb-body contexts (conformance-corpus
+    // generators, foundation-internal trace replay).
     if func_ident == "first_admit" {
-        if call.args.len() != 2 {
-            return Err(syn::Error::new(
-                func_ident.span(),
-                format!(
-                    "closure violation: `first_admit` (G16) expects 2 arguments (domain, predicate closure), got {}",
-                    call.args.len()
-                ),
-            ));
-        }
-        let domain_arg = match &call.args[0] {
-            syn::Expr::Path(p) => p,
-            other => {
-                return Err(syn::Error::new_spanned(
-                    other,
-                    "closure violation: `first_admit`'s first argument must be a domain type path (e.g., `WittLevel::W8` or a `ConstrainedTypeShape`-implementing type)",
-                ));
-            }
-        };
-        let pred_closure = match &call.args[1] {
-            syn::Expr::Closure(c) => c,
-            other => {
-                return Err(syn::Error::new_spanned(
-                    other,
-                    "closure violation: `first_admit`'s second argument must be a closure `|i| <predicate_body>` (G16)",
-                ));
-            }
-        };
-        if pred_closure.inputs.len() != 1 {
-            return Err(syn::Error::new_spanned(
-                pred_closure,
-                "closure violation: `first_admit`'s predicate closure expects exactly 1 parameter (the iteration index, G16)",
-            ));
-        }
-        let idx_ident = match &pred_closure.inputs[0] {
-            syn::Pat::Ident(p) => p.ident.clone(),
-            other => {
-                return Err(syn::Error::new_spanned(
-                    other,
-                    "closure violation: `first_admit`'s index parameter must be a plain identifier (G16)",
-                ));
-            }
-        };
-        // ADR-034 Mechanism 2: the lowering target shifted from
-        // `Term::Recurse` to `Term::FirstAdmit`. Emit:
-        //   - a `Term::Literal` carrying the domain's CYCLE_SIZE (read
-        //     from `<DomainTy as ConstrainedTypeShape>::CYCLE_SIZE` per
-        //     ADR-032);
-        //   - a placeholder Variable carrying the foundation-fixed
-        //     FIRST_ADMIT_IDX_NAME_INDEX, which idx_ident references in
-        //     the predicate body lower to;
-        //   - the predicate body in extended scope where idx_ident
-        //     resolves to the placeholder's arena index.
-        // Then push `Term::FirstAdmit { domain_size_index, predicate_index }`.
-        let domain_path = &domain_arg.path;
-        let domain_size_root = arena.len();
-        arena.push(TermSpec::LiteralExpr {
-            value: quote::quote! {
-                <#domain_path as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE
-            },
-            level: quote::quote! { ::uor_foundation::WittLevel::new(64) },
-        });
-        // ADR-034 Mechanism 2: emit a placeholder Variable BEFORE the
-        // predicate body and bind idx_ident to that placeholder's arena
-        // index, so any reference to idx_ident inside pred lowers to
-        // the placeholder Variable.
-        let mut pred_scope = scope.clone();
-        pred_scope.shadow_check(&idx_ident)?;
-        let placeholder_idx = arena.len();
-        arena.push(TermSpec::FirstAdmitIdxPlaceholder);
-        pred_scope.push(idx_ident, placeholder_idx);
-        let pred_root =
-            emit_term_for_expr(&pred_closure.body, route_input, arena, &mut pred_scope)?;
-        let idx = arena.len();
-        arena.push(TermSpec::FirstAdmit {
-            domain_size_index: domain_size_root as u32,
-            predicate_index: pred_root as u32,
-        });
-        return Ok(idx);
+        return reject_psi_residual_call(
+            call,
+            "first_admit(<domain>, |idx| <pred>)",
+            "FirstAdmit",
+            "The canonical compiled form is structural — admission is a \
+             property of the value's k-invariant signature, not a search \
+             predicate enumerated over a counter domain. Express the \
+             admission relation through the ψ-chain (G21..G29): \
+             e.g. `k_invariants(homotopy_groups(postnikov_tower(nerve(input))))` \
+             produces the κ-label that classifies the input's homotopy type.",
+        );
     }
 
-    // ADR-013/TR-08 byte-packing primitive: `concat(lhs, rhs)` lowers
-    // to `Term::Application(Concat, [lhs, rhs])`. The catamorphism's
-    // apply_primitive_op handles the byte-sequence concatenation
-    // bounded by TERM_VALUE_MAX_BYTES.
+    // Wiki ADR-035 ψ-residuals discipline: `concat` lowers to
+    // `Term::Application { operator: PrimitiveOp::Concat }` — a
+    // byte-concatenation residual of byte-shape-aware admission, which
+    // recovers structural admission by byte-level manipulation rather
+    // than by k-invariant signature. Rejected at emission.
     if func_ident == "concat" {
-        if call.args.len() != 2 {
-            return Err(syn::Error::new(
-                func_ident.span(),
-                format!(
-                    "closure violation: `concat` (substrate amendment) expects 2 arguments, got {}",
-                    call.args.len()
-                ),
-            ));
-        }
-        let lhs_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
-        let rhs_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
-        let already_contiguous = rhs_root == lhs_root + 1;
-        let (args_start, args_len) = if already_contiguous {
-            (lhs_root as u32, 2u32)
-        } else {
-            let start = arena.len();
-            let lhs_dup = clone_term_spec(&arena[lhs_root]);
-            arena.push(lhs_dup);
-            let rhs_dup = clone_term_spec(&arena[rhs_root]);
-            arena.push(rhs_dup);
-            (start as u32, 2u32)
-        };
-        let idx = arena.len();
-        arena.push(TermSpec::Application {
-            operator: quote! { ::uor_foundation::PrimitiveOp::Concat },
-            args_start,
-            args_len,
-        });
-        return Ok(idx);
+        return reject_psi_residual_call(
+            call,
+            "concat(<lhs>, <rhs>)",
+            "Application { operator: PrimitiveOp::Concat }",
+            "The canonical compiled form is structural — admission is a \
+             property of the value's k-invariant signature, not a \
+             byte-shape predicate. If byte-concatenation is the input's \
+             structural decomposition, use `partition_product!` to \
+             declare the typed shape and `Term::ProjectField` (G20) to \
+             extract sub-byte ranges; pipe each component through the \
+             ψ-chain instead of byte-manipulating before admission.",
+        );
     }
 
-    // ADR-026 G19 + ADR-030: `hash(input)` lowers to a Term::AxisInvocation
-    // against axis 0 (the application's HashAxis position) and kernel 0
-    // (HashAxis::KERNEL_HASH). Applications selecting non-trivial axis
-    // tuples may invoke other axis kernels via the `axis!`-emitted
-    // method-call form (a future grammar extension).
+    // Wiki ADR-035 ψ-residuals discipline: `hash(input)` lowers to
+    // `Term::AxisInvocation` — axis-trait-method dispatch from a verb
+    // body. The canonical hash axis is consumed by resolvers
+    // (`ResolverTuple` per ADR-036), not by verb-body composition.
+    // Hash invocations belong in `NerveResolver::resolve` or other
+    // resolver bodies, not in the verb body's structural composition.
     if func_ident == "hash" {
-        if call.args.len() != 1 {
-            return Err(syn::Error::new(
-                func_ident.span(),
-                format!(
-                    "closure violation: `hash` (ADR-026 G19) expects 1 argument, got {}",
-                    call.args.len()
-                ),
-            ));
-        }
-        let input_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
-        let idx = arena.len();
-        arena.push(TermSpec::AxisInvocation {
-            axis_index: 0,
-            kernel_id: 0,
-            input_index: input_root as u32,
-        });
-        return Ok(idx);
+        return reject_psi_residual_call(
+            call,
+            "hash(<value>)",
+            "AxisInvocation",
+            "The canonical hash axis is consumed by resolvers, not by \
+             verb-body composition (ADR-036). Move the `hash(...)` call \
+             into a `NerveResolver` (or other resolver-trait impl) where \
+             the per-value content fingerprint is computed as part of \
+             the resolver's internal resolution semantics; the verb body \
+             composes ψ-chain forms (G21..G29) over the input's \
+             structural decomposition.",
+        );
     }
 
     // Wiki ADR-035 G21..G29: closure-body grammar identifiers for the
     // nine ψ-chain Term variants. Each takes a single operand whose
     // arena root becomes the corresponding `*_index` field. The
-    // receiver-shape checks the wiki specifies (simplicial-complex
-    // shape for chain_complex etc.) are not enforced at proc-macro
-    // expansion in this implementation — the catamorphism's fold-rule
-    // is the source of truth for shape compatibility (it returns
-    // RESOLVER_ABSENT or other ShapeViolation as appropriate).
-    let psi_chain: &[(&str, &str)] = &[
-        ("nerve", "G21"),
-        ("chain_complex", "G22"),
-        ("homology_groups", "G23"),
-        ("betti", "G24"),
-        ("cochain_complex", "G25"),
-        ("cohomology_groups", "G26"),
-        ("postnikov_tower", "G27"),
-        ("homotopy_groups", "G28"),
-        ("k_invariants", "G29"),
+    // receiver-shape check (wiki ADR-035: G22 takes simplicial-complex,
+    // G23/G25 take chain-complex, G24 takes homology-groups, G26 takes
+    // cochain-complex, G27 takes simplicial-complex, G28 takes
+    // Postnikov-tower, G29 takes homotopy-groups; G21 takes byte) is
+    // enforced at proc-macro expansion by walking the operand TermSpec
+    // and asserting its produced shape matches.
+    let psi_chain: &[(&str, &str, PsiShape)] = &[
+        ("nerve", "G21", PsiShape::Byte),
+        ("chain_complex", "G22", PsiShape::SimplicialComplex),
+        ("homology_groups", "G23", PsiShape::ChainComplex),
+        ("betti", "G24", PsiShape::HomologyGroups),
+        ("cochain_complex", "G25", PsiShape::ChainComplex),
+        ("cohomology_groups", "G26", PsiShape::CochainComplex),
+        ("postnikov_tower", "G27", PsiShape::SimplicialComplex),
+        ("homotopy_groups", "G28", PsiShape::PostnikovTower),
+        ("k_invariants", "G29", PsiShape::HomotopyGroups),
     ];
-    for (name, grammar) in psi_chain {
+    for (name, grammar, expected_shape) in psi_chain {
         if func_ident == name {
             if call.args.len() != 1 {
                 return Err(syn::Error::new(
@@ -3090,6 +3128,21 @@ fn emit_term_for_call(
                 ));
             }
             let operand_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+            let operand_shape = term_spec_shape(&arena[operand_root]);
+            if !psi_shape_compatible(*expected_shape, operand_shape) {
+                return Err(syn::Error::new_spanned(
+                    &call.args[0],
+                    format!(
+                        "receiver-shape violation (wiki ADR-035 {grammar}): `{name}` expects \
+                         a {expected} receiver, but the operand produces a {actual} value. \
+                         The ψ-chain stages compose along the ontology's identity maps \
+                         (ψ_1 → ψ_2 → … → ψ_9); receiver-shape mismatches break the \
+                         canonical compiled form's structural-witness chain.",
+                        expected = expected_shape.describe(),
+                        actual = operand_shape.describe(),
+                    ),
+                ));
+            }
             let idx = arena.len();
             let spec = match *name {
                 "nerve" => TermSpec::Nerve {

@@ -882,36 +882,24 @@ fn prism_model_emits_tree_fold_pairwise_chain_for_g15_form() {
     ));
 }
 
-prism_model! {
-    pub struct FirstAdmitModel;
-    pub struct FirstAdmitRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for FirstAdmitModel {
-        type Input = ConstrainedTypeInput;
-        type Output = ConstrainedTypeInput;
-        type Route = FirstAdmitRoute;
-        fn route(input: Self::Input) -> Self::Output {
-            // ADR-032 (G5): domain type must implement ConstrainedTypeShape
-            // so the macro can read CYCLE_SIZE for the descent measure.
-            // The wiki's normative example
-            //   first_admit(WittLevel::W32, |nonce| …)
-            // compiles on stable Rust 1.83 as the closest analog
-            //   first_admit(witt_domain::W32, …)
-            // because inherent associated TYPES (the syntax the wiki uses)
-            // require nightly. Foundation emits one zero-sized marker per
-            // Witt level in `pipeline::witt_domain`.
-            first_admit(uor_foundation::pipeline::witt_domain::W8, |i| succ(i))
-        }
-    }
-}
-
-#[test]
-fn prism_model_emits_first_admit_term_for_g16_first_admit() {
-    // ADR-034 Mechanism 2: first_admit(<DomainTy>, |i| pred) lowers to
-    // Term::FirstAdmit (replacing the legacy Term::Recurse lowering).
-    let arena = <FirstAdmitRoute as FoundationClosed>::arena_slice();
-    let last = arena.last().expect("non-empty arena");
-    assert!(matches!(last, Term::FirstAdmit { .. }));
-}
+// Wiki ADR-035 ψ-residuals discipline: `first_admit(...)` is a
+// ψ-enumeration residual of search-based admission and is rejected by
+// `prism_model!` / `verb!` at proc-macro expansion. Foundation's
+// `Term::FirstAdmit` variant remains in the substrate (the catamorphism
+// still folds it for non-verb-body callers — conformance generators,
+// trace replay). The smoke test that previously asserted the lowering
+// has been retired; the substrate-level catamorphism behavior is
+// covered by `behavior_catamorphism_evaluator.rs`. The line below pins
+// the reject-at-emit surface as a doc-snippet for downstream
+// applications converting from G16-based admission to ψ-chain
+// composition.
+//
+// Pre-discipline (ADR-034) form (now rejected):
+//   first_admit(witt_domain::W8, |i| <pred>)
+// Post-discipline (ADR-035) canonical form:
+//   k_invariants(homotopy_groups(postnikov_tower(nerve(input))))
+//
+// See `psi_chain_*` tests below for the canonical replacement pattern.
 
 /// ADR-032 (G5) regression: confirm `witt_domain::W8` carries
 /// `CYCLE_SIZE = 256` and `witt_domain::W16` carries `CYCLE_SIZE = 65536`,
@@ -1648,4 +1636,125 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
             "Default-constructed CompleteResolvers must carry the homology-branch label",
         );
     });
+}
+
+// =====================================================================
+// Wiki ADR-035 ψ-residuals discipline — runtime pinning.
+//
+// The `prism_model!` / `verb!` macros reject ψ-residual emissions at
+// proc-macro expansion. A direct compile-fail assertion lives outside
+// the unit-test corpus; the assertion below walks every route arena
+// `prism_model!` produced in this test file and verifies no ψ-residual
+// Term variant slipped through. This is the load-bearing positive-side
+// of the wiki's discipline (TR-14): if a future regression silently
+// emits a ψ-residual, this test fails.
+
+/// Returns true iff `term` is a ψ-residual per wiki ADR-035:
+///   - `Term::FirstAdmit` (search-based admission).
+///   - `Term::AxisInvocation` (axis-trait-method dispatch from verb body).
+///   - `Term::Application { PrimitiveOp::{Le|Lt|Ge|Gt|Concat}, .. }`
+///     (byte-comparison / byte-concat residuals).
+fn term_is_psi_residual(term: &Term) -> bool {
+    use uor_foundation::PrimitiveOp;
+    matches!(
+        term,
+        Term::FirstAdmit { .. }
+            | Term::AxisInvocation { .. }
+            | Term::Application {
+                operator: PrimitiveOp::Le
+                    | PrimitiveOp::Lt
+                    | PrimitiveOp::Ge
+                    | PrimitiveOp::Gt
+                    | PrimitiveOp::Concat,
+                ..
+            }
+    )
+}
+
+#[test]
+fn prism_model_arenas_carry_zero_psi_residuals_per_adr_035() {
+    // Iterate every Route witness emitted in this file and confirm its
+    // arena contains no ψ-residual Term variants. The list mirrors the
+    // verb-body emissions across the smoke test corpus; failure here
+    // means the closure-body parser regressed on the ADR-035 discipline.
+    let arenas: &[(&'static str, &'static [Term])] = &[
+        (
+            "AddTwoLiterals",
+            <AddTwoLiteralsRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "VariableThenSucc",
+            <VariableThenSuccRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "VerbInvokingModel",
+            <VerbInvokingRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "LiftToW16Model",
+            <LiftToW16Route as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "ProjectToW8Model",
+            <ProjectToW8Route as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "LetBindingModel",
+            <LetBindingRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "TryPropagateModel",
+            <TryPropagateRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "RecurseModel",
+            <RecurseRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "UnfoldModel",
+            <UnfoldRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "FoldNUnrolledModel",
+            <FoldNUnrolledRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "MatchModel",
+            <MatchRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "ParallelComposeModel",
+            <ParallelComposeRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "TreeFoldModel",
+            <TreeFoldRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "ChainedFieldModel",
+            <ChainedFieldRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "ChainedPosModel",
+            <ChainedPosRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "KInvariantInferenceModel",
+            <KInvariantInferenceRoute as FoundationClosed>::arena_slice(),
+        ),
+        (
+            "HomologyInferenceModel",
+            <HomologyInferenceRoute as FoundationClosed>::arena_slice(),
+        ),
+    ];
+    for (name, arena) in arenas {
+        for (idx, term) in arena.iter().enumerate() {
+            assert!(
+                !term_is_psi_residual(term),
+                "ADR-035 ψ-residuals violation: route `{name}` arena[{idx}] = {term:?} \
+                 is a ψ-residual Term variant. The `prism_model!` / `verb!` macros must \
+                 reject ψ-residual emissions at proc-macro expansion."
+            );
+        }
+    }
 }

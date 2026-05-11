@@ -2996,7 +2996,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::pipeline::AxisTuple,");
+    // Wiki ADR-036: the trait's A parameter carries the `AxisTuple + Hasher`
+    // composition — `AxisTuple` for substitution-axis dispatch (ADR-030) and
+    // `Hasher` so resolver-bound ψ-Term fold-rules per ADR-035 can invoke
+    // `<A as Hasher>::initial()` at evaluation time (parameterizes the eight
+    // resolver traits per ADR-036).
+    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple,");
     f.line("{");
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");

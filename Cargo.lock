@@ -75,7 +75,7 @@ checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
 name = "cargo-uor"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -633,7 +633,7 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "uor-clients"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "uor-codegen"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "uor-ontology",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "uor-conformance"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "cssparser",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "uor-docs"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "pulldown-cmark",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "uor-foundation"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "libm",
  "uor-foundation-test-helpers",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "uor-foundation-sdk"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -714,14 +714,14 @@ dependencies = [
 
 [[package]]
 name = "uor-foundation-test-helpers"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "uor-foundation",
 ]
 
 [[package]]
 name = "uor-foundation-verify"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "uor-foundation",
  "uor-foundation-test-helpers",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "uor-lean-codegen"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "serde",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "uor-ontology"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "uor-website"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "pulldown-cmark",
@@ -761,7 +761,7 @@ dependencies = [
 
 [[package]]
 name = "uor-xtask"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "clap",

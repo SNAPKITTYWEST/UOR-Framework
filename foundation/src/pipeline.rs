@@ -1986,7 +1986,7 @@ pub trait PrismModel<H, B, A, R = crate::pipeline::NullResolverTuple>: __sdk_sea
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple,
+    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple,
 {
     /// Input feature type — a [`ConstrainedTypeShape`] impl declared in
