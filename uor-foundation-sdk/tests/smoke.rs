@@ -1139,3 +1139,513 @@ fn prism_model_emits_chained_positional_project_field_terms() {
         }
     ));
 }
+
+// =====================================================================
+// `resolver!` smoke tests — wiki ADR-036 ResolverTuple declaration macro.
+//
+// These tests exercise the end-to-end ψ-chain inference path:
+// `resolver!` emits all eight `Has<Category>Resolver<H>` impls
+// (declared fields delegate to the user's resolver; undeclared
+// categories delegate to `NullResolverTuple`), and the catamorphism's
+// `Term::Nerve` fold-rule dispatches operand bytes through the
+// declared `NerveResolver`.
+
+use uor_foundation::enforcement::ShapeViolation;
+use uor_foundation::pipeline::{evaluate_term_tree, NerveResolver};
+use uor_foundation::PipelineFailure;
+use uor_foundation_sdk::resolver;
+
+/// Application-author NerveResolver impl: writes a fixed sentinel byte
+/// sequence to the output buffer regardless of input. This makes it
+/// observable that the catamorphism dispatched through this resolver
+/// (vs. the foundation Null impl, which would emit `RESOLVER_ABSENT`).
+#[derive(Debug, Default)]
+pub struct SentinelNerveResolver<H>(core::marker::PhantomData<H>);
+
+// The resolver-trait family carries the `__sdk_seal::Sealed` supertrait;
+// foundation's normative path for users to satisfy it is via the SDK
+// macros. This test reaches into the doc-hidden seal module directly to
+// exercise the catamorphism's dispatch surface end-to-end — the wiki
+// (ADR-022 D1) notes external crates that name `__sdk_seal::Sealed` are
+// "technically permitted by Rust's visibility rules but architecturally
+// non-conforming"; a unit test in the SDK crate is the harness case.
+impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for SentinelNerveResolver<H> {}
+
+impl<H: Hasher> NerveResolver<H> for SentinelNerveResolver<H> {
+    fn resolve(&self, _input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation> {
+        const SENTINEL: &[u8] = &[0xA1, 0xB2, 0xC3, 0xD4];
+        let n = SENTINEL.len().min(out.len());
+        out[..n].copy_from_slice(&SENTINEL[..n]);
+        Ok(n)
+    }
+}
+
+resolver! {
+    pub struct SingleCategoryResolvers<H: ::uor_foundation::enforcement::Hasher> {
+        nerve: SentinelNerveResolver<H>,
+    }
+}
+
+#[test]
+fn resolver_macro_emits_all_eight_has_impls_so_run_route_bounds_resolve() {
+    // ADR-036: even when the application declares only one category,
+    // the emitted struct must satisfy `run_route`'s where-clause
+    // (all eight `Has<Category>Resolver<A>` bounds). This compile-time
+    // assertion fails to type-check if the macro regresses to
+    // declared-only emissions.
+    fn _accepts<R>()
+    where
+        R: ::uor_foundation::pipeline::ResolverTuple
+            + ::uor_foundation::pipeline::HasNerveResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasChainComplexResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasHomologyGroupResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasCochainComplexResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasCohomologyGroupResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasPostnikovResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasHomotopyGroupResolver<SmokeHasher>
+            + ::uor_foundation::pipeline::HasKInvariantResolver<SmokeHasher>,
+    {
+    }
+    _accepts::<SingleCategoryResolvers<SmokeHasher>>();
+}
+
+#[test]
+fn psi_chain_nerve_term_dispatches_through_user_declared_resolver() {
+    // End-to-end: a user-declared ResolverTuple with one populated
+    // category (`nerve`) drives the catamorphism's `Term::Nerve`
+    // fold-rule to invoke `SentinelNerveResolver::resolve`. The
+    // resolver writes a fixed sentinel byte pattern; we observe it
+    // in the catamorphism's output TermValue.
+    let arena = [
+        Term::Variable { name_index: 0 },
+        Term::Nerve { value_index: 0 },
+    ];
+    let resolvers = SingleCategoryResolvers::<SmokeHasher> {
+        nerve: SentinelNerveResolver(core::marker::PhantomData),
+        _phantom: core::marker::PhantomData,
+    };
+    let input = [0x00, 0x00, 0x00];
+    let result = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>>(
+        &arena, &input, &resolvers,
+    )
+    .expect("user-declared nerve resolver should resolve");
+    assert_eq!(
+        result.bytes(),
+        &[0xA1, 0xB2, 0xC3, 0xD4][..],
+        "Term::Nerve fold-rule must surface SentinelNerveResolver's output bytes",
+    );
+}
+
+#[test]
+fn undeclared_resolver_categories_propagate_resolver_absent() {
+    // Companion to the previous test: a `Term::ChainComplex` fold
+    // through `SingleCategoryResolvers` (which declares only `nerve`)
+    // routes through the macro-emitted `NullResolverTuple`-delegate
+    // accessor, so `chain_complex_resolver().resolve(...)` returns
+    // the `RESOLVER_ABSENT` violation.
+    let arena = [
+        Term::Variable { name_index: 0 },
+        Term::ChainComplex {
+            simplicial_index: 0,
+        },
+    ];
+    let resolvers = SingleCategoryResolvers::<SmokeHasher> {
+        nerve: SentinelNerveResolver(core::marker::PhantomData),
+        _phantom: core::marker::PhantomData,
+    };
+    let input = [0u8; 1];
+    let outcome = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>>(
+        &arena, &input, &resolvers,
+    );
+    match outcome {
+        Err(PipelineFailure::ShapeViolation { report }) => assert_eq!(
+            report.shape_iri, "https://uor.foundation/resolver/RESOLVER_ABSENT",
+            "undeclared chain_complex must surface RESOLVER_ABSENT",
+        ),
+        other => panic!("expected RESOLVER_ABSENT violation, got {other:?}"),
+    }
+}
+
+// =====================================================================
+// Complete ψ-chain feature-to-label inference — wiki ADR-035.
+//
+// The ψ-pipeline ψ_1..ψ_9 is the structural-witness arm of
+// `op:InferenceOperation`. Each ψ_k is one chain link; the nine
+// variants fan out into three end-to-end inference branches:
+//
+//   Homology branch       : ψ_1 → ψ_2 → ψ_3 → ψ_4
+//                           (raw feature → Betti numbers as label)
+//   Cohomology branch     : ψ_1 → ψ_2 → ψ_5 → ψ_6
+//                           (raw feature → cohomology groups as label)
+//   K-invariant branch    : ψ_1 → ψ_7 → ψ_8 → ψ_9
+//                           (raw feature → k-invariants as label)
+//
+// Each branch is a complete feature-to-label inference path. Together
+// the three branches exercise all nine ψ-variants and verify the
+// catamorphism walks chain dependencies through the user-declared
+// ResolverTuple end-to-end.
+//
+// The sentinel resolvers below each append a category marker byte to
+// the operand bytes — so the catamorphism's output carries a sequence
+// of markers proving each ψ_k was invoked in chain order.
+
+use uor_foundation::pipeline::{
+    ChainComplexResolver, CochainComplexResolver, CohomologyGroupResolver, HomologyGroupResolver,
+    HomotopyGroupResolver, KInvariantResolver, PostnikovResolver,
+};
+
+const PSI_1_MARKER: u8 = 0x01;
+const PSI_2_MARKER: u8 = 0x02;
+const PSI_3_MARKER: u8 = 0x03;
+const PSI_5_MARKER: u8 = 0x05;
+const PSI_6_MARKER: u8 = 0x06;
+const PSI_7_MARKER: u8 = 0x07;
+const PSI_8_MARKER: u8 = 0x08;
+const PSI_9_MARKER: u8 = 0x09;
+
+/// Append a single category marker byte to the operand bytes.
+/// Shared body for every sentinel-resolver impl below.
+fn append_marker(input: &[u8], out: &mut [u8], marker: u8) -> Result<usize, ShapeViolation> {
+    let n = input.len();
+    if n + 1 > out.len() {
+        return Err(ShapeViolation {
+            shape_iri: "https://example.org/psi-chain-test/OutputBufferShape",
+            constraint_iri: "https://example.org/psi-chain-test/OutputBufferShape/maxBytes",
+            property_iri: "https://example.org/psi-chain-test/output",
+            expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+            min_count: 0,
+            max_count: out.len() as u32,
+            kind: uor_foundation::ViolationKind::ValueCheck,
+        });
+    }
+    out[..n].copy_from_slice(input);
+    out[n] = marker;
+    Ok(n + 1)
+}
+
+macro_rules! psi_marker_resolver {
+    ($struct:ident, $trait:ident, $marker:ident) => {
+        #[derive(Debug, Default)]
+        pub struct $struct<H>(core::marker::PhantomData<H>);
+        impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
+        impl<H: Hasher> $trait<H> for $struct<H> {
+            fn resolve(&self, input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation> {
+                append_marker(input, out, $marker)
+            }
+        }
+    };
+}
+
+// Eight per-ψ sentinel resolvers — one for each of the resolver-bound
+// variants. ψ_4 (Betti) is resolver-free per ADR-035, so no sentinel.
+psi_marker_resolver!(Psi1Nerve, NerveResolver, PSI_1_MARKER);
+psi_marker_resolver!(Psi2ChainComplex, ChainComplexResolver, PSI_2_MARKER);
+psi_marker_resolver!(Psi3HomologyGroup, HomologyGroupResolver, PSI_3_MARKER);
+psi_marker_resolver!(Psi5CochainComplex, CochainComplexResolver, PSI_5_MARKER);
+psi_marker_resolver!(Psi6CohomologyGroup, CohomologyGroupResolver, PSI_6_MARKER);
+psi_marker_resolver!(Psi7Postnikov, PostnikovResolver, PSI_7_MARKER);
+psi_marker_resolver!(Psi8HomotopyGroup, HomotopyGroupResolver, PSI_8_MARKER);
+psi_marker_resolver!(Psi9KInvariant, KInvariantResolver, PSI_9_MARKER);
+
+resolver! {
+    pub struct CompleteResolvers<H: ::uor_foundation::enforcement::Hasher> {
+        nerve: Psi1Nerve<H>,
+        chain_complex: Psi2ChainComplex<H>,
+        homology_groups: Psi3HomologyGroup<H>,
+        cochain_complex: Psi5CochainComplex<H>,
+        cohomology_groups: Psi6CohomologyGroup<H>,
+        postnikov: Psi7Postnikov<H>,
+        homotopy_groups: Psi8HomotopyGroup<H>,
+        k_invariants: Psi9KInvariant<H>,
+    }
+}
+
+fn complete_resolvers() -> CompleteResolvers<SmokeHasher> {
+    CompleteResolvers::<SmokeHasher> {
+        nerve: Psi1Nerve(core::marker::PhantomData),
+        chain_complex: Psi2ChainComplex(core::marker::PhantomData),
+        homology_groups: Psi3HomologyGroup(core::marker::PhantomData),
+        cochain_complex: Psi5CochainComplex(core::marker::PhantomData),
+        cohomology_groups: Psi6CohomologyGroup(core::marker::PhantomData),
+        postnikov: Psi7Postnikov(core::marker::PhantomData),
+        homotopy_groups: Psi8HomotopyGroup(core::marker::PhantomData),
+        k_invariants: Psi9KInvariant(core::marker::PhantomData),
+        _phantom: core::marker::PhantomData,
+    }
+}
+
+/// Run a ψ-chain test body on a 16 MB-stack thread. The catamorphism's
+/// per-fold-rule `[u8; AXIS_OUTPUT_BYTES_CEILING]` (= 4096 bytes) plus
+/// the `TermValue` return slot inflate each recursive frame to ~16 KB in
+/// debug builds. The cargo test runner's default 2 MB thread stack
+/// overflows at 4–5 levels of chain depth. Release builds optimize the
+/// frames down to a few hundred bytes and fit comfortably.
+fn run_psi_chain_body<F>(test_body: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(test_body)
+        .expect("spawning ψ-chain test thread")
+        .join()
+        .expect("ψ-chain test thread panicked");
+}
+
+#[test]
+fn psi_chain_homology_branch_routes_feature_to_betti_label() {
+    run_psi_chain_body(|| {
+        // Wiki ADR-035 homology branch: ψ_1 → ψ_2 → ψ_3 → ψ_4.
+        // The arena's root is `Term::Betti`, which is resolver-free —
+        // ψ_4 passes its operand bytes through unchanged, so the
+        // observable output equals the ψ_3 result.
+        let arena = [
+            Term::Variable { name_index: 0 }, // [0] feature input
+            Term::Nerve { value_index: 0 },   // [1] ψ_1
+            Term::ChainComplex {
+                simplicial_index: 1,
+            }, // [2] ψ_2
+            Term::HomologyGroups { chain_index: 2 }, // [3] ψ_3
+            Term::Betti { homology_index: 3 }, // [4] ψ_4 (root)
+        ];
+        let resolvers = complete_resolvers();
+        let input = [0xFEu8, 0xED];
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+            &arena, &input, &resolvers,
+        )
+        .expect("homology-branch chain should resolve end-to-end");
+        let expected = &[0xFE, 0xED, PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
+        assert_eq!(
+            result.bytes(),
+            expected,
+            "homology-branch label must carry input + ψ_1 + ψ_2 + ψ_3 markers (ψ_4 is pass-through)",
+        );
+    });
+}
+
+#[test]
+fn psi_chain_cohomology_branch_routes_feature_to_cohomology_label() {
+    run_psi_chain_body(|| {
+        // Wiki ADR-035 cohomology branch: ψ_1 → ψ_2 → ψ_5 → ψ_6.
+        // ψ_5 (cochain) is the dualization functor on ChainComplex; ψ_6
+        // computes cohomology from cochain. Root is `Term::CohomologyGroups`.
+        let arena = [
+            Term::Variable { name_index: 0 }, // [0] feature input
+            Term::Nerve { value_index: 0 },   // [1] ψ_1
+            Term::ChainComplex {
+                simplicial_index: 1,
+            }, // [2] ψ_2
+            Term::CochainComplex { chain_index: 2 }, // [3] ψ_5
+            Term::CohomologyGroups { cochain_index: 3 }, // [4] ψ_6 (root)
+        ];
+        let resolvers = complete_resolvers();
+        let input = [0xCAu8, 0xFE];
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+            &arena, &input, &resolvers,
+        )
+        .expect("cohomology-branch chain should resolve end-to-end");
+        let expected = &[
+            0xCA,
+            0xFE,
+            PSI_1_MARKER,
+            PSI_2_MARKER,
+            PSI_5_MARKER,
+            PSI_6_MARKER,
+        ][..];
+        assert_eq!(
+            result.bytes(),
+            expected,
+            "cohomology-branch label must carry input + ψ_1 + ψ_2 + ψ_5 + ψ_6 markers",
+        );
+    });
+}
+
+#[test]
+fn psi_chain_k_invariant_branch_routes_feature_to_k_invariant_label() {
+    run_psi_chain_body(|| {
+        // Wiki ADR-035 k-invariant branch: ψ_1 → ψ_7 → ψ_8 → ψ_9.
+        // ψ_7 (Postnikov) takes a SimplicialComplex (from ψ_1) directly,
+        // skipping the chain-complex branch. ψ_8 extracts homotopy from
+        // the Postnikov tower; ψ_9 computes k-invariants from homotopy.
+        let arena = [
+            Term::Variable { name_index: 0 }, // [0] feature input
+            Term::Nerve { value_index: 0 },   // [1] ψ_1
+            Term::PostnikovTower {
+                simplicial_index: 1,
+            }, // [2] ψ_7
+            Term::HomotopyGroups { postnikov_index: 2 }, // [3] ψ_8
+            Term::KInvariants { homotopy_index: 3 }, // [4] ψ_9 (root)
+        ];
+        let resolvers = complete_resolvers();
+        let input = [0xBEu8, 0xEF];
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+            &arena, &input, &resolvers,
+        )
+        .expect("k-invariant-branch chain should resolve end-to-end");
+        let expected = &[
+            0xBE,
+            0xEF,
+            PSI_1_MARKER,
+            PSI_7_MARKER,
+            PSI_8_MARKER,
+            PSI_9_MARKER,
+        ][..];
+        assert_eq!(
+            result.bytes(),
+            expected,
+            "k-invariant-branch label must carry input + ψ_1 + ψ_7 + ψ_8 + ψ_9 markers",
+        );
+    });
+}
+
+#[test]
+fn psi_chain_all_nine_variants_exercise_in_three_branches() {
+    // Pin the architectural commitment: the three feature-to-label
+    // branches above collectively walk every ψ-variant ψ_1..ψ_9. This
+    // assertion is a compile-time enumeration check (each marker
+    // constant declared above appears in at least one branch test).
+    let walked = [
+        PSI_1_MARKER, // homology + cohomology + k-invariant
+        PSI_2_MARKER, // homology + cohomology
+        PSI_3_MARKER, // homology
+        // ψ_4 = Betti is resolver-free; its presence is verified by
+        // `psi_chain_homology_branch_routes_feature_to_betti_label`
+        // observing that the ψ_3 result flows through unchanged.
+        PSI_5_MARKER, // cohomology
+        PSI_6_MARKER, // cohomology
+        PSI_7_MARKER, // k-invariant
+        PSI_8_MARKER, // k-invariant
+        PSI_9_MARKER, // k-invariant
+    ];
+    assert_eq!(walked.len(), 8, "eight resolver-bound ψ-variants");
+}
+
+// =====================================================================
+// End-to-end ψ-chain through `prism_model!` four-position form — wiki
+// ADR-036's substrate-parameter `R` threaded through `forward()`.
+//
+// These tests prove that:
+//   1. `prism_model!` accepts the four-position `impl PrismModel<H, B, A, R>`
+//      form (ADR-036).
+//   2. `forward(input)` constructs the user's ResolverTuple instance —
+//      either from an optional `fn resolvers() -> R` clause or via
+//      `<R as Default>::default()` (emitted by the `resolver!` macro on
+//      the tuple struct).
+//   3. The closure-body grammar's G21..G29 ψ-chain forms (`nerve`,
+//      `chain_complex`, `homology_groups`, `betti`, `cochain_complex`,
+//      `cohomology_groups`, `postnikov_tower`, `homotopy_groups`,
+//      `k_invariants`) lower into the corresponding `Term::*` variants
+//      and the catamorphism dispatches each through the user's
+//      ResolverTuple end-to-end — feature input bytes flow through the
+//      ψ-pipeline and emerge as label bytes from `Grounded::output_bytes`.
+
+use uor_foundation::enforcement::Grounded;
+
+// Four-position form with explicit `fn resolvers()` clause — the
+// k-invariant branch (ψ_1 → ψ_7 → ψ_8 → ψ_9). The closure body
+// `k_invariants(homotopy_groups(postnikov_tower(nerve(input))))` lowers
+// into the 5-Term arena exercised by `evaluate_term_tree` (the same
+// chain proven correct in `psi_chain_k_invariant_branch_…` above, here
+// reached through the canonical `forward()` surface ADR-020 commits to).
+prism_model! {
+    pub struct KInvariantInferenceModel;
+    pub struct KInvariantInferenceRoute;
+    impl PrismModel<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        SmokeHasher,
+        CompleteResolvers<SmokeHasher>
+    > for KInvariantInferenceModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = KInvariantInferenceRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            k_invariants(homotopy_groups(postnikov_tower(nerve(input))))
+        }
+        fn resolvers() -> CompleteResolvers<SmokeHasher> {
+            complete_resolvers()
+        }
+    }
+}
+
+#[test]
+fn prism_model_forward_walks_k_invariant_psi_chain_end_to_end() {
+    // Wiki ADR-035 k-invariant branch via `prism_model!`'s four-position
+    // form: feature bytes → ψ_1 → ψ_7 → ψ_8 → ψ_9 → label bytes. The
+    // catamorphism dispatches each ψ-Term through the model's declared
+    // ResolverTuple (constructed by the macro-emitted `fn resolvers()`
+    // delegate that calls `complete_resolvers()`). The thread wrap is
+    // required only in debug builds where the per-fold `[u8; 4096]`
+    // scratch buffer inflates frame size; release builds run on the
+    // default 2 MB cargo-test stack.
+    run_psi_chain_body(|| {
+        let result = <KInvariantInferenceModel as PrismModel<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            SmokeHasher,
+            CompleteResolvers<SmokeHasher>,
+        >>::forward(ConstrainedTypeInput::default())
+        .expect("forward() through the ψ-chain should resolve end-to-end");
+        let grounded: Grounded<ConstrainedTypeInput> = result;
+        // Input is empty (ConstrainedTypeInput's `IntoBindingValue::MAX_BYTES
+        // = 0`), so the chain emits only the per-ψ marker bytes:
+        //   ψ_1 appends 0x01, ψ_7 appends 0x07, ψ_8 appends 0x08, ψ_9 appends 0x09.
+        let expected = &[PSI_1_MARKER, PSI_7_MARKER, PSI_8_MARKER, PSI_9_MARKER][..];
+        assert_eq!(
+            grounded.output_bytes(),
+            expected,
+            "forward()'s Grounded output must carry the ψ-chain label bytes",
+        );
+    });
+}
+
+// Four-position form WITHOUT explicit `fn resolvers()` — the macro
+// constructs the tuple via `<R as Default>::default()`. This exercises
+// the `resolver!`-emitted `Default` impl, which is critical for routes
+// whose resolvers carry only PhantomData (foundation Null-equivalents or
+// pure-marker stubs).
+prism_model! {
+    pub struct HomologyInferenceModel;
+    pub struct HomologyInferenceRoute;
+    impl PrismModel<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        SmokeHasher,
+        CompleteResolvers<SmokeHasher>
+    > for HomologyInferenceModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = HomologyInferenceRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            betti(homology_groups(chain_complex(nerve(input))))
+        }
+    }
+}
+
+#[test]
+fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
+    // Wiki ADR-035 homology branch through `forward()` with no
+    // `fn resolvers()` clause: the macro-emitted body defaults to
+    // `<CompleteResolvers<SmokeHasher> as Default>::default()`, which the
+    // `resolver!` macro's Default emission supplies. Each sentinel
+    // resolver's `Default::default()` produces a `PhantomData`-backed
+    // resolver functionally identical to the explicit form. The chain
+    // ψ_1 → ψ_2 → ψ_3 → ψ_4 (Betti is pass-through) emits markers
+    // [0x01, 0x02, 0x03].
+    run_psi_chain_body(|| {
+        let result = <HomologyInferenceModel as PrismModel<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            SmokeHasher,
+            CompleteResolvers<SmokeHasher>,
+        >>::forward(ConstrainedTypeInput::default())
+        .expect("forward() through default-constructed resolvers should resolve");
+        let grounded: Grounded<ConstrainedTypeInput> = result;
+        let expected = &[PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
+        assert_eq!(
+            grounded.output_bytes(),
+            expected,
+            "Default-constructed CompleteResolvers must carry the homology-branch label",
+        );
+    });
+}

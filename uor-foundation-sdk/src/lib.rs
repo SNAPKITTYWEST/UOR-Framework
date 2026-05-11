@@ -1407,8 +1407,11 @@ fn expand_partition_coproduct_helper(
 
 /// Parsed shape of the macro input — a struct declaration for the model,
 /// optionally one for the route witness, and an `impl PrismModel<…> for
-/// <Model>` block carrying the three associated types and the closure-bodied
-/// `route` function.
+/// <Model>` block carrying the three (or four, when ADR-036's ResolverTuple
+/// substrate parameter is selected) associated types and the closure-bodied
+/// `route` function. The optional `fn resolvers() -> R { … }` clause
+/// supplies the ResolverTuple instance for routes that walk the resolver-
+/// bound ψ-Term variants (ADR-035 + ADR-036).
 struct PrismModelInput {
     model_vis: syn::Visibility,
     model_name: Ident,
@@ -1417,10 +1420,20 @@ struct PrismModelInput {
     h_ty: syn::Type,
     b_ty: syn::Type,
     a_ty: syn::Type,
+    /// `Some(R)` for `impl PrismModel<H, B, A, R> for Model` (ADR-036
+    /// four-position form); `None` for the legacy three-position form
+    /// (R defaults to `NullResolverTuple` on the trait).
+    r_ty: Option<syn::Type>,
     input_ty: syn::Type,
     output_ty: syn::Type,
     route_input_ident: Ident,
     route_body: syn::Block,
+    /// Optional `fn resolvers() -> R { <expr> }` clause supplying the
+    /// ResolverTuple instance the macro-emitted `forward` body borrows.
+    /// Present iff the user includes the clause; foundation derives the
+    /// default (`R::default()` for `R: Default`, falling back to
+    /// `NullResolverTuple` when `r_ty` is `None`) at expansion time.
+    resolvers_body: Option<syn::Block>,
 }
 
 impl Parse for PrismModelInput {
@@ -1437,13 +1450,13 @@ impl Parse for PrismModelInput {
         let route_name: Ident = input.parse()?;
         input.parse::<Token![;]>()?;
 
-        // `impl PrismModel<H, B, A> for ModelName`
+        // `impl PrismModel<H, B, A[, R]> for ModelName`
         input.parse::<Token![impl]>()?;
         let trait_ident: Ident = input.parse()?;
         if trait_ident != "PrismModel" {
             return Err(syn::Error::new(
                 trait_ident.span(),
-                "prism_model! expects an `impl PrismModel<H, B, A> for <Model>` block",
+                "prism_model! expects an `impl PrismModel<H, B, A[, R]> for <Model>` block",
             ));
         }
         input.parse::<Token![<]>()?;
@@ -1452,6 +1465,13 @@ impl Parse for PrismModelInput {
         let b_ty: syn::Type = input.parse()?;
         input.parse::<Token![,]>()?;
         let a_ty: syn::Type = input.parse()?;
+        // ADR-036: optional fourth substrate-parameter position (R: ResolverTuple).
+        let r_ty: Option<syn::Type> = if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            Some(input.parse::<syn::Type>()?)
+        } else {
+            None
+        };
         input.parse::<Token![>]>()?;
         input.parse::<Token![for]>()?;
         let impl_target: Ident = input.parse()?;
@@ -1462,7 +1482,9 @@ impl Parse for PrismModelInput {
             ));
         }
 
-        // Body of the impl block: `{ type Input = …; type Output = …; type Route = …; fn route(…) { … } }`
+        // Body of the impl block:
+        //   { type Input = …; type Output = …; type Route = …;
+        //     fn route(…) { … } [ fn resolvers() -> R { … } ] }
         let body;
         syn::braced!(body in input);
 
@@ -1530,6 +1552,32 @@ impl Parse for PrismModelInput {
         let _output_param_ty: syn::Type = body.parse()?;
         let route_body: syn::Block = body.parse()?;
 
+        // Optional `fn resolvers() -> R { … }` (ADR-036).
+        let resolvers_body: Option<syn::Block> = if body.peek(Token![fn]) {
+            body.parse::<Token![fn]>()?;
+            let resolvers_kw: Ident = body.parse()?;
+            if resolvers_kw != "resolvers" {
+                return Err(syn::Error::new(
+                    resolvers_kw.span(),
+                    "the only optional method after `fn route` is `fn resolvers() -> R { … }` (ADR-036)",
+                ));
+            }
+            let resolvers_params;
+            syn::parenthesized!(resolvers_params in body);
+            if !resolvers_params.is_empty() {
+                return Err(syn::Error::new(
+                    resolvers_kw.span(),
+                    "`fn resolvers()` takes no parameters — its return value is the per-call ResolverTuple instance",
+                ));
+            }
+            body.parse::<Token![->]>()?;
+            let _resolvers_ret_ty: syn::Type = body.parse()?;
+            let block: syn::Block = body.parse()?;
+            Some(block)
+        } else {
+            None
+        };
+
         Ok(Self {
             model_vis,
             model_name,
@@ -1538,10 +1586,12 @@ impl Parse for PrismModelInput {
             h_ty,
             b_ty,
             a_ty,
+            r_ty,
             input_ty,
             output_ty,
             route_input_ident,
             route_body,
+            resolvers_body,
         })
     }
 }
@@ -3953,11 +4003,34 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         h_ty,
         b_ty,
         a_ty,
+        r_ty,
         input_ty,
         output_ty,
         route_input_ident,
         route_body,
+        resolvers_body,
     } = parsed;
+
+    // ADR-036 resolver-tuple wiring:
+    //   - When the user names a fourth substrate parameter R, the impl
+    //     binds it explicitly and `forward` constructs an R instance
+    //     either from the optional `fn resolvers() -> R { … }` clause or
+    //     via `<R as Default>::default()` when the clause is omitted.
+    //   - When R is omitted (the legacy 3-position form), R defaults to
+    //     `NullResolverTuple` and `forward` borrows the foundation's
+    //     zero-sized null tuple — RESOLVER_ABSENT propagation per
+    //     ADR-022 D3 G9 for any resolver-bound ψ-Term encountered.
+    let (resolver_ty_tokens, resolver_construction) = match (&r_ty, &resolvers_body) {
+        (Some(r), Some(block)) => (quote! { #r }, quote! { #block }),
+        (Some(r), None) => (
+            quote! { #r },
+            quote! { <#r as ::core::default::Default>::default() },
+        ),
+        (None, _) => (
+            quote! { ::uor_foundation::pipeline::NullResolverTuple },
+            quote! { ::uor_foundation::pipeline::NullResolverTuple },
+        ),
+    };
 
     // Walk the closure body — the macro-time mapping that ADR-020 / D3
     // names. The body is processed via the block handler so `let`
@@ -4026,27 +4099,31 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // ADR-020 + ADR-022 D4: PrismModel impl.
-        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty> for #model_name {
+        // ADR-020 + ADR-022 D4 + ADR-036 D-resolver: PrismModel impl.
+        // The trait's fourth substrate-parameter slot binds the route's
+        // ResolverTuple (`NullResolverTuple` for the legacy three-position
+        // form; an application-author tuple when the user names R).
+        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens> for #model_name {
             type Input = #input_ty;
             type Output = #output_ty;
             type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty>>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
-                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty>>::Output,
+                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens>>::Output,
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
+                let __resolvers: #resolver_ty_tokens = #resolver_construction;
                 ::uor_foundation::pipeline::run_route::<
                     #h_ty,
                     #b_ty,
                     #a_ty,
                     Self,
-                    ::uor_foundation::pipeline::NullResolverTuple,
-                >(input, &::uor_foundation::pipeline::NullResolverTuple)
+                    #resolver_ty_tokens,
+                >(input, &__resolvers)
             }
         }
     };
@@ -4883,9 +4960,13 @@ const RESOLVER_FIELD_TABLE: &[(&str, &str, &str, &str, &str)] = &[
 /// list. Each field name MUST be one of the eight canonical resolver
 /// categories; the field type is the application-author's resolver
 /// trait impl for that category (parameterized by the model's Hasher).
-/// Missing categories default to foundation's `Null<Category>Resolver`
-/// at evaluation time — i.e. the resolver-bound ψ-Term fold-rule
-/// propagates `RESOLVER_ABSENT` through `Term::Try` (ADR-022 D3 G9).
+///
+/// The macro emits all eight `Has<Category>Resolver<H>` impls so the
+/// resulting struct satisfies `run_route`'s where-clause unconditionally.
+/// Declared fields delegate to the user's resolver value; undeclared
+/// categories delegate to `NullResolverTuple`, whose `resolve` returns
+/// the `RESOLVER_ABSENT` shape violation (recoverable through
+/// `Term::Try`'s default-propagation handler per ADR-022 D3 G9).
 #[proc_macro]
 pub fn resolver(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ResolverInput);
@@ -4932,37 +5013,73 @@ pub fn resolver(input: TokenStream) -> TokenStream {
         })
         .collect();
     let arity = fields.len();
-    // Emit Has<Category>Resolver<H> impls for the declared fields ONLY.
-    // Categories the application didn't declare get a default via
-    // NullResolverTuple's blanket impls — but per ADR-036 the model
-    // declaration's where-clause names only the categories the verbs
-    // need, so the unmet categories don't appear in any where-clause.
-    let has_impls: Vec<proc_macro2::TokenStream> = fields
+    // ADR-036: emit ALL 8 Has<Category>Resolver<H> impls so user-declared
+    // ResolverTuple structs satisfy `run_route`'s where-clause regardless
+    // of which categories the application chose to populate. For each
+    // category:
+    //   - declared field: delegate to `&self.<field_name>`
+    //   - undeclared:    delegate to `&NullResolverTuple` (foundation's
+    //                    Null impls satisfy every resolver trait for any
+    //                    `H: Hasher`, emitting RESOLVER_ABSENT at resolve
+    //                    time per ADR-022 D3 G9).
+    let has_impls: Vec<proc_macro2::TokenStream> = RESOLVER_FIELD_TABLE
         .iter()
-        .map(|(name, ty)| {
-            // Field name was validated above against RESOLVER_FIELD_TABLE,
-            // so `find` is guaranteed to return Some. Fall back to the
-            // first entry on the impossible None branch to avoid `.expect`.
-            let entry = RESOLVER_FIELD_TABLE
+        .map(|entry| {
+            let cat_field = entry.0;
+            let resolver_trait = syn::Ident::new(entry.2, struct_name.span());
+            let marker = syn::Ident::new(entry.3, struct_name.span());
+            let accessor = syn::Ident::new(entry.4, struct_name.span());
+            if let Some((field_name, field_ty)) = fields
                 .iter()
-                .find(|t| t.0 == name.to_string().as_str())
-                .unwrap_or(&RESOLVER_FIELD_TABLE[0]);
-            let resolver_trait = syn::Ident::new(entry.2, name.span());
-            let marker = syn::Ident::new(entry.3, name.span());
-            let accessor = syn::Ident::new(entry.4, name.span());
-            quote::quote! {
-                impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
-                    ::uor_foundation::pipeline::#marker<#hasher_param>
-                    for #struct_name<#hasher_param>
-                where
-                    #ty: ::uor_foundation::pipeline::#resolver_trait<#hasher_param>,
-                {
-                    fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
-                        &self.#name
+                .find(|(n, _)| *n == cat_field)
+            {
+                // Declared category: where-clause asserts the user's
+                // field type impls the resolver trait, and the accessor
+                // returns a borrow of that field.
+                quote::quote! {
+                    impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+                        ::uor_foundation::pipeline::#marker<#hasher_param>
+                        for #struct_name<#hasher_param>
+                    where
+                        #field_ty: ::uor_foundation::pipeline::#resolver_trait<#hasher_param>,
+                    {
+                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
+                            &self.#field_name
+                        }
+                    }
+                }
+            } else {
+                // Undeclared category: accessor returns a static borrow
+                // of `NullResolverTuple` (unit-struct const-promotion).
+                // `NullResolverTuple` already impls every resolver trait
+                // for any `H: Hasher` (foundation, ADR-036), so the
+                // `&dyn` coercion is direct.
+                quote::quote! {
+                    impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+                        ::uor_foundation::pipeline::#marker<#hasher_param>
+                        for #struct_name<#hasher_param>
+                    {
+                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
+                            &::uor_foundation::pipeline::NullResolverTuple
+                        }
                     }
                 }
             }
         })
+        .collect();
+    // Build a `Default::default()`-per-field initializer list so the
+    // macro-emitted `Default` impl can construct the tuple struct without
+    // referencing user types directly. The Default impl carries explicit
+    // `where #ty: Default` bounds for each declared field, so field types
+    // that aren't `Default` simply make the impl uninstantiable (the
+    // user supplies `fn resolvers() -> R` in `prism_model!` instead).
+    let default_field_inits: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|(name, _)| quote::quote! { #name: ::core::default::Default::default(), })
+        .collect();
+    let default_where_clauses: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|(_, ty)| quote::quote! { #ty: ::core::default::Default, })
         .collect();
     let expansion = quote::quote! {
         #struct_vis struct #struct_name<#hasher_param: ::uor_foundation::enforcement::Hasher> {
@@ -4982,6 +5099,27 @@ pub fn resolver(input: TokenStream) -> TokenStream {
             const ARITY: usize = #arity;
             const CATEGORIES: &'static [::uor_foundation::pipeline::ResolverCategory] =
                 &[#(#category_idents),*];
+        }
+
+        // ADR-036 + prism_model!-default-construction interop: emit
+        // `Default` so the macro-emitted `forward` body can call
+        // `<R as Default>::default()` when the user does not supply an
+        // explicit `fn resolvers() -> R` clause. Each declared field
+        // type appears in the `where`-clause; fields that don't impl
+        // `Default` make this impl uninstantiable at use-site (the
+        // application supplies the explicit clause instead).
+        impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+            ::core::default::Default
+            for #struct_name<#hasher_param>
+        where
+            #(#default_where_clauses)*
+        {
+            fn default() -> Self {
+                Self {
+                    #(#default_field_inits)*
+                    _phantom: ::core::marker::PhantomData,
+                }
+            }
         }
 
         #(#has_impls)*
