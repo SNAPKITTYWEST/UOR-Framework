@@ -1601,6 +1601,24 @@ enum TermSpec {
     /// `recurse_idx_value` (the current measure value, i.e. the
     /// iteration counter at this descent).
     RecurseIdxPlaceholder,
+    /// ψ_1 (wiki ADR-035 G21): `Term::Nerve { value_index }`.
+    Nerve { value_index: u32 },
+    /// ψ_2 (wiki ADR-035 G22): `Term::ChainComplex { simplicial_index }`.
+    ChainComplex { simplicial_index: u32 },
+    /// ψ_3 (wiki ADR-035 G23): `Term::HomologyGroups { chain_index }`.
+    HomologyGroups { chain_index: u32 },
+    /// ψ_4 (wiki ADR-035 G24): `Term::Betti { homology_index }`.
+    Betti { homology_index: u32 },
+    /// ψ_5 (wiki ADR-035 G25): `Term::CochainComplex { chain_index }`.
+    CochainComplex { chain_index: u32 },
+    /// ψ_6 (wiki ADR-035 G26): `Term::CohomologyGroups { cochain_index }`.
+    CohomologyGroups { cochain_index: u32 },
+    /// ψ_7 (wiki ADR-035 G27): `Term::PostnikovTower { simplicial_index }`.
+    PostnikovTower { simplicial_index: u32 },
+    /// ψ_8 (wiki ADR-035 G28): `Term::HomotopyGroups { postnikov_index }`.
+    HomotopyGroups { postnikov_index: u32 },
+    /// ψ_9 (wiki ADR-035 G29): `Term::KInvariants { homotopy_index }`.
+    KInvariants { homotopy_index: u32 },
     /// `Term::Literal { value: <const-eval expr>, level: <expr> }` — a
     /// Literal whose value is a const-eval token stream rather than a
     /// macro-time u64. Used by ADR-032's `first_admit` lowering to read
@@ -2164,6 +2182,33 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
         },
         TermSpec::FirstAdmitIdxPlaceholder => TermSpec::FirstAdmitIdxPlaceholder,
         TermSpec::RecurseIdxPlaceholder => TermSpec::RecurseIdxPlaceholder,
+        TermSpec::Nerve { value_index } => TermSpec::Nerve {
+            value_index: *value_index,
+        },
+        TermSpec::ChainComplex { simplicial_index } => TermSpec::ChainComplex {
+            simplicial_index: *simplicial_index,
+        },
+        TermSpec::HomologyGroups { chain_index } => TermSpec::HomologyGroups {
+            chain_index: *chain_index,
+        },
+        TermSpec::Betti { homology_index } => TermSpec::Betti {
+            homology_index: *homology_index,
+        },
+        TermSpec::CochainComplex { chain_index } => TermSpec::CochainComplex {
+            chain_index: *chain_index,
+        },
+        TermSpec::CohomologyGroups { cochain_index } => TermSpec::CohomologyGroups {
+            cochain_index: *cochain_index,
+        },
+        TermSpec::PostnikovTower { simplicial_index } => TermSpec::PostnikovTower {
+            simplicial_index: *simplicial_index,
+        },
+        TermSpec::HomotopyGroups { postnikov_index } => TermSpec::HomotopyGroups {
+            postnikov_index: *postnikov_index,
+        },
+        TermSpec::KInvariants { homotopy_index } => TermSpec::KInvariants {
+            homotopy_index: *homotopy_index,
+        },
     }
 }
 
@@ -2362,8 +2407,11 @@ fn emit_term_for_call(
         // Exclude all reserved + PrimitiveOp identifiers from verb
         // resolution; these have dedicated handling below.
         "add" | "sub" | "mul" | "xor" | "and" | "or" | "neg" | "bnot" | "succ" | "pred"
-        | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit" | "recurse" | "unfold"
-        | "concat" => false,
+        | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit"
+        | "recurse" | "unfold" | "concat"
+        // ADR-035 G21..G29 ψ-chain identifiers.
+        | "nerve" | "chain_complex" | "homology_groups" | "betti" | "cochain_complex"
+        | "cohomology_groups" | "postnikov_tower" | "homotopy_groups" | "k_invariants" => false,
         _ => true,
     };
     if verb_resolution {
@@ -2961,6 +3009,73 @@ fn emit_term_for_call(
         return Ok(idx);
     }
 
+    // Wiki ADR-035 G21..G29: closure-body grammar identifiers for the
+    // nine ψ-chain Term variants. Each takes a single operand whose
+    // arena root becomes the corresponding `*_index` field. The
+    // receiver-shape checks the wiki specifies (simplicial-complex
+    // shape for chain_complex etc.) are not enforced at proc-macro
+    // expansion in this implementation — the catamorphism's fold-rule
+    // is the source of truth for shape compatibility (it returns
+    // RESOLVER_ABSENT or other ShapeViolation as appropriate).
+    let psi_chain: &[(&str, &str)] = &[
+        ("nerve", "G21"),
+        ("chain_complex", "G22"),
+        ("homology_groups", "G23"),
+        ("betti", "G24"),
+        ("cochain_complex", "G25"),
+        ("cohomology_groups", "G26"),
+        ("postnikov_tower", "G27"),
+        ("homotopy_groups", "G28"),
+        ("k_invariants", "G29"),
+    ];
+    for (name, grammar) in psi_chain {
+        if func_ident == name {
+            if call.args.len() != 1 {
+                return Err(syn::Error::new(
+                    func_ident.span(),
+                    format!(
+                        "closure violation: `{name}` (ADR-035 {grammar}) expects 1 argument, got {}",
+                        call.args.len()
+                    ),
+                ));
+            }
+            let operand_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+            let idx = arena.len();
+            let spec = match *name {
+                "nerve" => TermSpec::Nerve {
+                    value_index: operand_root as u32,
+                },
+                "chain_complex" => TermSpec::ChainComplex {
+                    simplicial_index: operand_root as u32,
+                },
+                "homology_groups" => TermSpec::HomologyGroups {
+                    chain_index: operand_root as u32,
+                },
+                "betti" => TermSpec::Betti {
+                    homology_index: operand_root as u32,
+                },
+                "cochain_complex" => TermSpec::CochainComplex {
+                    chain_index: operand_root as u32,
+                },
+                "cohomology_groups" => TermSpec::CohomologyGroups {
+                    cochain_index: operand_root as u32,
+                },
+                "postnikov_tower" => TermSpec::PostnikovTower {
+                    simplicial_index: operand_root as u32,
+                },
+                "homotopy_groups" => TermSpec::HomotopyGroups {
+                    postnikov_index: operand_root as u32,
+                },
+                "k_invariants" => TermSpec::KInvariants {
+                    homotopy_index: operand_root as u32,
+                },
+                _ => unreachable!(),
+            };
+            arena.push(spec);
+            return Ok(idx);
+        }
+    }
+
     let (operator, expected_arity) = match func_ident.to_string().as_str() {
         "add" => (quote! { ::uor_foundation::PrimitiveOp::Add }, 2usize),
         "sub" => (quote! { ::uor_foundation::PrimitiveOp::Sub }, 2),
@@ -3134,6 +3249,33 @@ fn emit_term_for_call(
                 },
                 TermSpec::FirstAdmitIdxPlaceholder => TermSpec::FirstAdmitIdxPlaceholder,
                 TermSpec::RecurseIdxPlaceholder => TermSpec::RecurseIdxPlaceholder,
+                TermSpec::Nerve { value_index } => TermSpec::Nerve {
+                    value_index: *value_index,
+                },
+                TermSpec::ChainComplex { simplicial_index } => TermSpec::ChainComplex {
+                    simplicial_index: *simplicial_index,
+                },
+                TermSpec::HomologyGroups { chain_index } => TermSpec::HomologyGroups {
+                    chain_index: *chain_index,
+                },
+                TermSpec::Betti { homology_index } => TermSpec::Betti {
+                    homology_index: *homology_index,
+                },
+                TermSpec::CochainComplex { chain_index } => TermSpec::CochainComplex {
+                    chain_index: *chain_index,
+                },
+                TermSpec::CohomologyGroups { cochain_index } => TermSpec::CohomologyGroups {
+                    cochain_index: *cochain_index,
+                },
+                TermSpec::PostnikovTower { simplicial_index } => TermSpec::PostnikovTower {
+                    simplicial_index: *simplicial_index,
+                },
+                TermSpec::HomotopyGroups { postnikov_index } => TermSpec::HomotopyGroups {
+                    postnikov_index: *postnikov_index,
+                },
+                TermSpec::KInvariants { homotopy_index } => TermSpec::KInvariants {
+                    homotopy_index: *homotopy_index,
+                },
             };
             arena.push(dup);
         }
@@ -3351,6 +3493,60 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
                     name_index: ::uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX,
                 }
             },
+            TermSpec::Nerve { value_index } => {
+                let v = *value_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Nerve { value_index: #v }
+                }
+            }
+            TermSpec::ChainComplex { simplicial_index } => {
+                let s = *simplicial_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::ChainComplex { simplicial_index: #s }
+                }
+            }
+            TermSpec::HomologyGroups { chain_index } => {
+                let c = *chain_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::HomologyGroups { chain_index: #c }
+                }
+            }
+            TermSpec::Betti { homology_index } => {
+                let h = *homology_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::Betti { homology_index: #h }
+                }
+            }
+            TermSpec::CochainComplex { chain_index } => {
+                let c = *chain_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::CochainComplex { chain_index: #c }
+                }
+            }
+            TermSpec::CohomologyGroups { cochain_index } => {
+                let c = *cochain_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::CohomologyGroups { cochain_index: #c }
+                }
+            }
+            TermSpec::PostnikovTower { simplicial_index } => {
+                let s = *simplicial_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::PostnikovTower { simplicial_index: #s }
+                }
+            }
+            TermSpec::HomotopyGroups { postnikov_index } => {
+                let p = *postnikov_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::HomotopyGroups { postnikov_index: #p }
+                }
+            }
+            TermSpec::KInvariants { homotopy_index } => {
+                let h = *homotopy_index;
+                quote! {
+                    ::uor_foundation::enforcement::Term::KInvariants { homotopy_index: #h }
+                }
+            }
         })
         .collect()
 }
@@ -3566,6 +3762,76 @@ fn render_atomic_term_in_builder(
                 name_index: ::uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX,
             }
         },
+        TermSpec::Nerve { value_index } => {
+            let v = pos_at(*value_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Nerve { value_index: (#v) as u32 }
+            }
+        }
+        TermSpec::ChainComplex { simplicial_index } => {
+            let s = pos_at(*simplicial_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::ChainComplex {
+                    simplicial_index: (#s) as u32,
+                }
+            }
+        }
+        TermSpec::HomologyGroups { chain_index } => {
+            let c = pos_at(*chain_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::HomologyGroups {
+                    chain_index: (#c) as u32,
+                }
+            }
+        }
+        TermSpec::Betti { homology_index } => {
+            let h = pos_at(*homology_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::Betti {
+                    homology_index: (#h) as u32,
+                }
+            }
+        }
+        TermSpec::CochainComplex { chain_index } => {
+            let c = pos_at(*chain_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::CochainComplex {
+                    chain_index: (#c) as u32,
+                }
+            }
+        }
+        TermSpec::CohomologyGroups { cochain_index } => {
+            let c = pos_at(*cochain_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::CohomologyGroups {
+                    cochain_index: (#c) as u32,
+                }
+            }
+        }
+        TermSpec::PostnikovTower { simplicial_index } => {
+            let s = pos_at(*simplicial_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::PostnikovTower {
+                    simplicial_index: (#s) as u32,
+                }
+            }
+        }
+        TermSpec::HomotopyGroups { postnikov_index } => {
+            let p = pos_at(*postnikov_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::HomotopyGroups {
+                    postnikov_index: (#p) as u32,
+                }
+            }
+        }
+        TermSpec::KInvariants { homotopy_index } => {
+            let h = pos_at(*homotopy_index);
+            quote! {
+                ::uor_foundation::enforcement::Term::KInvariants {
+                    homotopy_index: (#h) as u32,
+                }
+            }
+        }
         TermSpec::VerbSplice { .. } => quote! {
             compile_error!("VerbSplice handled separately in render_const_fn_arena_builder")
         },
@@ -3774,7 +4040,13 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
-                ::uor_foundation::pipeline::run_route::<#h_ty, #b_ty, #a_ty, Self>(input)
+                ::uor_foundation::pipeline::run_route::<
+                    #h_ty,
+                    #b_ty,
+                    #a_ty,
+                    Self,
+                    ::uor_foundation::pipeline::NullResolverTuple,
+                >(input, &::uor_foundation::pipeline::NullResolverTuple)
             }
         }
     };
@@ -4455,6 +4727,264 @@ pub fn axis(input: TokenStream) -> TokenStream {
                 }
             }
         }
+    };
+    expansion.into()
+}
+
+// =====================================================================
+// `resolver!` — wiki ADR-036 ResolverTuple declaration macro.
+//
+// Application authors declare ResolverTuple impls through this macro
+// paralleling `axis!` per ADR-030. The macro recognizes eight canonical
+// field names — one per `ResolverCategory` variant — and emits the
+// `ResolverTuple` impl, the per-category accessor methods, the
+// `Has<Category>Resolver<H>` satisfactions, and the seal.
+//
+// Form:
+//
+// ```text
+// resolver! {
+//     pub struct MyApplicationResolvers<H: ::uor_foundation::enforcement::Hasher> {
+//         nerve: MyNerveResolver<H>,
+//         chain_complex: MyChainComplexResolver<H>,
+//         // ... only the fields the application's verbs require;
+//         //     missing categories default to foundation's Null impls
+//         //     (which propagate RESOLVER_ABSENT through Term::Try).
+//     }
+// }
+// ```
+//
+// Recognised field names (each maps to one `ResolverCategory` + one
+// resolver trait):
+//   - nerve              → NerveResolver<H>
+//   - chain_complex      → ChainComplexResolver<H>
+//   - homology_groups    → HomologyGroupResolver<H>
+//   - cochain_complex    → CochainComplexResolver<H>
+//   - cohomology_groups  → CohomologyGroupResolver<H>
+//   - postnikov          → PostnikovResolver<H>
+//   - homotopy_groups    → HomotopyGroupResolver<H>
+//   - k_invariants       → KInvariantResolver<H>
+//
+// Unrecognised field names fail with a closure-violation error at
+// proc-macro expansion citing the recognised field-name set.
+
+struct ResolverInput {
+    struct_vis: syn::Visibility,
+    struct_name: Ident,
+    hasher_param: Ident,
+    fields: Vec<(Ident, syn::Type)>,
+}
+
+impl Parse for ResolverInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let struct_vis: syn::Visibility = input.parse()?;
+        input.parse::<Token![struct]>()?;
+        let struct_name: Ident = input.parse()?;
+        // Parse the generic Hasher parameter `<H: ::uor_foundation::enforcement::Hasher>`
+        // — we only need the parameter's identifier (H or whatever name)
+        // for emitting the impls. The bound is enforced by the trait
+        // definitions in foundation.
+        input.parse::<Token![<]>()?;
+        let hasher_param: Ident = input.parse()?;
+        // Skip past the trait bound (`:` followed by a path).
+        if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            let _: syn::Type = input.parse()?;
+        }
+        input.parse::<Token![>]>()?;
+        let body;
+        syn::braced!(body in input);
+        let mut fields: Vec<(Ident, syn::Type)> = Vec::new();
+        while !body.is_empty() {
+            // `pub` is admitted but optional — discard.
+            if body.peek(Token![pub]) {
+                let _: syn::Visibility = body.parse()?;
+            }
+            let field_name: Ident = body.parse()?;
+            body.parse::<Token![:]>()?;
+            let field_ty: syn::Type = body.parse()?;
+            fields.push((field_name, field_ty));
+            if body.peek(Token![,]) {
+                body.parse::<Token![,]>()?;
+            }
+        }
+        Ok(Self {
+            struct_vis,
+            struct_name,
+            hasher_param,
+            fields,
+        })
+    }
+}
+
+const RESOLVER_FIELD_TABLE: &[(&str, &str, &str, &str, &str)] = &[
+    // (field_name, ResolverCategory, ResolverTrait, MarkerTrait, accessor_method)
+    (
+        "nerve",
+        "Nerve",
+        "NerveResolver",
+        "HasNerveResolver",
+        "nerve_resolver",
+    ),
+    (
+        "chain_complex",
+        "ChainComplex",
+        "ChainComplexResolver",
+        "HasChainComplexResolver",
+        "chain_complex_resolver",
+    ),
+    (
+        "homology_groups",
+        "HomologyGroup",
+        "HomologyGroupResolver",
+        "HasHomologyGroupResolver",
+        "homology_group_resolver",
+    ),
+    (
+        "cochain_complex",
+        "CochainComplex",
+        "CochainComplexResolver",
+        "HasCochainComplexResolver",
+        "cochain_complex_resolver",
+    ),
+    (
+        "cohomology_groups",
+        "CohomologyGroup",
+        "CohomologyGroupResolver",
+        "HasCohomologyGroupResolver",
+        "cohomology_group_resolver",
+    ),
+    (
+        "postnikov",
+        "Postnikov",
+        "PostnikovResolver",
+        "HasPostnikovResolver",
+        "postnikov_resolver",
+    ),
+    (
+        "homotopy_groups",
+        "HomotopyGroup",
+        "HomotopyGroupResolver",
+        "HasHomotopyGroupResolver",
+        "homotopy_group_resolver",
+    ),
+    (
+        "k_invariants",
+        "KInvariant",
+        "KInvariantResolver",
+        "HasKInvariantResolver",
+        "k_invariant_resolver",
+    ),
+];
+
+/// `resolver!` — wiki ADR-036 ResolverTuple declaration macro.
+///
+/// Declares a sealed `ResolverTuple` impl from a struct-bodied field
+/// list. Each field name MUST be one of the eight canonical resolver
+/// categories; the field type is the application-author's resolver
+/// trait impl for that category (parameterized by the model's Hasher).
+/// Missing categories default to foundation's `Null<Category>Resolver`
+/// at evaluation time — i.e. the resolver-bound ψ-Term fold-rule
+/// propagates `RESOLVER_ABSENT` through `Term::Try` (ADR-022 D3 G9).
+#[proc_macro]
+pub fn resolver(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ResolverInput);
+    let ResolverInput {
+        struct_vis,
+        struct_name,
+        hasher_param,
+        fields,
+    } = parsed;
+    // Validate field names against the canonical table.
+    let recognised: Vec<&str> = RESOLVER_FIELD_TABLE.iter().map(|t| t.0).collect();
+    for (name, _) in &fields {
+        let name_str = name.to_string();
+        if !recognised.contains(&name_str.as_str()) {
+            let recognised_csv = recognised.join(", ");
+            return syn::Error::new_spanned(
+                name,
+                format!(
+                    "closure violation: `resolver!` field `{name_str}` is not a recognised resolver category. Recognised: {recognised_csv}"
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+    // Build the struct fields token stream.
+    let struct_fields: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|(name, ty)| quote::quote! { pub #name: #ty, })
+        .collect();
+    // Build the CATEGORIES const array.
+    let category_idents: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|(name, _)| {
+            // Field name was validated above against RESOLVER_FIELD_TABLE,
+            // so `find` is guaranteed to return Some. Fall back to the
+            // first entry on the impossible None branch to avoid `.expect`.
+            let entry = RESOLVER_FIELD_TABLE
+                .iter()
+                .find(|t| t.0 == name.to_string().as_str())
+                .unwrap_or(&RESOLVER_FIELD_TABLE[0]);
+            let cat = syn::Ident::new(entry.1, name.span());
+            quote::quote! { ::uor_foundation::pipeline::ResolverCategory::#cat }
+        })
+        .collect();
+    let arity = fields.len();
+    // Emit Has<Category>Resolver<H> impls for the declared fields ONLY.
+    // Categories the application didn't declare get a default via
+    // NullResolverTuple's blanket impls — but per ADR-036 the model
+    // declaration's where-clause names only the categories the verbs
+    // need, so the unmet categories don't appear in any where-clause.
+    let has_impls: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|(name, ty)| {
+            // Field name was validated above against RESOLVER_FIELD_TABLE,
+            // so `find` is guaranteed to return Some. Fall back to the
+            // first entry on the impossible None branch to avoid `.expect`.
+            let entry = RESOLVER_FIELD_TABLE
+                .iter()
+                .find(|t| t.0 == name.to_string().as_str())
+                .unwrap_or(&RESOLVER_FIELD_TABLE[0]);
+            let resolver_trait = syn::Ident::new(entry.2, name.span());
+            let marker = syn::Ident::new(entry.3, name.span());
+            let accessor = syn::Ident::new(entry.4, name.span());
+            quote::quote! {
+                impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+                    ::uor_foundation::pipeline::#marker<#hasher_param>
+                    for #struct_name<#hasher_param>
+                where
+                    #ty: ::uor_foundation::pipeline::#resolver_trait<#hasher_param>,
+                {
+                    fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
+                        &self.#name
+                    }
+                }
+            }
+        })
+        .collect();
+    let expansion = quote::quote! {
+        #struct_vis struct #struct_name<#hasher_param: ::uor_foundation::enforcement::Hasher> {
+            #(#struct_fields)*
+            #[doc(hidden)]
+            pub _phantom: ::core::marker::PhantomData<#hasher_param>,
+        }
+
+        impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+            ::uor_foundation::pipeline::__sdk_seal::Sealed
+            for #struct_name<#hasher_param> {}
+
+        impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
+            ::uor_foundation::pipeline::ResolverTuple
+            for #struct_name<#hasher_param>
+        {
+            const ARITY: usize = #arity;
+            const CATEGORIES: &'static [::uor_foundation::pipeline::ResolverCategory] =
+                &[#(#category_idents),*];
+        }
+
+        #(#has_impls)*
     };
     expansion.into()
 }

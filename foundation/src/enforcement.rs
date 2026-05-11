@@ -1910,6 +1910,54 @@ pub enum Term {
         /// current candidate `idx`.
         predicate_index: u32,
     },
+    /// ψ_1 (wiki ADR-035): nerve construction — Constraints → SimplicialComplex.
+    /// Lowered from the closure-body form `nerve(<value_expr>)` (G21).
+    /// Resolver-bound: consults the ResolverTuple's NerveResolver per ADR-036.
+    Nerve {
+        /// Arena index of the value-bytes operand (typically a
+        /// `Term::Variable` for the route input or a `Term::ProjectField`).
+        value_index: u32,
+    },
+    /// ψ_2 (wiki ADR-035): chain functor — SimplicialComplex → ChainComplex.
+    /// Lowered from `chain_complex(<simplicial_expr>)` (G22).
+    /// Resolver-bound: ChainComplexResolver per ADR-036.
+    ChainComplex { simplicial_index: u32 },
+    /// ψ_3 (wiki ADR-035): homology functor — ChainComplex → HomologyGroups.
+    /// `H_k(C) = ker(∂_k) / im(∂_{k+1})`.
+    /// Lowered from `homology_groups(<chain_expr>)` (G23).
+    /// Resolver-bound: HomologyGroupResolver per ADR-036.
+    HomologyGroups { chain_index: u32 },
+    /// ψ_4 (wiki ADR-035): Betti-number extraction — HomologyGroups → BettiNumbers.
+    /// Pure computation on resolved homology groups; no resolver consultation.
+    /// Lowered from `betti(<homology_expr>)` (G24).
+    Betti { homology_index: u32 },
+    /// ψ_5 (wiki ADR-035): dualization functor — ChainComplex → CochainComplex.
+    /// `C^k = Hom(C_k, R)`.
+    /// Lowered from `cochain_complex(<chain_expr>)` (G25).
+    /// Resolver-bound: CochainComplexResolver per ADR-036.
+    CochainComplex { chain_index: u32 },
+    /// ψ_6 (wiki ADR-035): cohomology functor — CochainComplex → CohomologyGroups.
+    /// `H^k(C) = ker(δ^k) / im(δ^{k-1})`.
+    /// Lowered from `cohomology_groups(<cochain_expr>)` (G26).
+    /// Resolver-bound: CohomologyGroupResolver per ADR-036.
+    CohomologyGroups { cochain_index: u32 },
+    /// ψ_7 (wiki ADR-035): Kan-completion + Postnikov truncation —
+    /// SimplicialComplex → PostnikovTower. The PostnikovResolver performs
+    /// the Kan-completion internally; verb authors do not need to construct
+    /// KanComplex values explicitly.
+    /// Lowered from `postnikov_tower(<simplicial_expr>)` (G27).
+    /// Resolver-bound: PostnikovResolver per ADR-036.
+    PostnikovTower { simplicial_index: u32 },
+    /// ψ_8 (wiki ADR-035): homotopy extraction — PostnikovTower → HomotopyGroups.
+    /// π_k from each truncation stage.
+    /// Lowered from `homotopy_groups(<postnikov_expr>)` (G28).
+    /// Resolver-bound: HomotopyGroupResolver per ADR-036.
+    HomotopyGroups { postnikov_index: u32 },
+    /// ψ_9 (wiki ADR-035): k-invariant computation — HomotopyGroups → KInvariants.
+    /// κ_k classifying the Postnikov tower.
+    /// Lowered from `k_invariants(<homotopy_expr>)` (G29).
+    /// Resolver-bound: KInvariantResolver per ADR-036.
+    KInvariants { homotopy_index: u32 },
 }
 
 /// Wiki ADR-024 verb-graph compile-time inlining: shift the arena-index
@@ -2007,6 +2055,33 @@ pub const fn shift_term(term: Term, offset: u32) -> Term {
         } => Term::FirstAdmit {
             domain_size_index: domain_size_index + offset,
             predicate_index: predicate_index + offset,
+        },
+        Term::Nerve { value_index } => Term::Nerve {
+            value_index: value_index + offset,
+        },
+        Term::ChainComplex { simplicial_index } => Term::ChainComplex {
+            simplicial_index: simplicial_index + offset,
+        },
+        Term::HomologyGroups { chain_index } => Term::HomologyGroups {
+            chain_index: chain_index + offset,
+        },
+        Term::Betti { homology_index } => Term::Betti {
+            homology_index: homology_index + offset,
+        },
+        Term::CochainComplex { chain_index } => Term::CochainComplex {
+            chain_index: chain_index + offset,
+        },
+        Term::CohomologyGroups { cochain_index } => Term::CohomologyGroups {
+            cochain_index: cochain_index + offset,
+        },
+        Term::PostnikovTower { simplicial_index } => Term::PostnikovTower {
+            simplicial_index: simplicial_index + offset,
+        },
+        Term::HomotopyGroups { postnikov_index } => Term::HomotopyGroups {
+            postnikov_index: postnikov_index + offset,
+        },
+        Term::KInvariants { homotopy_index } => Term::KInvariants {
+            homotopy_index: homotopy_index + offset,
         },
     }
 }
@@ -6541,7 +6616,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 5;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 6;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate

@@ -86,7 +86,13 @@ impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityMod
     /// the architecturally-committed body the `prism_model!` macro
     /// emits. This test impl writes it by hand to pin the contract.
     fn forward(input: Self::Input) -> Result<Grounded<Self::Output>, PipelineFailure> {
-        run_route::<DefaultHostTypes, DefaultHostBounds, TestHasher, Self>(input)
+        run_route::<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            TestHasher,
+            Self,
+            uor_foundation::pipeline::NullResolverTuple,
+        >(input, &uor_foundation::pipeline::NullResolverTuple)
     }
 }
 
@@ -213,8 +219,15 @@ fn run_route_is_canonical_catamorphism_call_site() {
     // the body of `run_route` validates an empty `CompileUnit` and
     // dispatches to `pipeline::run`, which surfaces the empty-route
     // failure.
-    let result = run_route::<DefaultHostTypes, DefaultHostBounds, TestHasher, IdentityModel>(
+    let result = run_route::<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        TestHasher,
+        IdentityModel,
+        uor_foundation::pipeline::NullResolverTuple,
+    >(
         ConstrainedTypeInput::default(),
+        &uor_foundation::pipeline::NullResolverTuple,
     );
     // Surface the categorical commitment: the call returns a
     // `Result<Grounded<Output>, PipelineFailure>` — whichever variant

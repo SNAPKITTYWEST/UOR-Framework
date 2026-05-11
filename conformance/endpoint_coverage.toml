@@ -563,6 +563,53 @@ behavior = "behavior_catamorphism_evaluator"
 symbols = ["RECURSE_IDX_NAME_INDEX", "FIRST_ADMIT_IDX_NAME_INDEX"]
 behavior = "behavior_catamorphism_evaluator"
 
+# ─── Mapping: ADR-036 ResolverTuple substitution-axis surface ──────────
+# ADR-036 closes ADR-035's "ψ-Term variants need application-supplied
+# content" gap by exposing the application's resolver tuple as a
+# fourth substitution-axis position on `PrismModel<H, B, A, R>`. The
+# `ResolverTuple` sealed trait carries arity + categories metadata; the
+# eight `<Category>Resolver<H>` traits expose `resolve(input, &mut out)`
+# per-category; the eight `Has<Category>Resolver<H>` markers expose the
+# `<category>_resolver()` accessor the catamorphism's ψ-Term fold-rules
+# consult. `NullResolverTuple` + eight `Null<Category>Resolver<H>` impls
+# are the foundation-Null defaults emitting `RESOLVER_ABSENT` on every
+# `resolve` call (recoverable via `Term::Try`'s default-propagation
+# handler per ADR-022 D3 G9). `MAX_RESOLVER_TUPLE_ARITY` and
+# `RESOLVER_ABSENT_DISCRIMINATOR` are the foundation-fixed bounds.
+[coverage.adr036_resolver_tuple]
+symbols = [
+    "ResolverTuple",
+    "ResolverCategory",
+    "MAX_RESOLVER_TUPLE_ARITY",
+    "RESOLVER_ABSENT_DISCRIMINATOR",
+    "NullResolverTuple",
+    "NerveResolver",
+    "ChainComplexResolver",
+    "HomologyGroupResolver",
+    "CochainComplexResolver",
+    "CohomologyGroupResolver",
+    "PostnikovResolver",
+    "HomotopyGroupResolver",
+    "KInvariantResolver",
+    "HasNerveResolver",
+    "HasChainComplexResolver",
+    "HasHomologyGroupResolver",
+    "HasCochainComplexResolver",
+    "HasCohomologyGroupResolver",
+    "HasPostnikovResolver",
+    "HasHomotopyGroupResolver",
+    "HasKInvariantResolver",
+    "NullNerveResolver",
+    "NullChainComplexResolver",
+    "NullHomologyGroupResolver",
+    "NullCochainComplexResolver",
+    "NullCohomologyGroupResolver",
+    "NullPostnikovResolver",
+    "NullHomotopyGroupResolver",
+    "NullKInvariantResolver",
+]
+behavior = "behavior_catamorphism_evaluator"
+
 # ─── Mapping: ADR-016 four UOR-domain mint primitives ──────────────────
 # ADR-016 commits foundation to public mint primitives that are the
 # cross-crate construction surface for the four UOR-domain sealed

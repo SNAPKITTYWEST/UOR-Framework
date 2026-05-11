@@ -2061,6 +2061,89 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// current candidate `idx`.");
     f.line("        predicate_index: u32,");
     f.line("    },");
+    // ψ-chain Term variants (wiki ADR-035): nine lowering targets for the
+    // ψ_1..ψ_9 ontology pipeline. Eight consult the model's ResolverTuple
+    // (per ADR-036) for per-value content; Betti is pure computation.
+    f.indented_doc_comment(
+        "ψ_1 (wiki ADR-035): nerve construction — Constraints → SimplicialComplex.",
+    );
+    f.indented_doc_comment("Lowered from the closure-body form `nerve(<value_expr>)` (G21).");
+    f.indented_doc_comment(
+        "Resolver-bound: consults the ResolverTuple's NerveResolver per ADR-036.",
+    );
+    f.line("    Nerve {");
+    f.line("        /// Arena index of the value-bytes operand (typically a");
+    f.line("        /// `Term::Variable` for the route input or a `Term::ProjectField`).");
+    f.line("        value_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment("ψ_2 (wiki ADR-035): chain functor — SimplicialComplex → ChainComplex.");
+    f.indented_doc_comment("Lowered from `chain_complex(<simplicial_expr>)` (G22).");
+    f.indented_doc_comment("Resolver-bound: ChainComplexResolver per ADR-036.");
+    f.line("    ChainComplex {");
+    f.line("        simplicial_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment("ψ_3 (wiki ADR-035): homology functor — ChainComplex → HomologyGroups.");
+    f.indented_doc_comment("`H_k(C) = ker(∂_k) / im(∂_{k+1})`.");
+    f.indented_doc_comment("Lowered from `homology_groups(<chain_expr>)` (G23).");
+    f.indented_doc_comment("Resolver-bound: HomologyGroupResolver per ADR-036.");
+    f.line("    HomologyGroups {");
+    f.line("        chain_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment(
+        "ψ_4 (wiki ADR-035): Betti-number extraction — HomologyGroups → BettiNumbers.",
+    );
+    f.indented_doc_comment(
+        "Pure computation on resolved homology groups; no resolver consultation.",
+    );
+    f.indented_doc_comment("Lowered from `betti(<homology_expr>)` (G24).");
+    f.line("    Betti {");
+    f.line("        homology_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment(
+        "ψ_5 (wiki ADR-035): dualization functor — ChainComplex → CochainComplex.",
+    );
+    f.indented_doc_comment("`C^k = Hom(C_k, R)`.");
+    f.indented_doc_comment("Lowered from `cochain_complex(<chain_expr>)` (G25).");
+    f.indented_doc_comment("Resolver-bound: CochainComplexResolver per ADR-036.");
+    f.line("    CochainComplex {");
+    f.line("        chain_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment(
+        "ψ_6 (wiki ADR-035): cohomology functor — CochainComplex → CohomologyGroups.",
+    );
+    f.indented_doc_comment("`H^k(C) = ker(δ^k) / im(δ^{k-1})`.");
+    f.indented_doc_comment("Lowered from `cohomology_groups(<cochain_expr>)` (G26).");
+    f.indented_doc_comment("Resolver-bound: CohomologyGroupResolver per ADR-036.");
+    f.line("    CohomologyGroups {");
+    f.line("        cochain_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment("ψ_7 (wiki ADR-035): Kan-completion + Postnikov truncation —");
+    f.indented_doc_comment("SimplicialComplex → PostnikovTower. The PostnikovResolver performs");
+    f.indented_doc_comment("the Kan-completion internally; verb authors do not need to construct");
+    f.indented_doc_comment("KanComplex values explicitly.");
+    f.indented_doc_comment("Lowered from `postnikov_tower(<simplicial_expr>)` (G27).");
+    f.indented_doc_comment("Resolver-bound: PostnikovResolver per ADR-036.");
+    f.line("    PostnikovTower {");
+    f.line("        simplicial_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment(
+        "ψ_8 (wiki ADR-035): homotopy extraction — PostnikovTower → HomotopyGroups.",
+    );
+    f.indented_doc_comment("π_k from each truncation stage.");
+    f.indented_doc_comment("Lowered from `homotopy_groups(<postnikov_expr>)` (G28).");
+    f.indented_doc_comment("Resolver-bound: HomotopyGroupResolver per ADR-036.");
+    f.line("    HomotopyGroups {");
+    f.line("        postnikov_index: u32,");
+    f.line("    },");
+    f.indented_doc_comment(
+        "ψ_9 (wiki ADR-035): k-invariant computation — HomotopyGroups → KInvariants.",
+    );
+    f.indented_doc_comment("κ_k classifying the Postnikov tower.");
+    f.indented_doc_comment("Lowered from `k_invariants(<homotopy_expr>)` (G29).");
+    f.indented_doc_comment("Resolver-bound: KInvariantResolver per ADR-036.");
+    f.line("    KInvariants {");
+    f.line("        homotopy_index: u32,");
+    f.line("    },");
     f.line("}");
     f.blank();
 
@@ -2137,6 +2220,33 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        Term::FirstAdmit { domain_size_index, predicate_index } => Term::FirstAdmit {");
     f.line("            domain_size_index: domain_size_index + offset,");
     f.line("            predicate_index: predicate_index + offset,");
+    f.line("        },");
+    f.line("        Term::Nerve { value_index } => Term::Nerve {");
+    f.line("            value_index: value_index + offset,");
+    f.line("        },");
+    f.line("        Term::ChainComplex { simplicial_index } => Term::ChainComplex {");
+    f.line("            simplicial_index: simplicial_index + offset,");
+    f.line("        },");
+    f.line("        Term::HomologyGroups { chain_index } => Term::HomologyGroups {");
+    f.line("            chain_index: chain_index + offset,");
+    f.line("        },");
+    f.line("        Term::Betti { homology_index } => Term::Betti {");
+    f.line("            homology_index: homology_index + offset,");
+    f.line("        },");
+    f.line("        Term::CochainComplex { chain_index } => Term::CochainComplex {");
+    f.line("            chain_index: chain_index + offset,");
+    f.line("        },");
+    f.line("        Term::CohomologyGroups { cochain_index } => Term::CohomologyGroups {");
+    f.line("            cochain_index: cochain_index + offset,");
+    f.line("        },");
+    f.line("        Term::PostnikovTower { simplicial_index } => Term::PostnikovTower {");
+    f.line("            simplicial_index: simplicial_index + offset,");
+    f.line("        },");
+    f.line("        Term::HomotopyGroups { postnikov_index } => Term::HomotopyGroups {");
+    f.line("            postnikov_index: postnikov_index + offset,");
+    f.line("        },");
+    f.line("        Term::KInvariants { homotopy_index } => Term::KInvariants {");
+    f.line("            homotopy_index: homotopy_index + offset,");
     f.line("        },");
     f.line("    }");
     f.line("}");
@@ -5065,7 +5175,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 5;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 6;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");

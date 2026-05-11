@@ -499,7 +499,16 @@ fn prism_model_inlines_verb_fragment_for_local_verb_call() {
             | Term::Try { .. }
             | Term::AxisInvocation { .. }
             | Term::ProjectField { .. }
-            | Term::FirstAdmit { .. } => {}
+            | Term::FirstAdmit { .. }
+            | Term::Nerve { .. }
+            | Term::ChainComplex { .. }
+            | Term::HomologyGroups { .. }
+            | Term::Betti { .. }
+            | Term::CochainComplex { .. }
+            | Term::CohomologyGroups { .. }
+            | Term::PostnikovTower { .. }
+            | Term::HomotopyGroups { .. }
+            | Term::KInvariants { .. } => {}
         }
         let _ = i;
     }

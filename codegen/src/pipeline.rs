@@ -2015,6 +2015,7 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     f.blank();
 
     emit_axis_extension(f);
+    emit_resolver_tuple(f);
     emit_prism_model(f);
     emit_cartesian_product_shape(f);
 }
@@ -2337,6 +2338,396 @@ fn emit_axis_extension(f: &mut RustFile) {
     }
 }
 
+/// Emits the wiki ADR-036 surface: the [`ResolverTuple`] sealed trait
+/// (per-value content provision for resolver-bound substrate ψ-Term
+/// variants per ADR-035), the eight resolver-category traits
+/// (`NerveResolver`, `ChainComplexResolver`, …, `KInvariantResolver`),
+/// the eight marker traits (`HasNerveResolver`, …) the model where-
+/// clause names, the `NullResolverTuple` resolver-absent default, and
+/// eight `Null<Category>Resolver<H>` impls that emit the
+/// `RESOLVER_ABSENT` discriminator on every `resolve` call.
+fn emit_resolver_tuple(f: &mut RustFile) {
+    f.doc_comment("ADR-036: maximum number of resolvers a single application's");
+    f.doc_comment("`ResolverTuple` may carry. Foundation-fixed at twice");
+    f.doc_comment("[`MAX_AXIS_TUPLE_ARITY`] to accommodate ADR-035's eight");
+    f.doc_comment("resolver-bound ψ-Term categories with eight headroom positions");
+    f.doc_comment("for future ADR-013/TR-08 substrate amendments.");
+    f.line("pub const MAX_RESOLVER_TUPLE_ARITY: usize = 16;");
+    f.blank();
+
+    f.doc_comment("ADR-036: foundation-internal discriminator emitted by every");
+    f.doc_comment("`Null<Category>Resolver` impl when the catamorphism's resolver-");
+    f.doc_comment("bound ψ-Term fold-rule consults a resolver category whose");
+    f.doc_comment("`ResolverTuple` accessor returns the foundation-Null impl. The");
+    f.doc_comment("evaluator translates this into a `PipelineFailure::ShapeViolation`");
+    f.doc_comment("carrying the `https://uor.foundation/resolver/RESOLVER_ABSENT`");
+    f.doc_comment("shape IRI; ADR-022 D3 G9's `Term::Try` default-propagation handler");
+    f.doc_comment("recovers it when the verb body wraps the ψ-Term.");
+    f.line("pub const RESOLVER_ABSENT_DISCRIMINATOR: u8 = 0xff;");
+    f.blank();
+
+    f.doc_comment("ADR-036: resolver-category enum identifying which resolver-bound");
+    f.doc_comment("substrate operation each `ResolverTuple` position satisfies. Each");
+    f.doc_comment("variant corresponds to one resolver-bound ψ-Term variant per");
+    f.doc_comment("ADR-035; future ADR-013/TR-08 substrate amendments add variants.");
+    f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    f.line("pub enum ResolverCategory {");
+    f.indented_doc_comment("ψ_1 — per-value bytes → SimplicialComplex (NerveResolver).");
+    f.line("    Nerve,");
+    f.indented_doc_comment("ψ_2 — SimplicialComplex → ChainComplex (ChainComplexResolver).");
+    f.line("    ChainComplex,");
+    f.indented_doc_comment("ψ_3 — ChainComplex → HomologyGroups (HomologyGroupResolver).");
+    f.line("    HomologyGroup,");
+    f.indented_doc_comment("ψ_5 — ChainComplex → CochainComplex (CochainComplexResolver).");
+    f.line("    CochainComplex,");
+    f.indented_doc_comment("ψ_6 — CochainComplex → CohomologyGroups (CohomologyGroupResolver).");
+    f.line("    CohomologyGroup,");
+    f.indented_doc_comment("ψ_7 — SimplicialComplex → PostnikovTower (PostnikovResolver).");
+    f.line("    Postnikov,");
+    f.indented_doc_comment("ψ_8 — PostnikovTower → HomotopyGroups (HomotopyGroupResolver).");
+    f.line("    HomotopyGroup,");
+    f.indented_doc_comment("ψ_9 — HomotopyGroups → KInvariants (KInvariantResolver).");
+    f.line("    KInvariant,");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("ADR-036: tuple-of-bounded-types parameter on the model declaration");
+    f.doc_comment("carrying application-provided resolver instances for the resolver-");
+    f.doc_comment("bound ψ-Term variants per ADR-035. Sealed via");
+    f.doc_comment("[`__sdk_seal::Sealed`]: only the SDK `resolver!` macro emits impls.");
+    f.line("pub trait ResolverTuple: __sdk_seal::Sealed {");
+    f.indented_doc_comment(
+        "Number of resolver positions in this tuple (bounded by `MAX_RESOLVER_TUPLE_ARITY`).",
+    );
+    f.line("    const ARITY: usize;");
+    f.indented_doc_comment("Resolver category at each tuple position.");
+    f.line("    const CATEGORIES: &'static [ResolverCategory];");
+    f.line("}");
+    f.blank();
+
+    // Eight resolver category traits. Per the user's directive, generic
+    // over <H> (no Hasher bound) — the seal is the gate.
+    let resolver_traits: &[(&str, &str)] = &[
+        (
+            "NerveResolver",
+            "ψ_1 — per-value bytes → SimplicialComplex per ADR-035.",
+        ),
+        (
+            "ChainComplexResolver",
+            "ψ_2 — SimplicialComplex → ChainComplex per ADR-035.",
+        ),
+        (
+            "HomologyGroupResolver",
+            "ψ_3 — ChainComplex → HomologyGroups per ADR-035.",
+        ),
+        (
+            "CochainComplexResolver",
+            "ψ_5 — ChainComplex → CochainComplex per ADR-035.",
+        ),
+        (
+            "CohomologyGroupResolver",
+            "ψ_6 — CochainComplex → CohomologyGroups per ADR-035.",
+        ),
+        (
+            "PostnikovResolver",
+            "ψ_7 — SimplicialComplex → PostnikovTower per ADR-035.",
+        ),
+        (
+            "HomotopyGroupResolver",
+            "ψ_8 — PostnikovTower → HomotopyGroups per ADR-035.",
+        ),
+        (
+            "KInvariantResolver",
+            "ψ_9 — HomotopyGroups → KInvariants per ADR-035.",
+        ),
+    ];
+    for (trait_name, doc) in resolver_traits {
+        f.doc_comment(&format!("ADR-036 resolver trait: {doc}"));
+        f.doc_comment("");
+        f.doc_comment("Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so");
+        f.doc_comment("resolver impls compute content-addressed fingerprints using the");
+        f.doc_comment("model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only");
+        f.doc_comment("the SDK `resolver!` macro emits impls. Foundation provides a Null");
+        f.doc_comment("impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.");
+        f.line(&format!(
+            "pub trait {trait_name}<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {{"
+        ));
+        f.indented_doc_comment("Resolve per-value content for this category.");
+        f.indented_doc_comment("");
+        f.indented_doc_comment("# Errors");
+        f.indented_doc_comment("");
+        f.indented_doc_comment("Returns [`crate::enforcement::ShapeViolation`] when the resolver");
+        f.indented_doc_comment("cannot produce content (e.g., the foundation Null impl carrying");
+        f.indented_doc_comment("the `RESOLVER_ABSENT` discriminator).");
+        f.line("    fn resolve(");
+        f.line("        &self,");
+        f.line("        input: &[u8],");
+        f.line("        out: &mut [u8],");
+        f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation>;");
+        f.line("}");
+        f.blank();
+    }
+
+    // Eight Has<Category>Resolver marker traits.
+    let marker_traits: &[(&str, &str, &str)] = &[
+        ("HasNerveResolver", "NerveResolver", "nerve_resolver"),
+        (
+            "HasChainComplexResolver",
+            "ChainComplexResolver",
+            "chain_complex_resolver",
+        ),
+        (
+            "HasHomologyGroupResolver",
+            "HomologyGroupResolver",
+            "homology_group_resolver",
+        ),
+        (
+            "HasCochainComplexResolver",
+            "CochainComplexResolver",
+            "cochain_complex_resolver",
+        ),
+        (
+            "HasCohomologyGroupResolver",
+            "CohomologyGroupResolver",
+            "cohomology_group_resolver",
+        ),
+        (
+            "HasPostnikovResolver",
+            "PostnikovResolver",
+            "postnikov_resolver",
+        ),
+        (
+            "HasHomotopyGroupResolver",
+            "HomotopyGroupResolver",
+            "homotopy_group_resolver",
+        ),
+        (
+            "HasKInvariantResolver",
+            "KInvariantResolver",
+            "k_invariant_resolver",
+        ),
+    ];
+    for (marker, resolver, accessor) in marker_traits {
+        f.doc_comment(&format!(
+            "ADR-036 marker trait: ResolverTuple positions including a `{resolver}`."
+        ));
+        f.doc_comment("The `prism_model!` macro infers the where-clause bound for each");
+        f.doc_comment("resolver-bound ψ-Term variant a verb body emits.");
+        f.line(&format!(
+            "pub trait {marker}<H: crate::enforcement::Hasher>: ResolverTuple {{"
+        ));
+        f.indented_doc_comment(&format!(
+            "Returns the `{resolver}` impl this ResolverTuple carries."
+        ));
+        f.line(&format!("    fn {accessor}(&self) -> &dyn {resolver}<H>;"));
+        f.line("}");
+        f.blank();
+    }
+
+    // Null resolver impls.
+    f.doc_comment("ADR-036 Null resolver tuple — the resolver-absent default.");
+    f.doc_comment("`ResolverTuple` impl with `ARITY = 0` and an empty CATEGORIES list.");
+    f.doc_comment("Applications that don't declare a `resolver!` block default to this.");
+    f.line("#[derive(Debug, Clone, Copy, Default)]");
+    f.line("pub struct NullResolverTuple;");
+    f.blank();
+    f.line("impl __sdk_seal::Sealed for NullResolverTuple {}");
+    f.blank();
+    f.line("impl ResolverTuple for NullResolverTuple {");
+    f.line("    const ARITY: usize = 0;");
+    f.line("    const CATEGORIES: &'static [ResolverCategory] = &[];");
+    f.line("}");
+    f.blank();
+
+    // Eight Null<Category>Resolver impls.
+    let null_resolvers: &[(&str, &str, &str)] = &[
+        ("NullNerveResolver", "NerveResolver", "Nerve"),
+        (
+            "NullChainComplexResolver",
+            "ChainComplexResolver",
+            "ChainComplex",
+        ),
+        (
+            "NullHomologyGroupResolver",
+            "HomologyGroupResolver",
+            "HomologyGroup",
+        ),
+        (
+            "NullCochainComplexResolver",
+            "CochainComplexResolver",
+            "CochainComplex",
+        ),
+        (
+            "NullCohomologyGroupResolver",
+            "CohomologyGroupResolver",
+            "CohomologyGroup",
+        ),
+        ("NullPostnikovResolver", "PostnikovResolver", "Postnikov"),
+        (
+            "NullHomotopyGroupResolver",
+            "HomotopyGroupResolver",
+            "HomotopyGroup",
+        ),
+        ("NullKInvariantResolver", "KInvariantResolver", "KInvariant"),
+    ];
+    for (null_ty, resolver_trait, category) in null_resolvers {
+        f.doc_comment(&format!(
+            "ADR-036 Null `{resolver_trait}` impl. `resolve` always emits the"
+        ));
+        f.doc_comment("`RESOLVER_ABSENT` shape violation — the catamorphism translates this");
+        f.doc_comment("into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s");
+        f.doc_comment("default-propagation handler (ADR-022 D3 G9).");
+        f.line("#[derive(Debug, Default)]");
+        f.line(&format!(
+            "pub struct {null_ty}<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);"
+        ));
+        f.blank();
+        f.line(&format!(
+            "impl<H: crate::enforcement::Hasher> {null_ty}<H> {{"
+        ));
+        f.indented_doc_comment("Construct a new Null resolver.");
+        f.line("    #[must_use]");
+        f.line("    pub const fn new() -> Self {");
+        f.line("        Self(core::marker::PhantomData)");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+        f.line(&format!(
+            "impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for {null_ty}<H> {{}}"
+        ));
+        f.blank();
+        f.line(&format!(
+            "impl<H: crate::enforcement::Hasher> {resolver_trait}<H> for {null_ty}<H> {{"
+        ));
+        f.line("    fn resolve(");
+        f.line("        &self,");
+        f.line("        _input: &[u8],");
+        f.line("        _out: &mut [u8],");
+        f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+        f.line("        Err(crate::enforcement::ShapeViolation {");
+        f.line("            shape_iri: \"https://uor.foundation/resolver/RESOLVER_ABSENT\",");
+        f.line(&format!(
+            "            constraint_iri: \"https://uor.foundation/resolver/{category}\","
+        ));
+        f.line("            property_iri: \"https://uor.foundation/resolver/category\",");
+        f.line("            expected_range: \"https://uor.foundation/resolver/Resolver\",");
+        f.line("            min_count: 0,");
+        f.line("            max_count: 1,");
+        f.line("            kind: crate::ViolationKind::ValueCheck,");
+        f.line("        })");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+    }
+
+    // ADR-036 gap closure: NullResolverTuple satisfies every
+    // Has<Category>Resolver<H> marker trait. To make a `&dyn <Category>Resolver<H>`
+    // available from a `&NullResolverTuple` without alloc (foundation is
+    // `#![no_std]`), NullResolverTuple itself implements each of the eight
+    // resolver traits — the `resolve` method emits the same RESOLVER_ABSENT
+    // shape violation as the corresponding `Null<Category>Resolver<H>`. The
+    // marker-trait accessor returns `self`, cast to the trait object. This
+    // realizes the wiki's "Null* resolvers satisfy the bound for ergonomic
+    // reasons" commitment: applications can default to NullResolverTuple in
+    // tests/smoke contexts and recover RESOLVER_ABSENT at runtime via
+    // `Term::Try`.
+    let absent_impls: &[(&str, &str, &str, &str)] = &[
+        (
+            "NerveResolver",
+            "HasNerveResolver",
+            "nerve_resolver",
+            "Nerve",
+        ),
+        (
+            "ChainComplexResolver",
+            "HasChainComplexResolver",
+            "chain_complex_resolver",
+            "ChainComplex",
+        ),
+        (
+            "HomologyGroupResolver",
+            "HasHomologyGroupResolver",
+            "homology_group_resolver",
+            "HomologyGroup",
+        ),
+        (
+            "CochainComplexResolver",
+            "HasCochainComplexResolver",
+            "cochain_complex_resolver",
+            "CochainComplex",
+        ),
+        (
+            "CohomologyGroupResolver",
+            "HasCohomologyGroupResolver",
+            "cohomology_group_resolver",
+            "CohomologyGroup",
+        ),
+        (
+            "PostnikovResolver",
+            "HasPostnikovResolver",
+            "postnikov_resolver",
+            "Postnikov",
+        ),
+        (
+            "HomotopyGroupResolver",
+            "HasHomotopyGroupResolver",
+            "homotopy_group_resolver",
+            "HomotopyGroup",
+        ),
+        (
+            "KInvariantResolver",
+            "HasKInvariantResolver",
+            "k_invariant_resolver",
+            "KInvariant",
+        ),
+    ];
+    for (resolver_trait, marker, accessor, category) in absent_impls {
+        f.doc_comment(&format!(
+            "ADR-036: NullResolverTuple satisfies `{resolver_trait}<H>` directly so"
+        ));
+        f.doc_comment(&format!(
+            "the `{marker}<H>` accessor can return `self` cast to `&dyn {resolver_trait}<H>`."
+        ));
+        f.doc_comment("The `resolve` method emits the `RESOLVER_ABSENT` shape violation —");
+        f.doc_comment("recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).");
+        f.line(&format!(
+            "impl<H: crate::enforcement::Hasher> {resolver_trait}<H> for NullResolverTuple {{"
+        ));
+        f.line("    fn resolve(");
+        f.line("        &self,");
+        f.line("        _input: &[u8],");
+        f.line("        _out: &mut [u8],");
+        f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
+        f.line("        Err(crate::enforcement::ShapeViolation {");
+        f.line("            shape_iri: \"https://uor.foundation/resolver/RESOLVER_ABSENT\",");
+        f.line(&format!(
+            "            constraint_iri: \"https://uor.foundation/resolver/{category}\","
+        ));
+        f.line("            property_iri: \"https://uor.foundation/resolver/category\",");
+        f.line("            expected_range: \"https://uor.foundation/resolver/Resolver\",");
+        f.line("            min_count: 0,");
+        f.line("            max_count: 1,");
+        f.line("            kind: crate::ViolationKind::ValueCheck,");
+        f.line("        })");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+        f.doc_comment(&format!(
+            "ADR-036: NullResolverTuple satisfies `{marker}<H>` (returns `self`)."
+        ));
+        f.line(&format!(
+            "impl<H: crate::enforcement::Hasher> {marker}<H> for NullResolverTuple {{"
+        ));
+        f.line(&format!(
+            "    fn {accessor}(&self) -> &dyn {resolver_trait}<H> {{"
+        ));
+        f.line("        self");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+    }
+}
+
 /// Emits the wiki ADR-020 + ADR-022 surface: the [`FoundationClosed`]
 /// marker trait, the [`__sdk_seal::Sealed`] supertrait that the SDK
 /// proc-macro names in its emissions, and the [`PrismModel`] developer
@@ -2599,11 +2990,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("macro emits both the type-level `Route` witness (which the application's");
     f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
     f.doc_comment("[`run_route`] traverses (per ADR-022 D2 + D3 + D5).");
-    f.line("pub trait PrismModel<H, B, A>: __sdk_seal::Sealed");
+    f.line(
+        "pub trait PrismModel<H, B, A, R = crate::pipeline::NullResolverTuple>: __sdk_seal::Sealed",
+    );
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
     f.line("    A: crate::pipeline::AxisTuple,");
+    f.line("    R: crate::pipeline::ResolverTuple,");
     f.line("{");
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment("foundation vocabulary.");
@@ -2672,7 +3066,10 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] from the underlying [`run`] call.");
-    f.line("pub fn run_route<H, B, A, M>(input: M::Input) -> Result<");
+    f.line("pub fn run_route<H, B, A, M, R>(");
+    f.line("    input: M::Input,");
+    f.line("    resolvers: &R,");
+    f.line(") -> Result<");
     f.line("    crate::enforcement::Grounded<M::Output>,");
     f.line("    PipelineFailure,");
     f.line(">");
@@ -2680,7 +3077,16 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
     f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
-    f.line("    M: PrismModel<H, B, A>,");
+    f.line("    M: PrismModel<H, B, A, R>,");
+    f.line("    R: crate::pipeline::ResolverTuple");
+    f.line("        + crate::pipeline::HasNerveResolver<A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
     f.line("{");
     f.line("    // ADR-022 D5: read the route's term-tree arena from the model's");
     f.line("    // `Route` (the macro-emitted witness; identity-route returns &[]),");
@@ -2793,7 +3199,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // ADR-029: evaluate the route's Term tree as a structural fold.");
     f.line("    // The catamorphism's output bytes flow into the Grounded's");
     f.line("    // output payload (ADR-028).");
-    f.line("    let evaluation = evaluate_term_tree::<A>(arena_slice, &buf[..written])?;");
+    f.line("    let evaluation = evaluate_term_tree::<A, R>(arena_slice, &buf[..written], resolvers)?;");
     f.line("    let grounded = run::<M::Output, _, A>(unit)?;");
     f.line("    Ok(grounded.with_output_bytes(evaluation.bytes()))");
     f.line("}");
@@ -2965,12 +3371,22 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds");
     f.doc_comment("index, level mismatch, exhausted match without wildcard arm, etc.).");
-    f.line("pub fn evaluate_term_tree<A>(");
+    f.line("pub fn evaluate_term_tree<A, R>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    input_bytes: &[u8],");
+    f.line("    resolvers: &R,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple,");
+    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    R: crate::pipeline::ResolverTuple");
+    f.line("        + crate::pipeline::HasNerveResolver<A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
     f.line("{");
     f.line("    if arena.is_empty() {");
     f.line("        // Identity route: output equals input bytes.");
@@ -2980,7 +3396,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A>(arena, root_idx, input_bytes, None, None, None, None)");
+    f.line("    evaluate_term_at::<A, R>(arena, root_idx, input_bytes, None, None, None, None, resolvers)");
     f.line("}");
     f.blank();
 
@@ -2996,7 +3412,7 @@ fn emit_prism_model(f: &mut RustFile) {
     // required. The Term enum carries exactly the ten variants ADR-029
     // enumerates.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn evaluate_term_at<A>(");
+    f.line("fn evaluate_term_at<A, R>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    idx: usize,");
     f.line("    input_bytes: &[u8],");
@@ -3004,9 +3420,19 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    recurse_idx_value: Option<&[u8]>,");
     f.line("    unfold_value: Option<&[u8]>,");
     f.line("    first_admit_idx_value: Option<&[u8]>,");
+    f.line("    resolvers: &R,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple,");
+    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    R: crate::pipeline::ResolverTuple");
+    f.line("        + crate::pipeline::HasNerveResolver<A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
     f.line("{");
     f.line("    if idx >= arena.len() {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
@@ -3066,11 +3492,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)");
+    f.line("            apply_primitive_op::<A, R>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let v = evaluate_term_at::<A, R>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -3089,7 +3515,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let v = evaluate_term_at::<A, R>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
@@ -3102,7 +3528,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A>(arena, scrutinee_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let scrutinee = evaluate_term_at::<A, R>(arena, scrutinee_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -3118,13 +3544,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value);");
+    f.line("                    return evaluate_term_at::<A, R>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A>(arena, pattern_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "                let pattern_val = evaluate_term_at::<A, R>(arena, pattern_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value);");
+    f.line("                    return evaluate_term_at::<A, R>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -3159,11 +3585,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // forms within the measure/base computations; step body uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let measure = evaluate_term_at::<A>(arena, measure_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let measure = evaluate_term_at::<A, R>(arena, measure_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(measure.bytes());");
     f.line(
-        "            let base_val = evaluate_term_at::<A>(arena, base_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let base_val = evaluate_term_at::<A, R>(arena, base_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            if n == 0 {");
     f.line("                return Ok(base_val);");
@@ -3187,7 +3613,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // u64 packing so callers can read it as a u64-shaped value.");
     f.line("                let descent_measure: u64 = n - iter;");
     f.line("                let descent_bytes = descent_measure.to_be_bytes();");
-    f.line("                let next = evaluate_term_at::<A>(");
+    f.line("                let next = evaluate_term_at::<A, R>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
     f.line("                    input_bytes,");
@@ -3195,6 +3621,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    Some(&descent_bytes[..]),");
     f.line("                    unfold_value,");
     f.line("                    first_admit_idx_value,");
+    f.line("                    resolvers,");
     f.line("                )?;");
     f.line("                let nb = next.bytes();");
     f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
@@ -3218,7 +3645,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // within the seed; step body's state placeholder uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let seed_val = evaluate_term_at::<A>(arena, seed_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let seed_val = evaluate_term_at::<A, R>(arena, seed_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];");
     f.line("            let mut state_len = seed_val.bytes().len();");
@@ -3229,7 +3656,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }");
     f.line("            let mut iter = 0usize;");
     f.line("            while iter < UNFOLD_MAX_ITERATIONS {");
-    f.line("                let next = evaluate_term_at::<A>(");
+    f.line("                let next = evaluate_term_at::<A, R>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
     f.line("                    input_bytes,");
@@ -3237,6 +3664,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    recurse_idx_value,");
     f.line("                    Some(&state_buf[..state_len]),");
     f.line("                    first_admit_idx_value,");
+    f.line("                    resolvers,");
     f.line("                )?;");
     f.line("                let nb = next.bytes();");
     f.line("                // Kleene fixpoint check: if step(state) == state, return.");
@@ -3255,14 +3683,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            Ok(TermValue::from_slice(&state_buf[..state_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A>(arena, body_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value) {");
+    f.line("            match evaluate_term_at::<A, R>(arena, body_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A>(arena, handler_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)",
+        "                        evaluate_term_at::<A, R>(arena, handler_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)",
     );
     f.line("                    }");
     f.line("                }");
@@ -3280,7 +3708,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // through the legacy Hasher API; user-declared axes via the");
     f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
     f.line("            // (axis_index, kernel_id) combinations.");
-    f.line("            let v = evaluate_term_at::<A>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
+    f.line("            let v = evaluate_term_at::<A, R>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
     f.line("            let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                Ok(n) => n,");
@@ -3293,7 +3721,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
     f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
-    f.line("            let v = evaluate_term_at::<A>(arena, source_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
+    f.line("            let v = evaluate_term_at::<A, R>(arena, source_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("            let bytes = v.bytes();");
     f.line("            let start = byte_offset as usize;");
     f.line("            let end = start.saturating_add(byte_length as usize);");
@@ -3325,7 +3753,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // 0x01 || idx_bytes); after exhausting the domain return the");
     f.line("            // \"not-found\" coproduct value 0x00 || idx-width zero bytes.");
     f.line(
-        "            let domain_size = evaluate_term_at::<A>(arena, domain_size_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "            let domain_size = evaluate_term_at::<A, R>(arena, domain_size_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(domain_size.bytes());");
     f.line("            // Determine the idx byte width from the domain size's");
@@ -3345,7 +3773,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            while idx_iter < n {");
     f.line("                let idx_bytes_full = idx_iter.to_be_bytes();");
     f.line("                let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];");
-    f.line("                let pred_val = evaluate_term_at::<A>(");
+    f.line("                let pred_val = evaluate_term_at::<A, R>(");
     f.line("                    arena,");
     f.line("                    predicate_index as usize,");
     f.line("                    input_bytes,");
@@ -3353,6 +3781,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    recurse_idx_value,");
     f.line("                    unfold_value,");
     f.line("                    Some(idx_bytes),");
+    f.line("                    resolvers,");
     f.line("                )?;");
     f.line("                // ADR-029 zero/non-zero convention: any TermValue whose");
     f.line("                // byte sequence has at least one non-zero byte counts as");
@@ -3385,13 +3814,115 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // bytes 1..1+idx_byte_width remain zero (structural padding).");
     f.line("            Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]))");
     f.line("        }");
+
+    // ADR-035 + ADR-036: ψ-Term fold-rules.
+    //
+    // Eight resolver-bound variants (Nerve, ChainComplex, HomologyGroups,
+    // CochainComplex, CohomologyGroups, PostnikovTower, HomotopyGroups,
+    // KInvariants) consult the application's `ResolverTuple` at
+    // evaluation time. Each variant evaluates its operand subtree,
+    // dispatches the operand bytes to the corresponding resolver via
+    // `Has<Category>Resolver::<accessor>().resolve(...)`, and emits the
+    // resolver's output bytes as the variant's `TermValue`. The
+    // foundation-Null defaults (`NullResolverTuple` + `Null<Cat>Resolver`)
+    // emit `RESOLVER_ABSENT` ShapeViolations on `resolve`; the catamorphism
+    // propagates them, recoverable via `Term::Try`'s default-propagation
+    // handler (ADR-022 D3 G9). The application supplies non-Null resolvers
+    // via the `resolver!` SDK macro per the wiki commitment.
+    //
+    // The resolver-free Betti variant is a pass-through: it copies the
+    // evaluated homology bytes as-is (Betti-extraction-without-resolver
+    // is byte projection per ADR-035; foundation provides the trivial
+    // pass-through).
+    let resolver_bound_variants: &[(&str, &str, &str)] = &[
+        (
+            "Term::Nerve { value_index }",
+            "value_index",
+            "nerve_resolver",
+        ),
+        (
+            "Term::ChainComplex { simplicial_index }",
+            "simplicial_index",
+            "chain_complex_resolver",
+        ),
+        (
+            "Term::HomologyGroups { chain_index }",
+            "chain_index",
+            "homology_group_resolver",
+        ),
+        (
+            "Term::CochainComplex { chain_index }",
+            "chain_index",
+            "cochain_complex_resolver",
+        ),
+        (
+            "Term::CohomologyGroups { cochain_index }",
+            "cochain_index",
+            "cohomology_group_resolver",
+        ),
+        (
+            "Term::PostnikovTower { simplicial_index }",
+            "simplicial_index",
+            "postnikov_resolver",
+        ),
+        (
+            "Term::HomotopyGroups { postnikov_index }",
+            "postnikov_index",
+            "homotopy_group_resolver",
+        ),
+        (
+            "Term::KInvariants { homotopy_index }",
+            "homotopy_index",
+            "k_invariant_resolver",
+        ),
+    ];
+    for (pattern, operand_field, accessor) in resolver_bound_variants {
+        f.line(&format!("        crate::enforcement::{pattern} => {{"));
+        f.line("            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.");
+        f.line("            // Evaluate the operand subtree, then dispatch the operand");
+        f.line("            // bytes to the application's resolver via the");
+        f.line("            // `Has<Category>Resolver` accessor. The resolver's output");
+        f.line("            // bytes populate the variant's `TermValue`; resolver-side");
+        f.line("            // `Err` propagates as a `PipelineFailure::ShapeViolation`");
+        f.line("            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable");
+        f.line("            // via `Term::Try`'s default-propagation handler).");
+        f.line(&format!(
+            "            let operand = evaluate_term_at::<A, R>(arena, {operand_field} as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
+        ));
+        f.line("            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
+        f.line(&format!(
+            "            match resolvers.{accessor}().resolve(operand.bytes(), &mut out_buf) {{"
+        ));
+        f.line("                Ok(written) => {");
+        f.line("                    let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");
+        f.line("                    Ok(TermValue::from_slice(&out_buf[..width]))");
+        f.line("                }");
+        f.line("                Err(report) => Err(PipelineFailure::ShapeViolation { report }),");
+        f.line("            }");
+        f.line("        }");
+    }
+
+    // Term::Betti — resolver-free pass-through (ADR-035 ψ_4).
+    f.line("        crate::enforcement::Term::Betti { homology_index } => {");
+    f.line("            // ADR-035 ψ_4: Betti-number extraction from HomologyGroups.");
+    f.line("            // Pure byte-projection — no resolver consultation. The");
+    f.line("            // operand's evaluated bytes (the homology-groups byte");
+    f.line("            // serialization per the homology bridge's wire format)");
+    f.line("            // are returned as-is; downstream consumers slice the");
+    f.line("            // Betti tuple positions out of the result.");
+    f.line(
+        "            let v = evaluate_term_at::<A, R>(arena, homology_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+    );
+    f.line("            Ok(v)");
+    f.line("        }");
+
     f.line("    }");
     f.line("}");
     f.blank();
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn apply_primitive_op<A>(");
+    f.line("fn apply_primitive_op<A, R>(");
     f.line("    arena: &[crate::enforcement::Term],");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    args_start: usize,");
@@ -3401,9 +3932,19 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    recurse_idx_value: Option<&[u8]>,");
     f.line("    unfold_value: Option<&[u8]>,");
     f.line("    first_admit_idx_value: Option<&[u8]>,");
+    f.line("    resolvers: &R,");
     f.line(") -> Result<TermValue, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple,");
+    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    R: crate::pipeline::ResolverTuple");
+    f.line("        + crate::pipeline::HasNerveResolver<A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
     f.line("{");
     f.line("    // Unary ops: 1 arg. Binary ops: 2 args.");
     f.line("    let arity = match operator {");
@@ -3442,7 +3983,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    }");
     f.line("    if arity == 1 {");
     f.line(
-        "        let v = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "        let v = evaluate_term_at::<A, R>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
@@ -3473,9 +4014,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
     f.line("    } else {");
     f.line(
-        "        let lhs = evaluate_term_at::<A>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;",
+        "        let lhs = evaluate_term_at::<A, R>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
-    f.line("        let rhs = evaluate_term_at::<A>(arena, args_start + 1, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value)?;");
+    f.line("        let rhs = evaluate_term_at::<A, R>(arena, args_start + 1, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and");
     f.line("        // comparison primitives bypass the u64 fold and operate on the");
     f.line("        // operands' full byte sequences.");

@@ -18,8 +18,18 @@
 //! 6. `TERM_VALUE_MAX_BYTES` is the foundation-fixed per-value ceiling.
 
 use uor_foundation::enforcement::{Hasher, Term, TermList};
-use uor_foundation::pipeline::{evaluate_term_tree, TermValue, TERM_VALUE_MAX_BYTES};
-use uor_foundation::{PrimitiveOp, WittLevel};
+use uor_foundation::pipeline::{
+    evaluate_term_tree, NullResolverTuple, TermValue, TERM_VALUE_MAX_BYTES,
+};
+use uor_foundation::{PipelineFailure, PrimitiveOp, WittLevel};
+
+/// Thin wrapper around `evaluate_term_tree` that defaults the resolver
+/// tuple to `NullResolverTuple` — keeps these test bodies focused on the
+/// catamorphism's term-tree fold-rules (the resolver-bound ψ-Term variants
+/// are exercised by dedicated tests that supply real resolvers).
+fn eval_zero(arena: &[Term], input_bytes: &[u8]) -> Result<TermValue, PipelineFailure> {
+    evaluate_term_tree::<ZeroHasher, NullResolverTuple>(arena, input_bytes, &NullResolverTuple)
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 struct ZeroHasher;
@@ -47,7 +57,8 @@ impl Hasher for ZeroHasher {
 #[test]
 fn evaluator_surface_resolves_at_crate_root() {
     // The function exists at the foundation public path.
-    let _: fn(&[Term], &[u8]) -> _ = evaluate_term_tree::<ZeroHasher>;
+    let _: fn(&[Term], &[u8], &NullResolverTuple) -> _ =
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple>;
     // Pin the constant: TERM_VALUE_MAX_BYTES must be at least the maximum
     // of ROUTE_INPUT_BUFFER_BYTES and ROUTE_OUTPUT_BUFFER_BYTES so a
     // TermValue can carry both input bytes (ADR-023) and the catamorphism's
@@ -69,7 +80,7 @@ fn empty_arena_evaluates_to_input_bytes() {
     // identity route has an empty term arena. The catamorphism must
     // pass the input through to the output unchanged.
     let input = [0xde, 0xad, 0xbe, 0xef];
-    let result = evaluate_term_tree::<ZeroHasher>(&[], &input).expect("identity route succeeds");
+    let result = eval_zero(&[], &input).expect("identity route succeeds");
     assert_eq!(result.bytes(), &input[..]);
 }
 
@@ -80,7 +91,7 @@ fn literal_term_evaluates_to_value_bytes() {
         value: 0x42,
         level: WittLevel::W8,
     }];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("literal evaluates");
+    let result = eval_zero(&arena, &[]).expect("literal evaluates");
     assert_eq!(result.bytes(), &[0x42][..]);
 }
 
@@ -101,7 +112,7 @@ fn application_add_combines_args() {
             args: TermList { start: 0, len: 2 },
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("addition evaluates");
+    let result = eval_zero(&arena, &[]).expect("addition evaluates");
     assert_eq!(result.bytes(), &[5u8][..]);
 }
 
@@ -120,8 +131,7 @@ fn hasher_projection_delegates_to_substitution_axis() {
         },
     ];
     let input = [0x11, 0x22, 0x33];
-    let result =
-        evaluate_term_tree::<ZeroHasher>(&arena, &input).expect("hash projection evaluates");
+    let result = eval_zero(&arena, &input).expect("hash projection evaluates");
     // Per ADR-029, the hasher's OUTPUT_BYTES width prefix is taken.
     assert_eq!(result.bytes(), &[0xab, 0xcd, 0xef, 0x01][..]);
 }
@@ -145,8 +155,7 @@ fn variable_term_routes_input_bytes() {
     // catamorphism's Variable handler returns the threaded input bytes.
     let arena = [Term::Variable { name_index: 0 }];
     let input = [0xca, 0xfe];
-    let result =
-        evaluate_term_tree::<ZeroHasher>(&arena, &input).expect("variable evaluates to input");
+    let result = eval_zero(&arena, &input).expect("variable evaluates to input");
     assert_eq!(result.bytes(), &input[..]);
 }
 
@@ -164,7 +173,7 @@ fn lift_term_zero_extends_to_target_width() {
             target: WittLevel::W32,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("lift evaluates");
+    let result = eval_zero(&arena, &[]).expect("lift evaluates");
     // W32 is 4 bytes; the W8 value 0x42 zero-extends to [0x00, 0x00, 0x00, 0x42].
     assert_eq!(result.bytes(), &[0x00, 0x00, 0x00, 0x42][..]);
 }
@@ -182,7 +191,7 @@ fn project_term_truncates_to_target_width() {
             target: WittLevel::W8,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("project evaluates");
+    let result = eval_zero(&arena, &[]).expect("project evaluates");
     // 0xdeadbeef projected to W8 (1 byte) keeps the trailing byte 0xef.
     assert_eq!(result.bytes(), &[0xef][..]);
 }
@@ -222,7 +231,7 @@ fn match_term_dispatches_on_literal_pattern() {
             arms: TermList { start: 1, len: 4 },
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("match evaluates");
+    let result = eval_zero(&arena, &[]).expect("match evaluates");
     assert_eq!(result.bytes(), &[0xaa][..]);
 }
 
@@ -247,7 +256,7 @@ fn match_term_falls_through_to_wildcard_arm() {
             arms: TermList { start: 1, len: 2 },
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("wildcard match evaluates");
+    let result = eval_zero(&arena, &[]).expect("wildcard match evaluates");
     assert_eq!(result.bytes(), &[0xfa][..]);
 }
 
@@ -288,7 +297,7 @@ fn recurse_term_iterates_step_n_times() {
             step_index: 4,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse evaluates");
+    let result = eval_zero(&arena, &[]).expect("recurse evaluates");
     assert_eq!(result.bytes(), &[13u8][..]);
 }
 
@@ -312,7 +321,7 @@ fn recurse_zero_measure_returns_base() {
             step_index: 2,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse base evaluates");
+    let result = eval_zero(&arena, &[]).expect("recurse base evaluates");
     assert_eq!(result.bytes(), &[0xbe][..]);
 }
 
@@ -347,7 +356,7 @@ fn unfold_term_iterates_to_kleene_fixpoint() {
             step_index: 3,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("unfold evaluates");
+    let result = eval_zero(&arena, &[]).expect("unfold evaluates");
     assert_eq!(result.bytes(), &[0xff][..]);
 }
 
@@ -364,7 +373,7 @@ fn try_term_propagates_success() {
             handler_index: u32::MAX,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("try success evaluates");
+    let result = eval_zero(&arena, &[]).expect("try success evaluates");
     assert_eq!(result.bytes(), &[0x77][..]);
 }
 
@@ -399,8 +408,7 @@ fn recurse_two_param_form_binds_iteration_counter() {
             step_index: 2,
         },
     ];
-    let result =
-        evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("recurse with idx binding evaluates");
+    let result = eval_zero(&arena, &[]).expect("recurse with idx binding evaluates");
     // The descent at the final iteration (iter=2 → measure=N-iter=1) is
     // the last value the step body sees; that's what becomes the result.
     // The 8-byte BE encoding of 1u64 ends in 0x01.
@@ -431,7 +439,7 @@ fn first_admit_returns_found_coproduct_on_admission() {
             predicate_index: 1,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("first_admit evaluates");
+    let result = eval_zero(&arena, &[]).expect("first_admit evaluates");
     // 5 fits in 1 byte → idx_byte_width = 1 → result is 2 bytes:
     //   discriminator 0x01 ("found") + idx 1.
     assert_eq!(result.bytes(), &[0x01, 0x01][..]);
@@ -458,8 +466,7 @@ fn first_admit_returns_not_found_coproduct_on_exhausted_search() {
             predicate_index: 1,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[])
-        .expect("first_admit (no admission) evaluates");
+    let result = eval_zero(&arena, &[]).expect("first_admit (no admission) evaluates");
     assert_eq!(result.bytes(), &[0x00, 0x00][..]);
 }
 
@@ -480,8 +487,7 @@ fn axis_invocation_canonical_hash_routes_through_axis_tuple() {
         },
     ];
     let input = [0xaa, 0xbb];
-    let result =
-        evaluate_term_tree::<ZeroHasher>(&arena, &input).expect("axis invocation evaluates");
+    let result = eval_zero(&arena, &input).expect("axis invocation evaluates");
     // ZeroHasher's AxisTuple dispatch returns its OUTPUT_BYTES (4) bytes
     // of the canonical pattern.
     assert_eq!(result.bytes(), &[0xab, 0xcd, 0xef, 0x01][..]);
@@ -501,7 +507,7 @@ fn axis_invocation_non_canonical_dispatch_rejects() {
             input_index: 0,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[1, 2, 3]);
+    let result = eval_zero(&arena, &[1, 2, 3]);
     assert!(
         result.is_err(),
         "non-canonical axis dispatch must produce a ShapeViolation"
@@ -527,7 +533,7 @@ fn project_field_term_slices_source_bytes() {
             byte_length: 2,
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("project_field evaluates");
+    let result = eval_zero(&arena, &[]).expect("project_field evaluates");
     assert_eq!(result.bytes(), &[0xbe, 0xef][..]);
 }
 
@@ -548,7 +554,7 @@ fn project_field_out_of_bounds_rejects() {
             byte_length: 16, // way beyond the 1-byte source
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]);
+    let result = eval_zero(&arena, &[]);
     assert!(
         result.is_err(),
         "ProjectField overflowing source must produce ShapeViolation"
@@ -591,8 +597,7 @@ fn comparison_primitives_emit_zero_or_one() {
     ];
     for (op, lhs, rhs, expected) in cases {
         let arena = binary_op_arena(op, lhs, rhs);
-        let result =
-            evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("comparison op evaluates");
+        let result = eval_zero(&arena, &[]).expect("comparison op evaluates");
         assert_eq!(
             result.bytes(),
             &[expected][..],
@@ -618,7 +623,7 @@ fn concat_primitive_packs_byte_sequences() {
             args: TermList { start: 0, len: 2 },
         },
     ];
-    let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("concat evaluates");
+    let result = eval_zero(&arena, &[]).expect("concat evaluates");
     assert_eq!(result.bytes(), &[0xab, 0xcd, 0x12, 0x34][..]);
 }
 
@@ -634,7 +639,7 @@ fn arithmetic_primitives_match_ring_semantics() {
     ];
     for (op, lhs, rhs, expected) in cases {
         let arena = binary_op_arena(op, lhs, rhs);
-        let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("binary op evaluates");
+        let result = eval_zero(&arena, &[]).expect("binary op evaluates");
         assert_eq!(result.bytes(), &[expected][..], "{op:?}({lhs}, {rhs})");
     }
 }
@@ -659,7 +664,59 @@ fn unary_primitives_match_ring_semantics() {
                 args: TermList { start: 0, len: 1 },
             },
         ];
-        let result = evaluate_term_tree::<ZeroHasher>(&arena, &[]).expect("unary op evaluates");
+        let result = eval_zero(&arena, &[]).expect("unary op evaluates");
         assert_eq!(result.bytes(), &[expected][..], "{op:?}({operand})");
     }
+}
+
+// ── ADR-036: resolver-bound ψ-Term fold-rules consult the application's
+// ResolverTuple at evaluation time ──────────────────────────────────────
+
+#[test]
+fn resolver_bound_psi_term_consults_resolver_tuple() {
+    // Wiki ADR-036: the eight resolver-bound ψ-Term fold-rules
+    // (Nerve, ChainComplex, HomologyGroups, CochainComplex,
+    // CohomologyGroups, PostnikovTower, HomotopyGroups, KInvariants)
+    // dispatch the operand bytes to the application's resolver. With
+    // the NullResolverTuple default, `resolve` returns the
+    // RESOLVER_ABSENT shape violation, which the catamorphism
+    // propagates as `PipelineFailure::ShapeViolation`. This test pins
+    // that the resolver IS consulted (rather than the variant emitting
+    // a fixed pass-through), by asserting the propagated violation's
+    // `shape_iri` carries the `RESOLVER_ABSENT` discriminator.
+    let arena = [
+        Term::Variable { name_index: 0 },
+        Term::Nerve { value_index: 0 },
+    ];
+    let input = [0x11u8, 0x22, 0x33];
+    let result =
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple>(&arena, &input, &NullResolverTuple);
+    match result {
+        Err(PipelineFailure::ShapeViolation { report }) => {
+            assert_eq!(
+                report.shape_iri, "https://uor.foundation/resolver/RESOLVER_ABSENT",
+                "Null resolver's `resolve` must emit RESOLVER_ABSENT",
+            );
+        }
+        other => panic!(
+            "Term::Nerve under NullResolverTuple must propagate RESOLVER_ABSENT, got {other:?}"
+        ),
+    }
+}
+
+#[test]
+fn betti_term_is_resolver_free_passthrough() {
+    // Wiki ADR-035 ψ_4: Betti-extraction is pure byte projection — the
+    // catamorphism does NOT consult any resolver. With
+    // NullResolverTuple, evaluating Term::Betti over a literal homology
+    // payload must succeed and return the bytes unchanged.
+    let arena = [
+        Term::Literal {
+            value: 0x42,
+            level: WittLevel::W8,
+        },
+        Term::Betti { homology_index: 0 },
+    ];
+    let result = eval_zero(&arena, &[]).expect("betti is resolver-free");
+    assert_eq!(result.bytes(), &[0x42][..]);
 }
