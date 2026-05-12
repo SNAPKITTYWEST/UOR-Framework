@@ -211,6 +211,7 @@ mod test281_impossibility_certificates;
 mod test285_cartesian_partition_product;
 mod test286_tag_site;
 mod test287_layout_invariant;
+mod test288_axis_projection_observable;
 mod test28_measurement_unit;
 mod test29_triad_projection;
 mod test2_primitives;
@@ -497,6 +498,8 @@ pub use test281_impossibility_certificates::TEST281_IMPOSSIBILITY_CERTIFICATES;
 pub use test285_cartesian_partition_product::TEST285_CARTESIAN_PARTITION_PRODUCT;
 pub use test286_tag_site::TEST286_TAG_SITE;
 pub use test287_layout_invariant::TEST287_LAYOUT_INVARIANT;
+// Wiki ADR-038: AxisProjectionObservable closed-catalog extension.
+pub use test288_axis_projection_observable::TEST288_AXIS_PROJECTION_OBSERVABLE;
 pub use test28_measurement_unit::TEST28_MEASUREMENT_UNIT;
 pub use test29_triad_projection::TEST29_TRIAD_PROJECTION;
 pub use test2_primitives::TEST2_PRIMITIVES;
@@ -866,5 +869,6 @@ pub fn all_fixture_sources() -> Vec<&'static str> {
         TEST285_CARTESIAN_PARTITION_PRODUCT,
         TEST286_TAG_SITE,
         TEST287_LAYOUT_INVARIANT,
+        TEST288_AXIS_PROJECTION_OBSERVABLE,
     ]
 }

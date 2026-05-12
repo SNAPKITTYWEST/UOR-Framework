@@ -826,3 +826,24 @@ symbols = [
     "LeafConstraintRef",
 ]
 behavior = "behavior_constraintref_fixed_arrays"
+
+# ─── Mapping: ADR-037 — HostBounds-parametric capacity bounds. Foundation
+# emits eight `pub const`s aliasing `<DefaultHostBounds as HostBounds>::*_OUTPUT_BYTES_MAX`
+# (one per resolver-bound ψ-Term variant per ADR-035 + ADR-036). Each
+# fold-rule in `pipeline::evaluate_term_at` sizes its `out_buf` scratch at
+# the per-stage cap; the catamorphism-evaluator behavior test exercises
+# every fold-rule path end-to-end (resolver-bound ψ-Terms emit
+# RESOLVER_ABSENT under NullResolverTuple), so coverage is satisfied
+# transitively.
+[coverage.adr037_psi_stage_output_caps]
+symbols = [
+    "NERVE_OUTPUT_BYTES_MAX",
+    "CHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+    "HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+    "COCHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+    "COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+    "POSTNIKOV_TOWER_OUTPUT_BYTES_MAX",
+    "HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX",
+    "K_INVARIANTS_OUTPUT_BYTES_MAX",
+]
+behavior = "behavior_catamorphism_evaluator"

@@ -37,14 +37,17 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
     };
 
     let required: &[(&str, &str)] = &[
-        // Constants.
+        // Constants. Wiki ADR-037 migrated the literal 8 to a
+        // `<DefaultHostBounds as HostBounds>::BETTI_DIMENSION_MAX` /
+        // `JACOBIAN_SITES_MAX` derivation, so the anchor matches the
+        // `<crate::DefaultHostBounds` prefix the alias emits.
         (
             "MAX_BETTI_DIMENSION constant",
-            "pub const MAX_BETTI_DIMENSION: usize = 8;",
+            "pub const MAX_BETTI_DIMENSION: usize =",
         ),
         (
             "JACOBIAN_MAX_SITES constant",
-            "pub const JACOBIAN_MAX_SITES: usize = 8;",
+            "pub const JACOBIAN_MAX_SITES: usize =",
         ),
         // Trace event-count ceiling is carried by `HostBounds` per the wiki's
         // ADR-018 — there is no free-standing `TRACE_MAX_EVENTS` constant; the

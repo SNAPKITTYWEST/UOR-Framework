@@ -2,7 +2,7 @@
 
 //! UOR Foundation — typed Rust traits for the complete ontology.
 //!
-//! Version: 0.4.3
+//! Version: 0.4.4
 //!
 //! This crate exports every ontology class as a trait, every property as a
 //! method, and every named individual as a constant. Implementations import
@@ -531,6 +531,32 @@ impl HostTypes for DefaultHostTypes {
 ///     const FINGERPRINT_MAX_BYTES: usize = 32;
 ///     const TRACE_MAX_EVENTS: usize = 1024;
 ///     const WITT_LEVEL_MAX_BITS: u32 = 256;
+///     // ADR-037: 14 data-shape capacity caps. Match the
+///     // DefaultHostBounds defaults unless the application has a
+///     // specific reason to vary them.
+///     const TERM_VALUE_MAX_BYTES: usize = 4096;
+///     const AXIS_OUTPUT_BYTES_MAX: usize = 4096;
+///     const FOLD_UNROLL_THRESHOLD: usize = 8;
+///     const BETTI_DIMENSION_MAX: usize = 8;
+///     const NERVE_CONSTRAINTS_MAX: usize = 8;
+///     const NERVE_SITES_MAX: usize = 8;
+///     const JACOBIAN_SITES_MAX: usize = 8;
+///     const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+///     const OP_CHAIN_DEPTH_MAX: usize = 8;
+///     const AFFINE_COEFFS_MAX: usize = 8;
+///     const CONJUNCTION_TERMS_MAX: usize = 8;
+///     const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
+///     const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
+///     const UNFOLD_ITERATIONS_MAX: usize = 256;
+///     // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.
+///     const NERVE_OUTPUT_BYTES_MAX: usize = 4096;
+///     const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+///     const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+///     const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+///     const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+///     const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;
+///     const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+///     const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;
 /// }
 /// ```
 pub trait HostBounds {
@@ -553,6 +579,96 @@ pub trait HostBounds {
     /// along the principal data path may compute against. The
     /// `DefaultHostBounds` value of 64 corresponds to `WittLevel::W64`.
     const WITT_LEVEL_MAX_BITS: u32;
+
+    /// ADR-037: maximum `TermValue` inline buffer width in bytes.
+    /// Caps the catamorphism's per-fold-rule scratch size and the
+    /// `TermValue::from_slice` capacity.
+    const TERM_VALUE_MAX_BYTES: usize;
+
+    /// ADR-037: maximum axis-kernel output byte-buffer width — the
+    /// upper bound on the substitution-axis `dispatch()` return value's
+    /// `out` slice length. Sized at least as wide as the largest
+    /// axis-kernel output across the application's `AxisTuple`.
+    const AXIS_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: threshold below which `fold_n(n, init, step)` lowers to
+    /// an unrolled `Term::Application` chain (one application per
+    /// iteration). Counts `n >= FOLD_UNROLL_THRESHOLD` lower to
+    /// `Term::Recurse` instead.
+    const FOLD_UNROLL_THRESHOLD: usize;
+
+    /// ADR-037: maximum dimension index for `BettiNumbers` arrays —
+    /// `β_k(K)` is stored for `k` in `0..BETTI_DIMENSION_MAX`.
+    const BETTI_DIMENSION_MAX: usize;
+
+    /// ADR-037: maximum number of constraints in a single constraint
+    /// nerve's array representation.
+    const NERVE_CONSTRAINTS_MAX: usize;
+
+    /// ADR-037: maximum number of sites in a single constraint nerve's
+    /// array representation.
+    const NERVE_SITES_MAX: usize;
+
+    /// ADR-037: maximum number of sites for which a Jacobian matrix
+    /// can be stored inline.
+    const JACOBIAN_SITES_MAX: usize;
+
+    /// ADR-037: maximum recursion depth for the trace-replay stack.
+    const RECURSION_TRACE_DEPTH_MAX: usize;
+
+    /// ADR-037: maximum operator-chain depth in a single operation.
+    const OP_CHAIN_DEPTH_MAX: usize;
+
+    /// ADR-037: maximum number of affine coefficients per
+    /// `ConstraintRef::Affine`.
+    const AFFINE_COEFFS_MAX: usize;
+
+    /// ADR-037: maximum number of conjuncts per
+    /// `ConstraintRef::Conjunction`.
+    const CONJUNCTION_TERMS_MAX: usize;
+
+    /// ADR-037: maximum byte width of the route input buffer per
+    /// ADR-023's `IntoBindingValue` serialization.
+    const ROUTE_INPUT_BUFFER_BYTES: usize;
+
+    /// ADR-037: maximum byte width of the route output buffer per
+    /// ADR-028's `Grounded::output_bytes` payload.
+    const ROUTE_OUTPUT_BUFFER_BYTES: usize;
+
+    /// ADR-037: maximum iteration count for `Term::Unfold` evaluation.
+    const UNFOLD_ITERATIONS_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_1 `NerveResolver::resolve`'s
+    /// `out` buffer (the SimplicialComplex serialization).
+    const NERVE_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_2 `ChainComplexResolver::resolve`
+    /// output.
+    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_3
+    /// `HomologyGroupResolver::resolve` output.
+    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_5
+    /// `CochainComplexResolver::resolve` output.
+    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_6
+    /// `CohomologyGroupResolver::resolve` output.
+    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_7 `PostnikovResolver::resolve`
+    /// output (the Postnikov-tower serialization).
+    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_8
+    /// `HomotopyGroupResolver::resolve` output.
+    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize;
+
+    /// ADR-037: maximum byte width of ψ_9 `KInvariantResolver::resolve`
+    /// output (the κ-label byte serialization at ψ_9).
+    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize;
 }
 
 /// Canonical default impl of [`HostBounds`]. Carries the values the default
@@ -568,4 +684,26 @@ impl HostBounds for DefaultHostBounds {
     const FINGERPRINT_MAX_BYTES: usize = 32;
     const TRACE_MAX_EVENTS: usize = 256;
     const WITT_LEVEL_MAX_BITS: u32 = 64;
+    const TERM_VALUE_MAX_BYTES: usize = 4096;
+    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;
+    const FOLD_UNROLL_THRESHOLD: usize = 8;
+    const BETTI_DIMENSION_MAX: usize = 8;
+    const NERVE_CONSTRAINTS_MAX: usize = 8;
+    const NERVE_SITES_MAX: usize = 8;
+    const JACOBIAN_SITES_MAX: usize = 8;
+    const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+    const OP_CHAIN_DEPTH_MAX: usize = 8;
+    const AFFINE_COEFFS_MAX: usize = 8;
+    const CONJUNCTION_TERMS_MAX: usize = 8;
+    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
+    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
+    const UNFOLD_ITERATIONS_MAX: usize = 256;
+    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;
+    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;
+    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;
 }

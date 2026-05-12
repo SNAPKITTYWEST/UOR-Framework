@@ -39,7 +39,11 @@ pub const NAMESPACES: usize = 34;
 /// resolver failure paths per target §4.2 `Certified<ImpossibilityWitness>`).
 /// Product/Coproduct Completion Amendment: +3 (partition:CartesianPartitionProduct,
 /// partition:TagSite, foundation:LayoutInvariant).
-pub const CLASSES: usize = 471;
+/// Wiki ADR-038: +1 (observable:AxisProjectionObservable — top-level
+/// Observable subclass parallel to the seven internally-derived
+/// categories, carrying axis-realized projection values from the
+/// substrate-extension surface per ADR-030).
+pub const CLASSES: usize = 472;
 
 /// Total properties including the global `uor:space` annotation.
 ///
@@ -119,7 +123,9 @@ pub const INDIVIDUALS: usize = 3559;
 /// Product/Coproduct Completion Amendment: +3 (test285 CartesianPartitionProduct,
 /// test286 TagSite, test287 LayoutInvariant — instance fixtures for the three
 /// new kernel/bridge classes; close the meta/shacl_fixture_coverage gaps).
-pub const SHACL_TESTS: usize = 283;
+/// Wiki ADR-038: +1 (test288 AxisProjectionObservable — instance fixture
+/// for the closed-catalog extension's Observable subclass).
+pub const SHACL_TESTS: usize = 284;
 
 /// Total conformance checks in the full suite.
 ///
@@ -196,7 +202,7 @@ pub const SHACL_TESTS: usize = 283;
 /// `docs/orphan-closure/classification_report.md` agrees with
 /// `classify_all` and that the `CLASSIFICATION_*` constants in this
 /// file match the live counts.
-pub const CONFORMANCE_CHECKS: usize = 543;
+pub const CONFORMANCE_CHECKS: usize = 544;
 
 /// Number of amendments applied to the base ontology.
 pub const AMENDMENTS: usize = 95;
@@ -354,7 +360,11 @@ pub const CLASSIFICATION_ALREADY_IMPLEMENTED: usize = 4;
 /// DerivationDepthObservable, FreeRankObservable). Their Phase-7 Null
 /// stubs and Phase-8 Resolved wrappers stay in place; Phase 11 adds
 /// the `Validated<T, Phase>` blanket impl on top.
-pub const CLASSIFICATION_PATH1: usize = 413;
+///
+/// Wiki ADR-038: +1 (observable:AxisProjectionObservable — closed-
+/// catalog extension carried through the standard Path-1 codegen path
+/// alongside the seven internally-derived Observable categories).
+pub const CLASSIFICATION_PATH1: usize = 414;
 
 /// Path 2 — theorem-witness classes closed by the Phase 3
 /// `{Foo}Witness` + `{Foo}MintInputs` + `impl VerifiedMint` codegen

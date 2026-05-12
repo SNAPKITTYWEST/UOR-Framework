@@ -56,11 +56,21 @@ pub const REDUCTION_STAGE_IRIS: &[&str] = &[
 /// size buffer + an active prefix length. Aligned with the foundation's
 /// 8-wide capacity caps (`MAX_BETTI_DIMENSION` / `JACOBIAN_MAX_SITES` /
 /// `NERVE_CONSTRAINTS_CAP`).
-pub const AFFINE_MAX_COEFFS: usize = 8;
+/// Wiki ADR-037: the canonical source of truth for this cap is
+/// [`HostBounds::AFFINE_COEFFS_MAX`]; this `pub const` is a foundation-
+/// internal convenience alias derived from [`DefaultHostBounds`] for
+/// stable-Rust array-size positions. Applications declaring a custom
+/// `HostBounds` impl read `<MyBounds as HostBounds>::AFFINE_COEFFS_MAX`
+/// at instantiation sites instead.
+pub const AFFINE_MAX_COEFFS: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::AFFINE_COEFFS_MAX;
 
 /// Phase 17: maximum number of `LeafConstraintRef` conjuncts a
 /// `Conjunction` can carry. Same reasoning as `AFFINE_MAX_COEFFS`.
-pub const CONJUNCTION_MAX_TERMS: usize = 8;
+/// Wiki ADR-037: alias of [`HostBounds::CONJUNCTION_TERMS_MAX`] via
+/// [`DefaultHostBounds`].
+pub const CONJUNCTION_MAX_TERMS: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::CONJUNCTION_TERMS_MAX;
 
 /// Opaque constraint reference carried by `ConstrainedTypeShape` impls.
 /// Variants mirror the v0.2.1 `type:Constraint` enumerated subclasses
@@ -539,7 +549,59 @@ pub const MAX_AXIS_TUPLE_ARITY: usize = 8;
 /// ADR-030: the upper byte ceiling on a single axis kernel's
 /// output. Sized to `TERM_VALUE_MAX_BYTES` so any kernel can
 /// populate a `TermValue` directly.
-pub const AXIS_OUTPUT_BYTES_CEILING: usize = TERM_VALUE_MAX_BYTES;
+/// Wiki ADR-037: alias of [`HostBounds::AXIS_OUTPUT_BYTES_MAX`] via
+/// [`DefaultHostBounds`]. Applications declaring a custom `HostBounds`
+/// read `<MyBounds as HostBounds>::AXIS_OUTPUT_BYTES_MAX` instead.
+pub const AXIS_OUTPUT_BYTES_CEILING: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::AXIS_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::NERVE_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_1 (Nerve)
+/// resolver output byte-buffer ceiling.
+pub const NERVE_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::CHAIN_COMPLEX_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_2 (ChainComplex)
+/// resolver output byte-buffer ceiling.
+pub const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_3 (HomologyGroups)
+/// resolver output byte-buffer ceiling.
+pub const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_5 (CochainComplex)
+/// resolver output byte-buffer ceiling.
+pub const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_6 (CohomologyGroups)
+/// resolver output byte-buffer ceiling.
+pub const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_7 (PostnikovTower)
+/// resolver output byte-buffer ceiling.
+pub const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_8 (HomotopyGroups)
+/// resolver output byte-buffer ceiling.
+pub const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX;
+
+/// Wiki ADR-037: foundation-internal alias of
+/// [`HostBounds::K_INVARIANTS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_9 (KInvariants)
+/// resolver output byte-buffer ceiling.
+pub const K_INVARIANTS_OUTPUT_BYTES_MAX: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX;
 
 /// ADR-030: a substrate-extension axis. Each `axis!`-declared
 /// trait extends this trait via the SDK macro's blanket impl,
@@ -1926,7 +1988,10 @@ pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
 /// architecturally-equivalent stable-Rust form: inputs declaring
 /// `MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flow through the catamorphism;
 /// inputs declaring a larger `MAX_BYTES` are rejected at runtime.
-pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
+/// Wiki ADR-037: alias of [`HostBounds::ROUTE_INPUT_BUFFER_BYTES`] via
+/// [`DefaultHostBounds`].
+pub const ROUTE_INPUT_BUFFER_BYTES: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_INPUT_BUFFER_BYTES;
 
 /// Foundation-side ceiling for the on-stack buffer [`run_route`] uses to
 /// carry the catamorphism's evaluation result into the `Grounded<T>`'s
@@ -1935,7 +2000,10 @@ pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
 /// Output shapes whose `IntoBindingValue::MAX_BYTES` exceeds this ceiling
 /// are rejected at runtime by [`run_route`] (the symmetric output-side
 /// rejection rule paralleling ADR-023's input-side rule).
-pub const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
+/// Wiki ADR-037: alias of [`HostBounds::ROUTE_OUTPUT_BUFFER_BYTES`] via
+/// [`DefaultHostBounds`].
+pub const ROUTE_OUTPUT_BUFFER_BYTES: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_OUTPUT_BUFFER_BYTES;
 
 /// Foundation-fixed threshold for the closure-body grammar `fold_n`'s
 /// unroll-vs-`Term::Recurse` lowering rule per wiki ADR-026 G14.
@@ -1944,7 +2012,10 @@ pub const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
 /// (or parametric counts) lower to `Term::Recurse` with a descent-
 /// measure-bounded fold. The fixed threshold means two implementations
 /// compiling the same closure body emit the same Term tree.
-pub const FOLD_UNROLL_THRESHOLD: usize = 8;
+/// Wiki ADR-037: alias of [`HostBounds::FOLD_UNROLL_THRESHOLD`] via
+/// [`DefaultHostBounds`].
+pub const FOLD_UNROLL_THRESHOLD: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::FOLD_UNROLL_THRESHOLD;
 
 /// The application author's typed-iso contract: an `Input` feature type, an
 /// `Output` label type, and a type-level `Route` witness of the term tree
@@ -2169,7 +2240,11 @@ where
 /// `tree_depth × TERM_VALUE_MAX_BYTES`. ADR-024's compile-time inlining bounds
 /// tree depth by the source's grammar tree depth (verb fragments are inlined at
 /// compile time, no cross-fragment runtime recursion), keeping stack usage finite.
-pub const TERM_VALUE_MAX_BYTES: usize = 4096;
+/// Wiki ADR-037: alias of [`HostBounds::TERM_VALUE_MAX_BYTES`] via
+/// [`DefaultHostBounds`]. Applications declaring a custom `HostBounds`
+/// read `<MyBounds as HostBounds>::TERM_VALUE_MAX_BYTES` instead.
+pub const TERM_VALUE_MAX_BYTES: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::TERM_VALUE_MAX_BYTES;
 
 /// Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to
 /// mark `recurse(measure, base, |self| step)`'s self-identifier reference.
@@ -2214,7 +2289,10 @@ pub const FIRST_ADMIT_IDX_NAME_INDEX: u32 = u32::MAX - 4;
 /// state reaches a Kleene fixpoint (`step(state) == state`) or this
 /// ceiling is hit, at which point evaluation returns the most-recent
 /// state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).
-pub const UNFOLD_MAX_ITERATIONS: usize = 256;
+/// Wiki ADR-037: alias of [`HostBounds::UNFOLD_ITERATIONS_MAX`] via
+/// [`DefaultHostBounds`].
+pub const UNFOLD_MAX_ITERATIONS: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::UNFOLD_ITERATIONS_MAX;
 
 /// Wiki ADR-029: a single Term variant's evaluated value, carried as a
 /// fixed-capacity byte buffer with an active-prefix length. The
@@ -2912,6 +2990,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 value_index as usize,
@@ -2922,7 +3003,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf =
+                [0u8; <crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX];
             match resolvers
                 .nerve_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -2947,6 +3029,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 simplicial_index as usize,
@@ -2957,7 +3042,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX];
             match resolvers
                 .chain_complex_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -2982,6 +3068,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 chain_index as usize,
@@ -2992,7 +3081,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
             match resolvers
                 .homology_group_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -3017,6 +3107,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 chain_index as usize,
@@ -3027,7 +3120,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX];
             match resolvers
                 .cochain_complex_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -3052,6 +3146,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 cochain_index as usize,
@@ -3062,7 +3159,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
             match resolvers
                 .cohomology_group_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -3087,6 +3185,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 simplicial_index as usize,
@@ -3097,7 +3198,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX];
             match resolvers
                 .postnikov_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -3122,6 +3224,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 postnikov_index as usize,
@@ -3132,7 +3237,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX];
             match resolvers
                 .homotopy_group_resolver()
                 .resolve(operand.bytes(), &mut out_buf)
@@ -3157,6 +3263,9 @@ where
             // `Err` propagates as a `PipelineFailure::ShapeViolation`
             // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
             // via `Term::Try`'s default-propagation handler).
+            //
+            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX`
+            // — per-ψ-stage cap from the application's selected HostBounds.
             let operand = evaluate_term_at::<A, R>(
                 arena,
                 homotopy_index as usize,
@@ -3167,7 +3276,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+            let mut out_buf = [0u8;
+                <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX];
             match resolvers
                 .k_invariant_resolver()
                 .resolve(operand.bytes(), &mut out_buf)

@@ -100,6 +100,41 @@ fn classes() -> Vec<Class> {
             subclass_of: &["https://uor.foundation/observable/Observable"],
             disjoint_with: &[],
         },
+        // ADR-038 closed-catalog extension: AxisProjectionObservable as
+        // a top-level Observable subclass parallel to the seven
+        // internally-derived categories (Stratum / Metric / Path /
+        // Reduction / Catastrophe / Curvature / Holonomy). Distinct
+        // because its values carry from the substrate-extension surface
+        // per ADR-030 (axis-realized projections of typed sites through
+        // application-declared AxisTuple kernels), not from the
+        // framework's internal algebraic/topological structure. The
+        // ConstraintRef::Bound.args_repr canonical-string-form encoding
+        // for AxisProjectionObservable arguments is
+        //   `axis_address=<hex>;kernel=<symbolic>;sites=<site-list>[;target=<target-spec>]`
+        // — axis identification by content-address (AXIS_ADDRESS per
+        // ADR-030), not by tuple position, so the encoding is
+        // application-invariant across AxisTuple reorderings.
+        Class {
+            id: "https://uor.foundation/observable/AxisProjectionObservable",
+            label: "AxisProjectionObservable",
+            comment: "ADR-038: an observable whose value is the axis-realized \
+                      projection of typed sites through an application-declared \
+                      AxisTuple kernel per ADR-030. Distinct from the seven \
+                      internally-derived Observable categories (Stratum, Metric, \
+                      Path, Reduction, Catastrophe, Curvature, Holonomy) — its \
+                      values carry from the substrate-extension surface (axis \
+                      kernels), not from the framework's internal algebraic / \
+                      topological structure. The closed-catalog discipline holds: \
+                      foundation owns the subclass; applications consume catalog \
+                      variants through canonical-string-form `args_repr` on \
+                      `ConstraintRef::Bound`. The args_repr encoding (per ADR-038) \
+                      is `axis_address=<hex>;kernel=<symbolic>;sites=<site-list>\
+                      [;target=<target-spec>]` — axis identification by \
+                      content-address (AXIS_ADDRESS per ADR-030), not by tuple \
+                      position, so the encoding is application-invariant.",
+            subclass_of: &["https://uor.foundation/observable/Observable"],
+            disjoint_with: &[],
+        },
         // Metric subclasses
         Class {
             id: "https://uor.foundation/observable/RingMetric",

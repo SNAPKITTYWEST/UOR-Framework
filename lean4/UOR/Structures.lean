@@ -721,6 +721,17 @@ end UOR.Bridge.Derivation
 
 namespace UOR.Bridge.Observable
 
+/-- ADR-038: an observable whose value is the axis-realized projection of typed sites through an application-declared AxisTuple kernel per ADR-030. Distinct from the seven internally-derived Observable categories (Stratum, Metric, Path, Reduction, Catastrophe, Curvature, Holonomy) — its values carry from the substrate-extension surface (axis kernels), not from the framework's internal algebraic / topological structure. The closed-catalog discipline holds: foundation owns the subclass; applications consume catalog variants through canonical-string-form `args_repr` on `ConstraintRef::Bound`. The args_repr encoding (per ADR-038) is `axis_address=<hex>;kernel=<symbolic>;sites=<site-list>[;target=<target-spec>]` — axis identification by content-address (AXIS_ADDRESS per ADR-030), not by tuple position, so the encoding is application-invariant. -/
+structure AxisProjectionObservable (P : Primitives) extends Observable P
+
+instance : Inhabited (AxisProjectionObservable UOR.Prims.Standard) where
+  default := {
+    value := none
+    source := none
+    target := none
+    hasUnit := none
+  }
+
 /-- An observable measuring catastrophe-theoretic properties: thresholds at which qualitative changes occur in the partition. -/
 structure CatastropheObservable (P : Primitives) extends Observable P where
   /-- The ring dimension coordinate n in the (n, g) catastrophe phase diagram (PD_1 n-coordinate). -/

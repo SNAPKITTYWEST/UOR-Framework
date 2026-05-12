@@ -1512,11 +1512,27 @@ fn emit_constraint_ref(f: &mut RustFile) {
     f.doc_comment("size buffer + an active prefix length. Aligned with the foundation's");
     f.doc_comment("8-wide capacity caps (`MAX_BETTI_DIMENSION` / `JACOBIAN_MAX_SITES` /");
     f.doc_comment("`NERVE_CONSTRAINTS_CAP`).");
-    f.line("pub const AFFINE_MAX_COEFFS: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: the canonical source of truth for this cap is");
+    f.doc_comment("[`HostBounds::AFFINE_COEFFS_MAX`]; this `pub const` is a foundation-");
+    f.doc_comment("internal convenience alias derived from [`DefaultHostBounds`] for");
+    f.doc_comment("stable-Rust array-size positions. Applications declaring a custom");
+    f.doc_comment("`HostBounds` impl read `<MyBounds as HostBounds>::AFFINE_COEFFS_MAX`");
+    f.doc_comment("at instantiation sites instead.");
+    f.line(
+        "pub const AFFINE_MAX_COEFFS: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::AFFINE_COEFFS_MAX;",
+    );
     f.blank();
     f.doc_comment("Phase 17: maximum number of `LeafConstraintRef` conjuncts a");
     f.doc_comment("`Conjunction` can carry. Same reasoning as `AFFINE_MAX_COEFFS`.");
-    f.line("pub const CONJUNCTION_MAX_TERMS: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::CONJUNCTION_TERMS_MAX`] via");
+    f.doc_comment("[`DefaultHostBounds`].");
+    f.line(
+        "pub const CONJUNCTION_MAX_TERMS: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::CONJUNCTION_TERMS_MAX;",
+    );
     f.blank();
 
     f.doc_comment("Opaque constraint reference carried by `ConstrainedTypeShape` impls.");
@@ -2120,8 +2136,72 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("ADR-030: the upper byte ceiling on a single axis kernel's");
     f.doc_comment("output. Sized to `TERM_VALUE_MAX_BYTES` so any kernel can");
     f.doc_comment("populate a `TermValue` directly.");
-    f.line("pub const AXIS_OUTPUT_BYTES_CEILING: usize = TERM_VALUE_MAX_BYTES;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::AXIS_OUTPUT_BYTES_MAX`] via");
+    f.doc_comment("[`DefaultHostBounds`]. Applications declaring a custom `HostBounds`");
+    f.doc_comment("read `<MyBounds as HostBounds>::AXIS_OUTPUT_BYTES_MAX` instead.");
+    f.line(
+        "pub const AXIS_OUTPUT_BYTES_CEILING: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::AXIS_OUTPUT_BYTES_MAX;",
+    );
     f.blank();
+    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings as
+    // foundation-internal aliases derived from DefaultHostBounds. Each
+    // resolver-bound ψ-Term fold-rule reads its per-stage cap directly
+    // via `<DefaultHostBounds as HostBounds>::*_OUTPUT_BYTES_MAX` for
+    // stable-Rust array-size compatibility; applications selecting a
+    // non-default HostBounds populate via the trait at instantiation
+    // sites.
+    let psi_stage_caps: &[(&str, &str, &str)] = &[
+        ("PSI_1", "ψ_1 (Nerve)", "NERVE_OUTPUT_BYTES_MAX"),
+        (
+            "PSI_2",
+            "ψ_2 (ChainComplex)",
+            "CHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_3",
+            "ψ_3 (HomologyGroups)",
+            "HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_5",
+            "ψ_5 (CochainComplex)",
+            "COCHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_6",
+            "ψ_6 (CohomologyGroups)",
+            "COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_7",
+            "ψ_7 (PostnikovTower)",
+            "POSTNIKOV_TOWER_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_8",
+            "ψ_8 (HomotopyGroups)",
+            "HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX",
+        ),
+        (
+            "PSI_9",
+            "ψ_9 (KInvariants)",
+            "K_INVARIANTS_OUTPUT_BYTES_MAX",
+        ),
+    ];
+    for (_, label, cap_name) in psi_stage_caps {
+        f.doc_comment("Wiki ADR-037: foundation-internal alias of");
+        f.doc_comment(&format!(
+            "[`HostBounds::{cap_name}`] via [`DefaultHostBounds`] — the {label}"
+        ));
+        f.doc_comment("resolver output byte-buffer ceiling.");
+        f.line(&format!(
+            "pub const {cap_name}: usize = \
+             <crate::DefaultHostBounds as crate::HostBounds>::{cap_name};"
+        ));
+        f.blank();
+    }
     f.doc_comment("ADR-030: a substrate-extension axis. Each `axis!`-declared");
     f.doc_comment("trait extends this trait via the SDK macro's blanket impl,");
     f.doc_comment("which emits per-method `KERNEL_*` const ids and the");
@@ -2906,7 +2986,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("architecturally-equivalent stable-Rust form: inputs declaring");
     f.doc_comment("`MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flow through the catamorphism;");
     f.doc_comment("inputs declaring a larger `MAX_BYTES` are rejected at runtime.");
-    f.line("pub const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::ROUTE_INPUT_BUFFER_BYTES`] via");
+    f.doc_comment("[`DefaultHostBounds`].");
+    f.line(
+        "pub const ROUTE_INPUT_BUFFER_BYTES: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_INPUT_BUFFER_BYTES;",
+    );
     f.blank();
 
     // ROUTE_OUTPUT_BUFFER_BYTES — wiki ADR-028.
@@ -2925,7 +3011,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("Output shapes whose `IntoBindingValue::MAX_BYTES` exceeds this ceiling");
     f.doc_comment("are rejected at runtime by [`run_route`] (the symmetric output-side");
     f.doc_comment("rejection rule paralleling ADR-023's input-side rule).");
-    f.line("pub const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::ROUTE_OUTPUT_BUFFER_BYTES`] via");
+    f.doc_comment("[`DefaultHostBounds`].");
+    f.line(
+        "pub const ROUTE_OUTPUT_BUFFER_BYTES: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_OUTPUT_BUFFER_BYTES;",
+    );
     f.blank();
 
     // FOLD_UNROLL_THRESHOLD — wiki ADR-026 G14.
@@ -2944,7 +3036,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("(or parametric counts) lower to `Term::Recurse` with a descent-");
     f.doc_comment("measure-bounded fold. The fixed threshold means two implementations");
     f.doc_comment("compiling the same closure body emit the same Term tree.");
-    f.line("pub const FOLD_UNROLL_THRESHOLD: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::FOLD_UNROLL_THRESHOLD`] via");
+    f.doc_comment("[`DefaultHostBounds`].");
+    f.line(
+        "pub const FOLD_UNROLL_THRESHOLD: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::FOLD_UNROLL_THRESHOLD;",
+    );
     f.blank();
 
     // PrismModel — the typed-iso contract.
@@ -3243,7 +3341,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment(
         "compile time, no cross-fragment runtime recursion), keeping stack usage finite.",
     );
-    f.line("pub const TERM_VALUE_MAX_BYTES: usize = 4096;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::TERM_VALUE_MAX_BYTES`] via");
+    f.doc_comment("[`DefaultHostBounds`]. Applications declaring a custom `HostBounds`");
+    f.doc_comment("read `<MyBounds as HostBounds>::TERM_VALUE_MAX_BYTES` instead.");
+    f.line(
+        "pub const TERM_VALUE_MAX_BYTES: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::TERM_VALUE_MAX_BYTES;",
+    );
     f.blank();
     f.doc_comment("Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to");
     f.doc_comment("mark `recurse(measure, base, |self| step)`'s self-identifier reference.");
@@ -3291,7 +3396,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("state reaches a Kleene fixpoint (`step(state) == state`) or this");
     f.doc_comment("ceiling is hit, at which point evaluation returns the most-recent");
     f.doc_comment("state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).");
-    f.line("pub const UNFOLD_MAX_ITERATIONS: usize = 256;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::UNFOLD_ITERATIONS_MAX`] via");
+    f.doc_comment("[`DefaultHostBounds`].");
+    f.line(
+        "pub const UNFOLD_MAX_ITERATIONS: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::UNFOLD_ITERATIONS_MAX;",
+    );
     f.blank();
     f.doc_comment("Wiki ADR-029: a single Term variant's evaluated value, carried as a");
     f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
@@ -3839,49 +3950,64 @@ fn emit_prism_model(f: &mut RustFile) {
     // evaluated homology bytes as-is (Betti-extraction-without-resolver
     // is byte projection per ADR-035; foundation provides the trivial
     // pass-through).
-    let resolver_bound_variants: &[(&str, &str, &str)] = &[
+    // ADR-037: per-ψ-stage resolver output byte-buffer ceiling, sourced
+    // from HostBounds. The catamorphism's resolver-bound fold-rule
+    // allocates an `out_buf` sized at the per-stage cap (defaulting to
+    // `DefaultHostBounds`'s 4096 each) so applications declaring a
+    // custom HostBounds can tune resolver output capacity per ψ-stage
+    // independently. The fourth column below names the HostBounds
+    // associated constant the fold-rule's scratch buffer reads from.
+    let resolver_bound_variants: &[(&str, &str, &str, &str)] = &[
         (
             "Term::Nerve { value_index }",
             "value_index",
             "nerve_resolver",
+            "NERVE_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::ChainComplex { simplicial_index }",
             "simplicial_index",
             "chain_complex_resolver",
+            "CHAIN_COMPLEX_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::HomologyGroups { chain_index }",
             "chain_index",
             "homology_group_resolver",
+            "HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::CochainComplex { chain_index }",
             "chain_index",
             "cochain_complex_resolver",
+            "COCHAIN_COMPLEX_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::CohomologyGroups { cochain_index }",
             "cochain_index",
             "cohomology_group_resolver",
+            "COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::PostnikovTower { simplicial_index }",
             "simplicial_index",
             "postnikov_resolver",
+            "POSTNIKOV_TOWER_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::HomotopyGroups { postnikov_index }",
             "postnikov_index",
             "homotopy_group_resolver",
+            "HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX",
         ),
         (
             "Term::KInvariants { homotopy_index }",
             "homotopy_index",
             "k_invariant_resolver",
+            "K_INVARIANTS_OUTPUT_BYTES_MAX",
         ),
     ];
-    for (pattern, operand_field, accessor) in resolver_bound_variants {
+    for (pattern, operand_field, accessor, host_bound_cap) in resolver_bound_variants {
         f.line(&format!("        crate::enforcement::{pattern} => {{"));
         f.line("            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.");
         f.line("            // Evaluate the operand subtree, then dispatch the operand");
@@ -3891,10 +4017,17 @@ fn emit_prism_model(f: &mut RustFile) {
         f.line("            // `Err` propagates as a `PipelineFailure::ShapeViolation`");
         f.line("            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable");
         f.line("            // via `Term::Try`'s default-propagation handler).");
+        f.line("            //");
+        f.line(&format!(
+            "            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::{host_bound_cap}`"
+        ));
+        f.line("            // — per-ψ-stage cap from the application's selected HostBounds.");
         f.line(&format!(
             "            let operand = evaluate_term_at::<A, R>(arena, {operand_field} as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
         ));
-        f.line("            let mut out_buf = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
+        f.line(&format!(
+            "            let mut out_buf = [0u8; <crate::DefaultHostBounds as crate::HostBounds>::{host_bound_cap}];"
+        ));
         f.line(&format!(
             "            match resolvers.{accessor}().resolve(operand.bytes(), &mut out_buf) {{"
         ));

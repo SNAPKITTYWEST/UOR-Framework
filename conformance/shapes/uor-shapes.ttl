@@ -2143,6 +2143,14 @@ uor-sh:HolonomyObservableShape
     sh:targetClass  observable:HolonomyObservable ;
     rdfs:label      "HolonomyObservableShape" .
 
+# Wiki ADR-038: AxisProjectionObservable — closed-catalog extension
+# carrying axis-realized projection values from the substrate-extension
+# surface per ADR-030.
+uor-sh:AxisProjectionObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  observable:AxisProjectionObservable ;
+    rdfs:label      "AxisProjectionObservableShape" .
+
 uor-sh:RingMetricShape
     a               sh:NodeShape ;
     sh:targetClass  observable:RingMetric ;

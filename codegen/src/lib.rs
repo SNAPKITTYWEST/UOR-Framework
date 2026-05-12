@@ -931,6 +931,32 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.doc_comment("    const FINGERPRINT_MAX_BYTES: usize = 32;");
     f.doc_comment("    const TRACE_MAX_EVENTS: usize = 1024;");
     f.doc_comment("    const WITT_LEVEL_MAX_BITS: u32 = 256;");
+    f.doc_comment("    // ADR-037: 14 data-shape capacity caps. Match the");
+    f.doc_comment("    // DefaultHostBounds defaults unless the application has a");
+    f.doc_comment("    // specific reason to vary them.");
+    f.doc_comment("    const TERM_VALUE_MAX_BYTES: usize = 4096;");
+    f.doc_comment("    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const FOLD_UNROLL_THRESHOLD: usize = 8;");
+    f.doc_comment("    const BETTI_DIMENSION_MAX: usize = 8;");
+    f.doc_comment("    const NERVE_CONSTRAINTS_MAX: usize = 8;");
+    f.doc_comment("    const NERVE_SITES_MAX: usize = 8;");
+    f.doc_comment("    const JACOBIAN_SITES_MAX: usize = 8;");
+    f.doc_comment("    const RECURSION_TRACE_DEPTH_MAX: usize = 16;");
+    f.doc_comment("    const OP_CHAIN_DEPTH_MAX: usize = 8;");
+    f.doc_comment("    const AFFINE_COEFFS_MAX: usize = 8;");
+    f.doc_comment("    const CONJUNCTION_TERMS_MAX: usize = 8;");
+    f.doc_comment("    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
+    f.doc_comment("    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;");
+    f.doc_comment("    const UNFOLD_ITERATIONS_MAX: usize = 256;");
+    f.doc_comment("    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.");
+    f.doc_comment("    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;");
     f.doc_comment("}");
     f.doc_comment("```");
     f.line("pub trait HostBounds {");
@@ -953,6 +979,110 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.indented_doc_comment("along the principal data path may compute against. The");
     f.indented_doc_comment("`DefaultHostBounds` value of 64 corresponds to `WittLevel::W64`.");
     f.line("    const WITT_LEVEL_MAX_BITS: u32;");
+    f.blank();
+    // ADR-037: 14 data-shape capacity caps migrated from foundation-fixed
+    // free-standing constants to HostBounds associated constants,
+    // completing ADR-018's commitment that no data-shape capacity bound
+    // lives outside HostBounds. Foundation-internal aliases (the
+    // `pub const`s carrying the prior names in `pipeline.rs` /
+    // `enforcement.rs`) derive from `<DefaultHostBounds as HostBounds>`
+    // so existing apps are shape-preserving; applications declaring a
+    // custom `HostBounds` impl select different values for their typed
+    // feature hierarchy's needs.
+    f.indented_doc_comment("ADR-037: maximum `TermValue` inline buffer width in bytes.");
+    f.indented_doc_comment("Caps the catamorphism's per-fold-rule scratch size and the");
+    f.indented_doc_comment("`TermValue::from_slice` capacity.");
+    f.line("    const TERM_VALUE_MAX_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum axis-kernel output byte-buffer width — the");
+    f.indented_doc_comment("upper bound on the substitution-axis `dispatch()` return value's");
+    f.indented_doc_comment("`out` slice length. Sized at least as wide as the largest");
+    f.indented_doc_comment("axis-kernel output across the application's `AxisTuple`.");
+    f.line("    const AXIS_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: threshold below which `fold_n(n, init, step)` lowers to");
+    f.indented_doc_comment("an unrolled `Term::Application` chain (one application per");
+    f.indented_doc_comment("iteration). Counts `n >= FOLD_UNROLL_THRESHOLD` lower to");
+    f.indented_doc_comment("`Term::Recurse` instead.");
+    f.line("    const FOLD_UNROLL_THRESHOLD: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum dimension index for `BettiNumbers` arrays —");
+    f.indented_doc_comment("`β_k(K)` is stored for `k` in `0..BETTI_DIMENSION_MAX`.");
+    f.line("    const BETTI_DIMENSION_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum number of constraints in a single constraint");
+    f.indented_doc_comment("nerve's array representation.");
+    f.line("    const NERVE_CONSTRAINTS_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum number of sites in a single constraint nerve's");
+    f.indented_doc_comment("array representation.");
+    f.line("    const NERVE_SITES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum number of sites for which a Jacobian matrix");
+    f.indented_doc_comment("can be stored inline.");
+    f.line("    const JACOBIAN_SITES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum recursion depth for the trace-replay stack.");
+    f.line("    const RECURSION_TRACE_DEPTH_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum operator-chain depth in a single operation.");
+    f.line("    const OP_CHAIN_DEPTH_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum number of affine coefficients per");
+    f.indented_doc_comment("`ConstraintRef::Affine`.");
+    f.line("    const AFFINE_COEFFS_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum number of conjuncts per");
+    f.indented_doc_comment("`ConstraintRef::Conjunction`.");
+    f.line("    const CONJUNCTION_TERMS_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of the route input buffer per");
+    f.indented_doc_comment("ADR-023's `IntoBindingValue` serialization.");
+    f.line("    const ROUTE_INPUT_BUFFER_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of the route output buffer per");
+    f.indented_doc_comment("ADR-028's `Grounded::output_bytes` payload.");
+    f.line("    const ROUTE_OUTPUT_BUFFER_BYTES: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum iteration count for `Term::Unfold` evaluation.");
+    f.line("    const UNFOLD_ITERATIONS_MAX: usize;");
+    f.blank();
+    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings — one per
+    // resolver-bound ψ-Term variant per ADR-035 + ADR-036. Foundation's
+    // resolver fold-rule scratch buffers size at the per-stage cap (vs
+    // the global `AXIS_OUTPUT_BYTES_MAX` ceiling) so applications can
+    // tune resolver output capacity per ψ-stage.
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_1 `NerveResolver::resolve`'s");
+    f.indented_doc_comment("`out` buffer (the SimplicialComplex serialization).");
+    f.line("    const NERVE_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_2 `ChainComplexResolver::resolve`");
+    f.indented_doc_comment("output.");
+    f.line("    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_3");
+    f.indented_doc_comment("`HomologyGroupResolver::resolve` output.");
+    f.line("    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_5");
+    f.indented_doc_comment("`CochainComplexResolver::resolve` output.");
+    f.line("    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_6");
+    f.indented_doc_comment("`CohomologyGroupResolver::resolve` output.");
+    f.line("    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_7 `PostnikovResolver::resolve`");
+    f.indented_doc_comment("output (the Postnikov-tower serialization).");
+    f.line("    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_8");
+    f.indented_doc_comment("`HomotopyGroupResolver::resolve` output.");
+    f.line("    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize;");
+    f.blank();
+    f.indented_doc_comment("ADR-037: maximum byte width of ψ_9 `KInvariantResolver::resolve`");
+    f.indented_doc_comment("output (the κ-label byte serialization at ψ_9).");
+    f.line("    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize;");
     f.line("}");
     f.blank();
 
@@ -977,6 +1107,36 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     // 64 bits — corresponds to `WittLevel::W64`, the largest Witt level
     // the foundation's enum currently exposes.
     f.line("    const WITT_LEVEL_MAX_BITS: u32 = 64;");
+    // ADR-037: defaults for the 14 migrated data-shape capacity caps.
+    // Each value matches the foundation-internal `pub const` that
+    // previously carried this cap, so apps using `DefaultHostBounds`
+    // observe no behavioral change.
+    f.line("    const TERM_VALUE_MAX_BYTES: usize = 4096;");
+    f.line("    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const FOLD_UNROLL_THRESHOLD: usize = 8;");
+    f.line("    const BETTI_DIMENSION_MAX: usize = 8;");
+    f.line("    const NERVE_CONSTRAINTS_MAX: usize = 8;");
+    f.line("    const NERVE_SITES_MAX: usize = 8;");
+    f.line("    const JACOBIAN_SITES_MAX: usize = 8;");
+    f.line("    const RECURSION_TRACE_DEPTH_MAX: usize = 16;");
+    f.line("    const OP_CHAIN_DEPTH_MAX: usize = 8;");
+    f.line("    const AFFINE_COEFFS_MAX: usize = 8;");
+    f.line("    const CONJUNCTION_TERMS_MAX: usize = 8;");
+    f.line("    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
+    f.line("    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;");
+    f.line("    const UNFOLD_ITERATIONS_MAX: usize = 256;");
+    // ADR-037: defaults for the 8 ψ-stage resolver output byte-buffer
+    // ceilings. Sized at `TERM_VALUE_MAX_BYTES` per ADR-035's
+    // "outputs exceeding the substrate's TermValue ceiling propagate
+    // `CAPACITY_EXCEEDED` shape-violations through `Term::Try`."
+    f.line("    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.line("    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;");
     f.line("}");
     f.blank();
 

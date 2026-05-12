@@ -1439,6 +1439,12 @@ pub fn validate() -> ConformanceReport {
         tests::fixtures::TEST287_LAYOUT_INVARIANT,
         &mut report,
     );
+    // Wiki ADR-038: AxisProjectionObservable closed-catalog extension.
+    run_test(
+        "test288_axis_projection_observable",
+        tests::fixtures::TEST288_AXIS_PROJECTION_OBSERVABLE,
+        &mut report,
+    );
 
     // Verify test fixture count matches expected
     let test_count = report.results.len() - before_tests;

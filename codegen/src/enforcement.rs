@@ -4733,7 +4733,13 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("currently-supported WittLevel set per the existing partition:FreeRank");
     f.doc_comment("capacity properties; the constant is `pub` (part of the public-API");
     f.doc_comment("snapshot) so future expansions require explicit review.");
-    f.line("pub const MAX_BETTI_DIMENSION: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::BETTI_DIMENSION_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const MAX_BETTI_DIMENSION: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::BETTI_DIMENSION_MAX;",
+    );
     f.blank();
 
     f.doc_comment("Sealed newtype for the grounding completion ratio \u{03C3} \u{2208}");
@@ -4957,7 +4963,12 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment(
         "8 matches `MAX_BETTI_DIMENSION` and is sufficient for the v0.2.2 partition rank set.",
     );
-    f.line("pub const JACOBIAN_MAX_SITES: usize = 8;");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::JACOBIAN_SITES_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const JACOBIAN_MAX_SITES: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::JACOBIAN_SITES_MAX;",
+    );
     f.blank();
 
     f.doc_comment("v0.2.2 Phase E: sealed Jacobian row carrier, parametric over the");
@@ -5946,6 +5957,29 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("inner witness is unchanged; the tag is pure decoration. The foundation");
     f.doc_comment("guarantees ring soundness on the inner witness; the tag is the developer's");
     f.doc_comment("domain claim. Coerce via `Grounded::tag::<NewTag>()` (zero-cost).");
+    f.line("///");
+    f.doc_comment("# Wiki ADR-039 — Inhabitance verdict realization mapping");
+    f.line("///");
+    f.doc_comment("For typed feature hierarchies whose admission relations are");
+    f.doc_comment("inhabitance questions, a successful `Grounded<Output>` IS a");
+    f.doc_comment("`cert:InhabitanceCertificate` envelope:");
+    f.line("///");
+    f.doc_comment("- The κ-label (homotopy-classification structural witness at ψ_9");
+    f.doc_comment("  per ADR-035) is the `Term::KInvariants` emission's bytes, exposed");
+    f.doc_comment("  via [`Grounded::output_bytes`].");
+    f.doc_comment("- The concrete `cert:witness` ValueTuple is derivable from");
+    f.doc_comment("  `Term::Nerve`'s 0-simplices at ψ_1 (the per-value bytes the model's");
+    f.doc_comment("  NerveResolver consumed).");
+    f.doc_comment("- The `cert:searchTrace` is realized as");
+    f.doc_comment("  [`Grounded::derivation`]`().replay()`.");
+    f.line("///");
+    f.doc_comment("The κ-label and `cert:witness` are different witness granularities");
+    f.doc_comment("(homotopy classification vs. concrete ValueTuple); the canonical");
+    f.doc_comment("k-invariants branch ψ_1 → ψ_7 → ψ_8 → ψ_9 produces both, at the");
+    f.doc_comment("ψ_9 and ψ_1 stages respectively. Ontology references:");
+    f.doc_comment("`<https://uor.foundation/cert/InhabitanceCertificate>`,");
+    f.doc_comment("`<https://uor.foundation/cert/witness>`,");
+    f.doc_comment("`<https://uor.foundation/cert/searchTrace>`.");
     f.line("#[derive(Debug, Clone)]");
     f.line("pub struct Grounded<T: GroundedShape, Tag = T> {");
     f.indented_doc_comment("The validated grounding certificate this wrapper carries.");
@@ -6470,6 +6504,23 @@ fn generate_pipeline_failure(f: &mut RustFile, ontology: &Ontology) {
     f.doc_comment("v0.2.1 cross-namespace failure variants. Variant set and field shapes are");
     f.doc_comment("generated parametrically by walking `reduction:FailureField` individuals;");
     f.doc_comment("adding a new field requires only an ontology edit.");
+    f.line("///");
+    f.doc_comment("# Wiki ADR-039 — Inhabitance verdict realization mapping");
+    f.line("///");
+    f.doc_comment("An `Err(PipelineFailure)` whose structural cause is \"the constraint");
+    f.doc_comment(
+        "nerve has empty Kan completion\" realizes a `cert:InhabitanceImpossibilityCertificate`",
+    );
+    f.doc_comment("envelope, carrying `proof:InhabitanceImpossibilityWitness` as the");
+    f.doc_comment("proof payload with `proof:contradictionProof` as the canonical-form");
+    f.doc_comment("encoding of the failure trace. The verdict mapping is the dual of");
+    f.doc_comment("the `Grounded<Output>` → `cert:InhabitanceCertificate` mapping; the");
+    f.doc_comment("two together realize the ontology's three-primitive inhabitance");
+    f.doc_comment("verdict structure (success / impossibility-witnessed / unknown).");
+    f.doc_comment("Ontology references:");
+    f.doc_comment("`<https://uor.foundation/cert/InhabitanceImpossibilityCertificate>`,");
+    f.doc_comment("`<https://uor.foundation/proof/InhabitanceImpossibilityWitness>`,");
+    f.doc_comment("`<https://uor.foundation/proof/contradictionProof>`.");
     f.line("#[derive(Debug, Clone, PartialEq)]");
     f.line("#[non_exhaustive]");
     f.line("pub enum PipelineFailure {");
@@ -7326,12 +7377,24 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("Phase X.4: cap on the number of constraints considered by the nerve");
     f.doc_comment("primitive. Phase 1a (orphan-closure): inputs exceeding this cap are");
     f.doc_comment("rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).");
-    f.line("pub const NERVE_CONSTRAINTS_CAP: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const NERVE_CONSTRAINTS_CAP: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::NERVE_CONSTRAINTS_MAX;",
+    );
     f.blank();
     f.doc_comment("Phase X.4: cap on site-support bitmask width (matches `u16` storage).");
     f.doc_comment("Phase 1a (orphan-closure): inputs exceeding this cap are rejected via");
     f.doc_comment("`NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).");
-    f.line("pub const NERVE_SITES_CAP: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::NERVE_SITES_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const NERVE_SITES_CAP: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::NERVE_SITES_MAX;",
+    );
     f.blank();
     f.doc_comment("Phase X.4: maximum number of 1-simplices = C(NERVE_CONSTRAINTS_CAP, 2) = 28.");
     f.line("pub const NERVE_C1_MAX: usize = 28;");
@@ -10908,7 +10971,13 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("Phase F.3 (target §4.7 recursion): maximum depth of the recursion trace");
     f.doc_comment("witness. Bounded by the declared descent budget at builder-validate time;");
     f.doc_comment("the constant is a size-budget cap matching other foundation arenas.");
-    f.line("pub const RECURSION_TRACE_MAX_DEPTH: usize = 16;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const RECURSION_TRACE_MAX_DEPTH: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::RECURSION_TRACE_DEPTH_MAX;",
+    );
     f.blank();
     f.doc_comment("Phase F.3 (target §4.7 recursion): sealed recursion trace with fixed-capacity");
     f.doc_comment("descent-measure sequence.");
@@ -11327,7 +11396,13 @@ fn generate_grounding_combinator_surface(f: &mut RustFile) {
     f.doc_comment("`GroundingPrimitive`. Depth-2 composites (`Then(leaf, leaf)`,");
     f.doc_comment("`AndThen(leaf, leaf)`) are the exercised shape today; 8 gives headroom");
     f.doc_comment("for nested composition while keeping `Copy` and `no_std` without alloc.");
-    f.line("pub const MAX_OP_CHAIN_DEPTH: usize = 8;");
+    f.doc_comment("");
+    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`] via");
+    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.line(
+        "pub const MAX_OP_CHAIN_DEPTH: usize = \
+         <crate::DefaultHostBounds as crate::HostBounds>::OP_CHAIN_DEPTH_MAX;",
+    );
     f.blank();
     f.doc_comment("v0.2.2 Phase J: a single grounding primitive parametric over its output");
     f.doc_comment("type `Out` and its type-level marker tuple `Markers`.");

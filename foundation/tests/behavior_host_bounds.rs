@@ -49,6 +49,30 @@ impl HostBounds for BitcoinPow {
     const FINGERPRINT_MAX_BYTES: usize = 32;
     const TRACE_MAX_EVENTS: usize = 1024;
     const WITT_LEVEL_MAX_BITS: u32 = 256;
+    // ADR-037: 14 migrated data-shape capacity caps.
+    const TERM_VALUE_MAX_BYTES: usize = 4096;
+    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;
+    const FOLD_UNROLL_THRESHOLD: usize = 8;
+    const BETTI_DIMENSION_MAX: usize = 8;
+    const NERVE_CONSTRAINTS_MAX: usize = 8;
+    const NERVE_SITES_MAX: usize = 8;
+    const JACOBIAN_SITES_MAX: usize = 8;
+    const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+    const OP_CHAIN_DEPTH_MAX: usize = 8;
+    const AFFINE_COEFFS_MAX: usize = 8;
+    const CONJUNCTION_TERMS_MAX: usize = 8;
+    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
+    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
+    const UNFOLD_ITERATIONS_MAX: usize = 256;
+    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.
+    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;
+    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
+    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;
+    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
+    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;
 }
 
 #[test]

@@ -6243,7 +6243,10 @@ impl MultiplicationCertificate {
 /// currently-supported WittLevel set per the existing partition:FreeRank
 /// capacity properties; the constant is `pub` (part of the public-API
 /// snapshot) so future expansions require explicit review.
-pub const MAX_BETTI_DIMENSION: usize = 8;
+/// Wiki ADR-037: alias of [`crate::HostBounds::BETTI_DIMENSION_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const MAX_BETTI_DIMENSION: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::BETTI_DIMENSION_MAX;
 
 /// Sealed newtype for the grounding completion ratio σ ∈
 /// [0.0, 1.0]. σ = 1 indicates the ground state; σ = 0 the
@@ -6442,7 +6445,10 @@ impl BettiMetric {
 /// v0.2.2 T2.6 (cleanup): reduced from 64 to 8 to keep `Grounded` under
 /// the 256-byte size budget enforced by `phantom_tag::grounded_sealed_field_count_unchanged`.
 /// 8 matches `MAX_BETTI_DIMENSION` and is sufficient for the v0.2.2 partition rank set.
-pub const JACOBIAN_MAX_SITES: usize = 8;
+/// Wiki ADR-037: alias of [`crate::HostBounds::JACOBIAN_SITES_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const JACOBIAN_MAX_SITES: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::JACOBIAN_SITES_MAX;
 
 /// v0.2.2 Phase E: sealed Jacobian row carrier, parametric over the
 /// WittLevel marker. Fixed-size `[i64; JACOBIAN_MAX_SITES]` backing; no
@@ -7328,12 +7334,17 @@ pub fn primitive_simplicial_nerve_betti<T: crate::pipeline::ConstrainedTypeShape
 /// Phase X.4: cap on the number of constraints considered by the nerve
 /// primitive. Phase 1a (orphan-closure): inputs exceeding this cap are
 /// rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
-pub const NERVE_CONSTRAINTS_CAP: usize = 8;
+/// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const NERVE_CONSTRAINTS_CAP: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::NERVE_CONSTRAINTS_MAX;
 
 /// Phase X.4: cap on site-support bitmask width (matches `u16` storage).
 /// Phase 1a (orphan-closure): inputs exceeding this cap are rejected via
 /// `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
-pub const NERVE_SITES_CAP: usize = 8;
+/// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_SITES_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const NERVE_SITES_CAP: usize = <crate::DefaultHostBounds as crate::HostBounds>::NERVE_SITES_MAX;
 
 /// Phase X.4: maximum number of 1-simplices = C(NERVE_CONSTRAINTS_CAP, 2) = 28.
 pub const NERVE_C1_MAX: usize = 28;
@@ -8156,6 +8167,29 @@ impl core::error::Error for BindingsTableError {}
 /// inner witness is unchanged; the tag is pure decoration. The foundation
 /// guarantees ring soundness on the inner witness; the tag is the developer's
 /// domain claim. Coerce via `Grounded::tag::<NewTag>()` (zero-cost).
+///
+/// # Wiki ADR-039 — Inhabitance verdict realization mapping
+///
+/// For typed feature hierarchies whose admission relations are
+/// inhabitance questions, a successful `Grounded<Output>` IS a
+/// `cert:InhabitanceCertificate` envelope:
+///
+/// - The κ-label (homotopy-classification structural witness at ψ_9
+///   per ADR-035) is the `Term::KInvariants` emission's bytes, exposed
+///   via [`Grounded::output_bytes`].
+/// - The concrete `cert:witness` ValueTuple is derivable from
+///   `Term::Nerve`'s 0-simplices at ψ_1 (the per-value bytes the model's
+///   NerveResolver consumed).
+/// - The `cert:searchTrace` is realized as
+///   [`Grounded::derivation`]`().replay()`.
+///
+/// The κ-label and `cert:witness` are different witness granularities
+/// (homotopy classification vs. concrete ValueTuple); the canonical
+/// k-invariants branch ψ_1 → ψ_7 → ψ_8 → ψ_9 produces both, at the
+/// ψ_9 and ψ_1 stages respectively. Ontology references:
+/// `<https://uor.foundation/cert/InhabitanceCertificate>`,
+/// `<https://uor.foundation/cert/witness>`,
+/// `<https://uor.foundation/cert/searchTrace>`.
 #[derive(Debug, Clone)]
 pub struct Grounded<T: GroundedShape, Tag = T> {
     /// The validated grounding certificate this wrapper carries.
@@ -8601,6 +8635,21 @@ impl<L> Triad<L> {
 /// v0.2.1 cross-namespace failure variants. Variant set and field shapes are
 /// generated parametrically by walking `reduction:FailureField` individuals;
 /// adding a new field requires only an ontology edit.
+///
+/// # Wiki ADR-039 — Inhabitance verdict realization mapping
+///
+/// An `Err(PipelineFailure)` whose structural cause is "the constraint
+/// nerve has empty Kan completion" realizes a `cert:InhabitanceImpossibilityCertificate`
+/// envelope, carrying `proof:InhabitanceImpossibilityWitness` as the
+/// proof payload with `proof:contradictionProof` as the canonical-form
+/// encoding of the failure trace. The verdict mapping is the dual of
+/// the `Grounded<Output>` → `cert:InhabitanceCertificate` mapping; the
+/// two together realize the ontology's three-primitive inhabitance
+/// verdict structure (success / impossibility-witnessed / unknown).
+/// Ontology references:
+/// `<https://uor.foundation/cert/InhabitanceImpossibilityCertificate>`,
+/// `<https://uor.foundation/proof/InhabitanceImpossibilityWitness>`,
+/// `<https://uor.foundation/proof/contradictionProof>`.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum PipelineFailure {
@@ -17446,7 +17495,10 @@ impl OperadComposition {
 /// Phase F.3 (target §4.7 recursion): maximum depth of the recursion trace
 /// witness. Bounded by the declared descent budget at builder-validate time;
 /// the constant is a size-budget cap matching other foundation arenas.
-pub const RECURSION_TRACE_MAX_DEPTH: usize = 16;
+/// Wiki ADR-037: alias of [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const RECURSION_TRACE_MAX_DEPTH: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::RECURSION_TRACE_DEPTH_MAX;
 
 /// Phase F.3 (target §4.7 recursion): sealed recursion trace with fixed-capacity
 /// descent-measure sequence.
@@ -17876,7 +17928,10 @@ pub enum GroundingPrimitiveOp {
 /// `GroundingPrimitive`. Depth-2 composites (`Then(leaf, leaf)`,
 /// `AndThen(leaf, leaf)`) are the exercised shape today; 8 gives headroom
 /// for nested composition while keeping `Copy` and `no_std` without alloc.
-pub const MAX_OP_CHAIN_DEPTH: usize = 8;
+/// Wiki ADR-037: alias of [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`] via
+/// [`crate::DefaultHostBounds`].
+pub const MAX_OP_CHAIN_DEPTH: usize =
+    <crate::DefaultHostBounds as crate::HostBounds>::OP_CHAIN_DEPTH_MAX;
 
 /// v0.2.2 Phase J: a single grounding primitive parametric over its output
 /// type `Out` and its type-level marker tuple `Markers`.
