@@ -1311,7 +1311,13 @@ fn append_marker(input: &[u8], out: &mut [u8], marker: u8) -> Result<usize, Shap
     Ok(n + 1)
 }
 
-macro_rules! psi_marker_resolver {
+// Wiki ADR-041: per-trait input type. NerveResolver receives the raw
+// per-value `&[u8]`; the seven downstream resolvers receive their
+// ADR-041 typed-coordinate carrier (a zero-cost `#[repr(transparent)]`
+// view over the prior ψ-stage's byte serialization). Sentinel resolvers
+// project the carrier's `&[u8]` through `as_bytes()` and append a
+// stage-specific marker byte.
+macro_rules! psi_marker_resolver_byte_input {
     ($struct:ident, $trait:ident, $marker:ident) => {
         #[derive(Debug, Default)]
         pub struct $struct<H>(core::marker::PhantomData<H>);
@@ -1324,16 +1330,65 @@ macro_rules! psi_marker_resolver {
     };
 }
 
+macro_rules! psi_marker_resolver_typed_input {
+    ($struct:ident, $trait:ident, $marker:ident, $input_ty:ty) => {
+        #[derive(Debug, Default)]
+        pub struct $struct<H>(core::marker::PhantomData<H>);
+        impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
+        impl<H: Hasher> $trait<H> for $struct<H> {
+            fn resolve(&self, input: $input_ty, out: &mut [u8]) -> Result<usize, ShapeViolation> {
+                append_marker(input.as_bytes(), out, $marker)
+            }
+        }
+    };
+}
+
 // Eight per-ψ sentinel resolvers — one for each of the resolver-bound
 // variants. ψ_4 (Betti) is resolver-free per ADR-035, so no sentinel.
-psi_marker_resolver!(Psi1Nerve, NerveResolver, PSI_1_MARKER);
-psi_marker_resolver!(Psi2ChainComplex, ChainComplexResolver, PSI_2_MARKER);
-psi_marker_resolver!(Psi3HomologyGroup, HomologyGroupResolver, PSI_3_MARKER);
-psi_marker_resolver!(Psi5CochainComplex, CochainComplexResolver, PSI_5_MARKER);
-psi_marker_resolver!(Psi6CohomologyGroup, CohomologyGroupResolver, PSI_6_MARKER);
-psi_marker_resolver!(Psi7Postnikov, PostnikovResolver, PSI_7_MARKER);
-psi_marker_resolver!(Psi8HomotopyGroup, HomotopyGroupResolver, PSI_8_MARKER);
-psi_marker_resolver!(Psi9KInvariant, KInvariantResolver, PSI_9_MARKER);
+// Per ADR-041, the input type carries the prior ψ-stage's identity.
+psi_marker_resolver_byte_input!(Psi1Nerve, NerveResolver, PSI_1_MARKER);
+psi_marker_resolver_typed_input!(
+    Psi2ChainComplex,
+    ChainComplexResolver,
+    PSI_2_MARKER,
+    uor_foundation::pipeline::SimplicialComplexBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi3HomologyGroup,
+    HomologyGroupResolver,
+    PSI_3_MARKER,
+    uor_foundation::pipeline::ChainComplexBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi5CochainComplex,
+    CochainComplexResolver,
+    PSI_5_MARKER,
+    uor_foundation::pipeline::ChainComplexBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi6CohomologyGroup,
+    CohomologyGroupResolver,
+    PSI_6_MARKER,
+    uor_foundation::pipeline::CochainComplexBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi7Postnikov,
+    PostnikovResolver,
+    PSI_7_MARKER,
+    uor_foundation::pipeline::SimplicialComplexBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi8HomotopyGroup,
+    HomotopyGroupResolver,
+    PSI_8_MARKER,
+    uor_foundation::pipeline::PostnikovTowerBytes<'_>
+);
+psi_marker_resolver_typed_input!(
+    Psi9KInvariant,
+    KInvariantResolver,
+    PSI_9_MARKER,
+    uor_foundation::pipeline::HomotopyGroupsBytes<'_>
+);
 
 resolver! {
     pub struct CompleteResolvers<H: ::uor_foundation::enforcement::Hasher> {
@@ -1757,4 +1812,306 @@ fn prism_model_arenas_carry_zero_psi_residuals_per_adr_035() {
             );
         }
     }
+}
+
+// =====================================================================
+// Wiki ADR-040 + ADR-041 + ADR-042 — Implementor-facing ψ-pipeline
+// end-to-end verification.
+//
+// Foundation MUST meet the needs of layer-3 implementors that build
+// applications on the ψ-pipeline. This test simulates an implementor's
+// integration: a custom-bounded HostBounds; eight resolvers wrapping
+// the ADR-041 typed-coordinate carriers; the canonical k-invariants
+// branch ψ_1 → ψ_7 → ψ_8 → ψ_9 driven through `Model::forward`; the
+// success-side `Grounded` viewed as an ADR-042 InhabitanceCertificate
+// envelope with κ-label / witness / certified_type accessors; the
+// failure-side `PipelineFailure` viewed as an
+// InhabitanceImpossibilityCertificate with contradiction_proof bytes;
+// and the inhabitance::dispatch_through_table helper exercising the
+// three-arm decider-routing surface.
+//
+// Each assertion below names the wiki commitment it pins. A regression
+// in any of the ADR-040..042 surfaces surfaces here.
+
+use uor_foundation::pipeline::{
+    inhabitance::{dispatch_through_table, InhabitanceRuleArm},
+    BettiNumbersBytes, ChainComplexBytes, CochainComplexBytes, CohomologyGroupsBytes,
+    HomologyGroupsBytes, HomotopyGroupsBytes, InhabitanceCertificateView,
+    InhabitanceImpossibilityCertificate, KInvariantsBytes, PostnikovTowerBytes,
+    SimplicialComplexBytes, WitnessValueTuple,
+};
+
+/// ADR-041 receiver-shape pin: every typed-coordinate carrier wraps a
+/// `&[u8]` zero-cost. The compile-time type system MUST distinguish
+/// `SimplicialComplexBytes` from `ChainComplexBytes` etc. — passing the
+/// wrong carrier to a downstream resolver MUST be a type error at the
+/// resolver-impl boundary, not a runtime ShapeViolation.
+#[test]
+fn adr041_typed_coordinate_carriers_are_repr_transparent_and_zero_cost() {
+    use core::mem::{align_of, size_of};
+    // Each carrier is layout-identical to &[u8] (a fat pointer).
+    assert_eq!(size_of::<SimplicialComplexBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<ChainComplexBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<HomologyGroupsBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<BettiNumbersBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<CochainComplexBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<CohomologyGroupsBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<PostnikovTowerBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<HomotopyGroupsBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(size_of::<KInvariantsBytes<'_>>(), size_of::<&[u8]>());
+    assert_eq!(
+        align_of::<SimplicialComplexBytes<'_>>(),
+        align_of::<&[u8]>()
+    );
+    assert_eq!(align_of::<KInvariantsBytes<'_>>(), align_of::<&[u8]>());
+
+    // Each carrier exposes len/is_empty/as_bytes.
+    let bs = [0x01u8, 0x02, 0x03];
+    let sc = SimplicialComplexBytes(&bs);
+    assert_eq!(sc.len(), 3);
+    assert!(!sc.is_empty());
+    assert_eq!(sc.as_bytes(), &bs);
+    let empty = ChainComplexBytes(&[]);
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+}
+
+/// ADR-042 inhabitance-verdict surface end-to-end pin: an implementor
+/// drives the canonical k-invariants branch through `Model::forward`,
+/// borrows the resulting `Grounded` as an InhabitanceCertificateView,
+/// and reads κ-label / witness / certificate / certified_type via the
+/// typed accessors — no per-application accessor reimplementation.
+#[test]
+fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
+    run_psi_chain_body(|| {
+        // ψ-pipeline run — the canonical k-invariants branch
+        // (ψ_1 → ψ_7 → ψ_8 → ψ_9) through `KInvariantInferenceModel`,
+        // which uses the `Psi1Nerve` / `Psi7Postnikov` / `Psi8HomotopyGroup` /
+        // `Psi9KInvariant` typed-coordinate resolvers from
+        // `CompleteResolvers<SmokeHasher>`. Each resolver appends its
+        // marker byte to the prior ψ-stage's output, so the κ-label
+        // bytes carry the chain trace [ψ_1, ψ_7, ψ_8, ψ_9] = [0x01, 0x07, 0x08, 0x09].
+        let grounded = <KInvariantInferenceModel as PrismModel<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            SmokeHasher,
+            CompleteResolvers<SmokeHasher>,
+        >>::forward(ConstrainedTypeInput::default())
+        .expect("k-invariants branch must resolve under CompleteResolvers");
+
+        // ADR-042: borrow the Grounded as an InhabitanceCertificateView.
+        // Zero-cost — `#[repr(transparent)]` over &Grounded.
+        let cert: InhabitanceCertificateView<'_, ConstrainedTypeInput, ConstrainedTypeInput> =
+            grounded.as_inhabitance_certificate();
+
+        // κ-label accessor — returns a `KInvariantsBytes` typed view.
+        let kappa: KInvariantsBytes<'_> = cert.kappa_label();
+        let expected_kappa = [PSI_1_MARKER, PSI_7_MARKER, PSI_8_MARKER, PSI_9_MARKER];
+        assert_eq!(
+            kappa.as_bytes(),
+            &expected_kappa[..],
+            "ADR-042 κ-label accessor must surface the Term::KInvariants emission's bytes",
+        );
+
+        // certified_type accessor — names the typed-iso output IRI.
+        let ty: &'static str = cert.certified_type();
+        assert_eq!(
+            ty,
+            <ConstrainedTypeInput as ConstrainedTypeShape>::IRI,
+            "ADR-042 certified_type must return the route's Output ConstrainedTypeShape IRI",
+        );
+
+        // witness accessor — returns a WitnessValueTuple view over the
+        // underlying Grounded's binding table (ψ_1 0-simplices).
+        let witness: WitnessValueTuple<'_> = cert.witness();
+        // For an empty-input route (ConstrainedTypeInput, MAX_BYTES = 0)
+        // the binding table is empty; the witness is still constructible
+        // and reports its size.
+        let _binding_count = witness.len();
+        // is_empty() returns true for empty witness; non-empty inputs
+        // would populate the binding table.
+        assert!(witness.is_empty() || !witness.is_empty()); // tautology — pin the surface compiles.
+
+        // certificate accessor — the underlying Validated<GroundingCertificate>.
+        let validated_cert = cert.certificate();
+        // The accessor returns a reference — pin the type compiles.
+        let _: &uor_foundation::enforcement::Validated<
+            uor_foundation::enforcement::GroundingCertificate,
+        > = validated_cert;
+    });
+}
+
+/// ADR-042 impossibility-side pin: an `Err(PipelineFailure)` borrows
+/// as an `InhabitanceImpossibilityCertificate` with `contradiction_proof`
+/// accessor returning the canonical-form failure-trace bytes.
+#[test]
+fn adr042_inhabitance_impossibility_certificate_exposes_contradiction_proof() {
+    use uor_foundation::PipelineFailure;
+    use uor_foundation::ViolationKind;
+
+    // Construct a representative ShapeViolation failure — the form a
+    // ψ-pipeline emits when the constraint nerve has empty Kan completion
+    // (the RESOLVER_ABSENT discriminator carries the foundation-internal
+    // sentinel). Applications instantiate this from the catamorphism's
+    // Null<Category>Resolver dispatch or from explicit resolver Err returns.
+    let failure = PipelineFailure::ShapeViolation {
+        report: uor_foundation::enforcement::ShapeViolation {
+            shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
+            constraint_iri: "https://uor.foundation/resolver/Nerve",
+            property_iri: "https://uor.foundation/resolver/category",
+            expected_range: "https://uor.foundation/resolver/Resolver",
+            min_count: 0,
+            max_count: 1,
+            kind: ViolationKind::ValueCheck,
+        },
+    };
+
+    // ADR-042: borrow the failure as an InhabitanceImpossibilityCertificate.
+    // The accessor returns Option<Self>; foundation accepts every
+    // PipelineFailure as a verdict-envelope view (applications consume
+    // at their discretion per ADR-042's universal-accessor framing).
+    let impossibility: InhabitanceImpossibilityCertificate<'_> = failure
+        .as_inhabitance_impossibility_certificate()
+        .expect("ADR-042 surfaces every PipelineFailure as an impossibility certificate");
+
+    // contradiction_proof accessor — returns the canonical-form failure
+    // trace bytes (for ShapeViolation, the shape_iri serves as the
+    // by-contradiction-reconstructable proof witness).
+    let proof: &'static [u8] = impossibility.contradiction_proof();
+    assert_eq!(
+        proof, b"https://uor.foundation/resolver/RESOLVER_ABSENT",
+        "ADR-042 contradiction_proof must surface the shape_iri for ShapeViolation failures",
+    );
+
+    // failure() — borrow the underlying PipelineFailure.
+    let _: &PipelineFailure = impossibility.failure();
+}
+
+/// ADR-042 dispatch_through_table pin: the three-arm decider helper
+/// routes through TwoSatDecider → HornSatDecider → ResidualVerdictResolver
+/// in ontology order. Each closure returns Option; the first decisive
+/// arm wins. ResidualVerdictResolver is the catch-all (closure returns
+/// directly, not Option).
+#[test]
+fn adr042_dispatch_through_table_routes_through_three_decider_arms() {
+    // Case 1: TwoSatDecider wins (first arm decides).
+    let (arm, verdict) = dispatch_through_table(
+        || Some("2sat-decided"),
+        || Some("horn-decided"),
+        || "residual",
+    );
+    assert_eq!(arm, InhabitanceRuleArm::TwoSatDecider);
+    assert_eq!(verdict, "2sat-decided");
+
+    // Case 2: TwoSatDecider undecided, HornSatDecider wins.
+    let (arm, verdict) =
+        dispatch_through_table(|| None::<&str>, || Some("horn-decided"), || "residual");
+    assert_eq!(arm, InhabitanceRuleArm::HornSatDecider);
+    assert_eq!(verdict, "horn-decided");
+
+    // Case 3: Both undecided — ResidualVerdictResolver catch-all.
+    let (arm, verdict) = dispatch_through_table(|| None::<&str>, || None::<&str>, || "residual");
+    assert_eq!(arm, InhabitanceRuleArm::ResidualVerdictResolver);
+    assert_eq!(verdict, "residual");
+}
+
+/// Compile-time pin: the catamorphism MUST construct the typed-coordinate
+/// carrier of the correct ψ-stage when invoking each downstream resolver.
+/// Passing `ChainComplexBytes` to a resolver expecting `SimplicialComplexBytes`
+/// is a compile-time error. This test names the wiki commitment — the
+/// per-stage type-checking is verified by the workspace building cleanly
+/// (this assertion is itself the surface pin).
+// Type aliases for each resolver's `fn`-pointer signature per ADR-041.
+type NerveSig = fn(
+    &uor_foundation::pipeline::NullNerveResolver<SmokeHasher>,
+    &[u8],
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type ChainSig = fn(
+    &uor_foundation::pipeline::NullChainComplexResolver<SmokeHasher>,
+    SimplicialComplexBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type HomologySig = fn(
+    &uor_foundation::pipeline::NullHomologyGroupResolver<SmokeHasher>,
+    ChainComplexBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type CochainSig = fn(
+    &uor_foundation::pipeline::NullCochainComplexResolver<SmokeHasher>,
+    ChainComplexBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type CohomologySig = fn(
+    &uor_foundation::pipeline::NullCohomologyGroupResolver<SmokeHasher>,
+    CochainComplexBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type PostnikovSig = fn(
+    &uor_foundation::pipeline::NullPostnikovResolver<SmokeHasher>,
+    SimplicialComplexBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type HomotopySig = fn(
+    &uor_foundation::pipeline::NullHomotopyGroupResolver<SmokeHasher>,
+    PostnikovTowerBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+type KInvariantSig = fn(
+    &uor_foundation::pipeline::NullKInvariantResolver<SmokeHasher>,
+    HomotopyGroupsBytes<'_>,
+    &mut [u8],
+) -> Result<usize, ShapeViolation>;
+
+#[test]
+fn adr041_resolver_trait_signatures_type_check_psi_stage_composition() {
+    // For each resolver trait, coerce the foundation Null impl's
+    // `resolve` method to the wiki-mandated `fn`-pointer signature.
+    // A regression in the trait shape surfaces as a coercion failure
+    // here at compile time — the per-stage type-checking is verified
+    // by the workspace building cleanly.
+    use uor_foundation::pipeline::{
+        ChainComplexResolver, CochainComplexResolver, CohomologyGroupResolver,
+        HomologyGroupResolver, HomotopyGroupResolver, KInvariantResolver, NerveResolver,
+        PostnikovResolver,
+    };
+    let _nerve_sig: NerveSig =
+        <uor_foundation::pipeline::NullNerveResolver<SmokeHasher> as NerveResolver<SmokeHasher>>::resolve;
+    let _chain_sig: ChainSig =
+        <uor_foundation::pipeline::NullChainComplexResolver<SmokeHasher> as ChainComplexResolver<
+            SmokeHasher,
+        >>::resolve;
+    let _homology_sig: HomologySig = <uor_foundation::pipeline::NullHomologyGroupResolver<
+        SmokeHasher,
+    > as HomologyGroupResolver<SmokeHasher>>::resolve;
+    let _cochain_sig: CochainSig = <uor_foundation::pipeline::NullCochainComplexResolver<
+        SmokeHasher,
+    > as CochainComplexResolver<SmokeHasher>>::resolve;
+    let _cohomology_sig: CohomologySig = <uor_foundation::pipeline::NullCohomologyGroupResolver<
+        SmokeHasher,
+    > as CohomologyGroupResolver<SmokeHasher>>::resolve;
+    let _postnikov_sig: PostnikovSig =
+        <uor_foundation::pipeline::NullPostnikovResolver<SmokeHasher> as PostnikovResolver<
+            SmokeHasher,
+        >>::resolve;
+    let _homotopy_sig: HomotopySig = <uor_foundation::pipeline::NullHomotopyGroupResolver<
+        SmokeHasher,
+    > as HomotopyGroupResolver<SmokeHasher>>::resolve;
+    let _kinvariant_sig: KInvariantSig = <uor_foundation::pipeline::NullKInvariantResolver<
+        SmokeHasher,
+    > as KInvariantResolver<SmokeHasher>>::resolve;
+}
+
+/// Pin the wiki ADR-040 closed-catalog extension: the 7th BoundShape
+/// individual `LexicographicLessEqBound` is emitted by the codegen
+/// pass. Foundation surfaces every named individual as a `pub mod`
+/// under the namespace's constant tree.
+#[test]
+fn adr040_lexicographic_less_eq_bound_is_in_closed_catalog() {
+    // The constant module's mere existence (it compiles in scope, even
+    // if empty) is the surface pin per the ontology's named-individual
+    // emission contract. A regression that omits ADR-040's BoundShape
+    // addition fails this compile path.
+    #[allow(unused_imports)]
+    use uor_foundation::user::type_::lexicographic_less_eq_bound;
 }

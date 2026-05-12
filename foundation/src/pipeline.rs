@@ -1149,12 +1149,268 @@ pub trait ResolverTuple: __sdk_seal::Sealed {
     const CATEGORIES: &'static [ResolverCategory];
 }
 
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_1 output —
+/// the simplicial-complex serialization produced by `NerveResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SimplicialComplexBytes<'a>(pub &'a [u8]);
+
+impl<'a> SimplicialComplexBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_2 output —
+/// the chain-complex serialization produced by `ChainComplexResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChainComplexBytes<'a>(pub &'a [u8]);
+
+impl<'a> ChainComplexBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_3 output —
+/// the homology-groups serialization produced by `HomologyGroupResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HomologyGroupsBytes<'a>(pub &'a [u8]);
+
+impl<'a> HomologyGroupsBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_4 output —
+/// the Betti-number tuple serialization produced by the resolver-free `Term::Betti` fold-rule (a byte projection of HomologyGroupsBytes).
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BettiNumbersBytes<'a>(pub &'a [u8]);
+
+impl<'a> BettiNumbersBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_5 output —
+/// the cochain-complex serialization produced by `CochainComplexResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CochainComplexBytes<'a>(pub &'a [u8]);
+
+impl<'a> CochainComplexBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_6 output —
+/// the cohomology-groups serialization produced by `CohomologyGroupResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CohomologyGroupsBytes<'a>(pub &'a [u8]);
+
+impl<'a> CohomologyGroupsBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_7 output —
+/// the Postnikov-tower serialization produced by `PostnikovResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PostnikovTowerBytes<'a>(pub &'a [u8]);
+
+impl<'a> PostnikovTowerBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_8 output —
+/// the homotopy-groups serialization produced by `HomotopyGroupResolver::resolve`.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HomotopyGroupsBytes<'a>(pub &'a [u8]);
+
+impl<'a> HomotopyGroupsBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_9 output —
+/// the κ-label byte serialization produced by `KInvariantResolver::resolve` — the canonical k-invariants-branch output (ADR-035) classifying the input's homotopy type up to weak equivalence.
+///
+/// `#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte
+/// slice; the type wrapper is purely compile-time discrimination so
+/// ψ-stage composition is type-checked at the resolver-impl boundary.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KInvariantsBytes<'a>(pub &'a [u8]);
+
+impl<'a> KInvariantsBytes<'a> {
+    /// Borrow the underlying byte slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
+    /// Length of the underlying byte slice.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Whether the underlying byte slice is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// ADR-036 resolver trait: ψ_1 — per-value bytes → SimplicialComplex per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait NerveResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1169,11 +1425,15 @@ pub trait NerveResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
 }
 
 /// ADR-036 resolver trait: ψ_2 — SimplicialComplex → ChainComplex per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait ChainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1182,17 +1442,21 @@ pub trait ChainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seale
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: SimplicialComplexBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_3 — ChainComplex → HomologyGroups per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait HomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1201,17 +1465,21 @@ pub trait HomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seal
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: ChainComplexBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_5 — ChainComplex → CochainComplex per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait CochainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1220,17 +1488,21 @@ pub trait CochainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sea
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: ChainComplexBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_6 — CochainComplex → CohomologyGroups per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait CohomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1239,17 +1511,21 @@ pub trait CohomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Se
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: CochainComplexBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_7 — SimplicialComplex → PostnikovTower per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait PostnikovResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1258,17 +1534,21 @@ pub trait PostnikovResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: SimplicialComplexBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_8 — PostnikovTower → HomotopyGroups per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait HomotopyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1277,17 +1557,21 @@ pub trait HomotopyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seal
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: PostnikovTowerBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_9 — HomotopyGroups → KInvariants per ADR-035.
+///
 /// Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so
 /// resolver impls compute content-addressed fingerprints using the
 /// model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
+///
+/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
+/// composition is type-checked at the resolver-impl boundary.
 pub trait KInvariantResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
@@ -1296,7 +1580,7 @@ pub trait KInvariantResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed 
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve(
         &self,
-        input: &[u8],
+        input: HomotopyGroupsBytes<'_>,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
 }
@@ -1433,7 +1717,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullChainComplexResol
 impl<H: crate::enforcement::Hasher> ChainComplexResolver<H> for NullChainComplexResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: SimplicialComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1468,7 +1752,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomologyGroupReso
 impl<H: crate::enforcement::Hasher> HomologyGroupResolver<H> for NullHomologyGroupResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: ChainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1503,7 +1787,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCochainComplexRes
 impl<H: crate::enforcement::Hasher> CochainComplexResolver<H> for NullCochainComplexResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: ChainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1538,7 +1822,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCohomologyGroupRe
 impl<H: crate::enforcement::Hasher> CohomologyGroupResolver<H> for NullCohomologyGroupResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: CochainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1573,7 +1857,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullPostnikovResolver
 impl<H: crate::enforcement::Hasher> PostnikovResolver<H> for NullPostnikovResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: SimplicialComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1608,7 +1892,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomotopyGroupReso
 impl<H: crate::enforcement::Hasher> HomotopyGroupResolver<H> for NullHomotopyGroupResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: PostnikovTowerBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1643,7 +1927,7 @@ impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullKInvariantResolve
 impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullKInvariantResolver<H> {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: HomotopyGroupsBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1694,7 +1978,7 @@ impl<H: crate::enforcement::Hasher> HasNerveResolver<H> for NullResolverTuple {
 impl<H: crate::enforcement::Hasher> ChainComplexResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: SimplicialComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1723,7 +2007,7 @@ impl<H: crate::enforcement::Hasher> HasChainComplexResolver<H> for NullResolverT
 impl<H: crate::enforcement::Hasher> HomologyGroupResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: ChainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1752,7 +2036,7 @@ impl<H: crate::enforcement::Hasher> HasHomologyGroupResolver<H> for NullResolver
 impl<H: crate::enforcement::Hasher> CochainComplexResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: ChainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1781,7 +2065,7 @@ impl<H: crate::enforcement::Hasher> HasCochainComplexResolver<H> for NullResolve
 impl<H: crate::enforcement::Hasher> CohomologyGroupResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: CochainComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1810,7 +2094,7 @@ impl<H: crate::enforcement::Hasher> HasCohomologyGroupResolver<H> for NullResolv
 impl<H: crate::enforcement::Hasher> PostnikovResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: SimplicialComplexBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1839,7 +2123,7 @@ impl<H: crate::enforcement::Hasher> HasPostnikovResolver<H> for NullResolverTupl
 impl<H: crate::enforcement::Hasher> HomotopyGroupResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: PostnikovTowerBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1868,7 +2152,7 @@ impl<H: crate::enforcement::Hasher> HasHomotopyGroupResolver<H> for NullResolver
 impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullResolverTuple {
     fn resolve(
         &self,
-        _input: &[u8],
+        _input: HomotopyGroupsBytes<'_>,
         _out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         Err(crate::enforcement::ShapeViolation {
@@ -1887,6 +2171,242 @@ impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullResolverTuple 
 impl<H: crate::enforcement::Hasher> HasKInvariantResolver<H> for NullResolverTuple {
     fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<H> {
         self
+    }
+}
+
+/// Wiki ADR-042: typed view over a successful `Grounded<T, Tag>` as the
+/// inhabitance-verdict envelope produced by the canonical k-invariants
+/// branch (ψ_1 → ψ_7 → ψ_8 → ψ_9 per ADR-035).
+///
+/// Zero-cost — `#[repr(transparent)]` over `&'a Grounded<T, Tag>`. Construct
+/// via [`crate::enforcement::Grounded::as_inhabitance_certificate`].
+///
+/// Realizes `cert:InhabitanceCertificate` per the ontology
+/// (`<https://uor.foundation/cert/InhabitanceCertificate>`). Foundation
+/// uses the suffix `View` here to distinguish this zero-cost typed
+/// view from the existing sealed-shim `crate::enforcement::InhabitanceCertificate`
+/// value carrier; the wiki names this type `InhabitanceCertificate<'a, T>`
+/// in ADR-042 and the typed-view role is the load-bearing concern. The κ-label,
+/// concrete `cert:witness`, and `cert:searchTrace` are accessor methods
+/// over the underlying `Grounded` — no allocation, no per-application
+/// re-derivation.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, Tag = T>(
+    pub &'a crate::enforcement::Grounded<T, Tag>,
+);
+
+impl<'a, T: crate::enforcement::GroundedShape, Tag> InhabitanceCertificateView<'a, T, Tag> {
+    /// The κ-label — the homotopy-classification structural witness at
+    /// ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's
+    /// output (exposed via `Grounded::output_bytes`) wrapped in the
+    /// ADR-041 typed-coordinate carrier so cross-stage composition is
+    /// type-checked.
+    #[inline]
+    #[must_use]
+    pub fn kappa_label(&self) -> KInvariantsBytes<'_> {
+        KInvariantsBytes(self.0.output_bytes())
+    }
+
+    /// The concrete `cert:witness` ValueTuple — derivable from
+    /// `Term::Nerve`'s 0-simplices at ψ_1 (the per-value bytes the
+    /// model's NerveResolver consumed). Foundation exposes the
+    /// `Grounded`'s bindings as the value-tuple surface; applications
+    /// whose admission relations carry richer witness data project
+    /// through the binding table's content addresses.
+    #[inline]
+    #[must_use]
+    pub fn witness(&self) -> WitnessValueTuple<'_> {
+        WitnessValueTuple {
+            grounded_bindings: self.0,
+        }
+    }
+
+    /// The `cert:searchTrace` — realized as
+    /// `<Grounded>::derivation::<H>(...).replay::<...>()` per ADR-039.
+    /// Foundation surfaces the derivation pointer; applications choose
+    /// which `Hasher` impl and `HostBounds` parameters to instantiate
+    /// the replay with.
+    #[inline]
+    #[must_use]
+    pub fn certificate(
+        &self,
+    ) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate> {
+        self.0.certificate()
+    }
+
+    /// The certified type's stable IRI — the `<T as ConstrainedTypeShape>::IRI`
+    /// the application registered as the route's output shape.
+    #[inline]
+    #[must_use]
+    pub fn certified_type(&self) -> &'static str
+    where
+        T: ConstrainedTypeShape,
+    {
+        <T as ConstrainedTypeShape>::IRI
+    }
+}
+
+/// Wiki ADR-042: concrete `cert:witness` ValueTuple view. Borrows the
+/// underlying `Grounded`'s bindings; iterates as `(content_address, bytes)`
+/// pairs corresponding to `Term::Nerve`'s 0-simplices.
+#[derive(Clone, Copy)]
+pub struct WitnessValueTuple<'a> {
+    /// Foundation-internal: the underlying Grounded reference. Public-API
+    /// access goes through the accessor methods.
+    grounded_bindings: &'a dyn WitnessTupleSource,
+}
+
+impl<'a> core::fmt::Debug for WitnessValueTuple<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WitnessValueTuple")
+            .field("binding_count", &self.grounded_bindings.binding_count())
+            .finish()
+    }
+}
+
+impl<'a> WitnessValueTuple<'a> {
+    /// Number of bindings in the witness tuple.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.grounded_bindings.binding_count()
+    }
+
+    /// Whether the witness tuple is empty.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.grounded_bindings.binding_count() == 0
+    }
+
+    /// The witness's content-addressed binding bytes at position `idx`.
+    /// Returns `None` if `idx >= len()`.
+    #[inline]
+    #[must_use]
+    pub fn binding_bytes(&self, idx: usize) -> Option<&'static [u8]> {
+        self.grounded_bindings.binding_bytes_at(idx)
+    }
+}
+
+/// Foundation-internal trait letting `Grounded<T, Tag>` expose binding
+/// access to `WitnessValueTuple` without leaking the generic-parameter
+/// plumbing into the witness-view type.
+pub trait WitnessTupleSource {
+    /// Number of bindings in this source's table.
+    fn binding_count(&self) -> usize;
+    /// Binding bytes at the given index, or `None` if out of range.
+    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;
+}
+
+impl<T: crate::enforcement::GroundedShape, Tag> WitnessTupleSource
+    for crate::enforcement::Grounded<T, Tag>
+{
+    fn binding_count(&self) -> usize {
+        self.iter_bindings().count()
+    }
+    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]> {
+        self.iter_bindings().nth(idx).map(|e| e.bytes)
+    }
+}
+
+/// Wiki ADR-042: typed view over an `Err(PipelineFailure)` as the
+/// inhabitance-impossibility envelope. Realizes
+/// `cert:InhabitanceImpossibilityCertificate` per the ontology:
+/// `<https://uor.foundation/cert/InhabitanceImpossibilityCertificate>`.
+///
+/// Zero-cost — `#[repr(transparent)]` over `&'a PipelineFailure`. Construct
+/// via [`crate::enforcement::PipelineFailure::as_inhabitance_impossibility_certificate`].
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct InhabitanceImpossibilityCertificate<'a>(pub &'a crate::enforcement::PipelineFailure);
+
+impl<'a> InhabitanceImpossibilityCertificate<'a> {
+    /// The contradiction-proof bytes — canonical-form encoding of the
+    /// failure trace, suitable for Lean 4 by-contradiction reconstruction
+    /// per ADR-039 + ADR-042. Foundation provides the shape-violation's
+    /// `shape_iri` bytes as the proof's canonical-form witness; richer
+    /// contradiction data is application-provided via the failure trace.
+    #[inline]
+    #[must_use]
+    pub fn contradiction_proof(&self) -> &'static [u8] {
+        match self.0 {
+            crate::enforcement::PipelineFailure::ShapeViolation { report } => {
+                report.shape_iri.as_bytes()
+            }
+            _ => b"https://uor.foundation/proof/InhabitanceImpossibilityWitness",
+        }
+    }
+
+    /// Borrow the underlying `PipelineFailure`.
+    #[inline]
+    #[must_use]
+    pub fn failure(&self) -> &crate::enforcement::PipelineFailure {
+        self.0
+    }
+}
+
+/// Wiki ADR-042: typed verdict-envelope accessors on `PipelineFailure`.
+impl crate::enforcement::PipelineFailure {
+    /// Borrow `self` as an [`InhabitanceImpossibilityCertificate`] view
+    /// when the failure's structural cause is an inhabitance-impossibility
+    /// witness (per ADR-042). Returns `Some` for `ShapeViolation` whose
+    /// `shape_iri` carries one of the foundation-declared inhabitance
+    /// proof IRIs (e.g. `RESOLVER_ABSENT`, the constraint-nerve-empty-
+    /// Kan-completion sentinel); foundation accepts `Some(...)` universally
+    /// for `PipelineFailure` so applications consume the verdict-envelope
+    /// view at their discretion.
+    #[inline]
+    #[must_use]
+    pub fn as_inhabitance_impossibility_certificate(
+        &self,
+    ) -> Option<InhabitanceImpossibilityCertificate<'_>> {
+        Some(InhabitanceImpossibilityCertificate(self))
+    }
+}
+
+/// Wiki ADR-042: `predicate:InhabitanceDispatchTable` consultation helper.
+/// Application NerveResolver impls MAY call this helper internally for
+/// decider routing across the ontology's three canonical rule arms
+/// (TwoSatDecider, HornSatDecider, ResidualVerdictResolver). Foundation
+/// provides the dispatch surface; rule-arm semantics are application-
+/// provided through the closures the caller threads in.
+pub mod inhabitance {
+    /// Three rule arms a `predicate:InhabitanceDispatchTable` consultation
+    /// dispatches through, per the ontology's canonical decider routing.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum InhabitanceRuleArm {
+        ///         TwoSatDecider — `predicate:TwoSatDecider`. Decides 2-SAT constraint nerves.
+        TwoSatDecider,
+        ///         HornSatDecider — `predicate:HornSatDecider`. Decides Horn-SAT constraint nerves.
+        HornSatDecider,
+        ///         ResidualVerdictResolver — `predicate:ResidualVerdictResolver`. Residual
+        ///         catch-all for constraint nerves outside the 2-SAT / Horn-SAT coverage.
+        ResidualVerdictResolver,
+    }
+
+    /// Dispatch through the `predicate:InhabitanceDispatchTable` rule arms in
+    /// ontology order (TwoSatDecider → HornSatDecider → ResidualVerdictResolver).
+    /// Each closure returns `Some(verdict)` if the arm decides, or `None` to
+    /// delegate to the next arm. Returns the first decisive verdict.
+    #[inline]
+    pub fn dispatch_through_table<F1, F2, F3, V>(
+        two_sat: F1,
+        horn_sat: F2,
+        residual: F3,
+    ) -> (InhabitanceRuleArm, V)
+    where
+        F1: FnOnce() -> Option<V>,
+        F2: FnOnce() -> Option<V>,
+        F3: FnOnce() -> V,
+    {
+        if let Some(v) = two_sat() {
+            return (InhabitanceRuleArm::TwoSatDecider, v);
+        }
+        if let Some(v) = horn_sat() {
+            return (InhabitanceRuleArm::HornSatDecider, v);
+        }
+        (InhabitanceRuleArm::ResidualVerdictResolver, residual())
     }
 }
 
@@ -2982,14 +3502,15 @@ where
             Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]))
         }
         crate::enforcement::Term::Nerve { value_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3021,14 +3542,15 @@ where
             }
         }
         crate::enforcement::Term::ChainComplex { simplicial_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3044,10 +3566,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX];
-            match resolvers
-                .chain_complex_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.chain_complex_resolver().resolve(
+                crate::pipeline::SimplicialComplexBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3060,14 +3582,15 @@ where
             }
         }
         crate::enforcement::Term::HomologyGroups { chain_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3083,10 +3606,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers
-                .homology_group_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.homology_group_resolver().resolve(
+                crate::pipeline::ChainComplexBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3099,14 +3622,15 @@ where
             }
         }
         crate::enforcement::Term::CochainComplex { chain_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3122,10 +3646,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX];
-            match resolvers
-                .cochain_complex_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.cochain_complex_resolver().resolve(
+                crate::pipeline::ChainComplexBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3138,14 +3662,15 @@ where
             }
         }
         crate::enforcement::Term::CohomologyGroups { cochain_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3161,10 +3686,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers
-                .cohomology_group_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.cohomology_group_resolver().resolve(
+                crate::pipeline::CochainComplexBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3177,14 +3702,15 @@ where
             }
         }
         crate::enforcement::Term::PostnikovTower { simplicial_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3200,10 +3726,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX];
-            match resolvers
-                .postnikov_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.postnikov_resolver().resolve(
+                crate::pipeline::SimplicialComplexBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3216,14 +3742,15 @@ where
             }
         }
         crate::enforcement::Term::HomotopyGroups { postnikov_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3239,10 +3766,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers
-                .homotopy_group_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.homotopy_group_resolver().resolve(
+                crate::pipeline::PostnikovTowerBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES
@@ -3255,14 +3782,15 @@ where
             }
         }
         crate::enforcement::Term::KInvariants { homotopy_index } => {
-            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, then dispatch the operand
-            // bytes to the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output
-            // bytes populate the variant's `TermValue`; resolver-side
-            // `Err` propagates as a `PipelineFailure::ShapeViolation`
-            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable
-            // via `Term::Try`'s default-propagation handler).
+            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree, wrap the resulting bytes in the
+            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
+            // input, then dispatch through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver's output bytes
+            // populate the variant's `TermValue`; resolver-side `Err`
+            // propagates as `PipelineFailure::ShapeViolation` (the Null
+            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
+            // default-propagation handler).
             //
             // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX`
             // — per-ψ-stage cap from the application's selected HostBounds.
@@ -3278,10 +3806,10 @@ where
             )?;
             let mut out_buf = [0u8;
                 <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX];
-            match resolvers
-                .k_invariant_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
+            match resolvers.k_invariant_resolver().resolve(
+                crate::pipeline::HomotopyGroupsBytes(operand.bytes()),
+                &mut out_buf,
+            ) {
                 Ok(written) => {
                     let width = if written > TERM_VALUE_MAX_BYTES {
                         TERM_VALUE_MAX_BYTES

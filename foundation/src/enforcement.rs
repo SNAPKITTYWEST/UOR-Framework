@@ -8577,6 +8577,21 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
     pub fn with_bindings(self, bindings: BindingsTable) -> Self {
         Self { bindings, ..self }
     }
+
+    /// Wiki ADR-042: borrow `self` as an
+    /// [`crate::pipeline::InhabitanceCertificateView`] over the canonical
+    /// k-invariants branch's verdict envelope.
+    /// Universal — available for any `Grounded<T, Tag>`; applications whose
+    /// admission relations are not inhabitance questions simply don't
+    /// call the typed accessors. The view is zero-cost
+    /// (`#[repr(transparent)]` over `&'a Grounded<T, Tag>`).
+    #[inline]
+    #[must_use]
+    pub fn as_inhabitance_certificate(
+        &self,
+    ) -> crate::pipeline::InhabitanceCertificateView<'_, T, Tag> {
+        crate::pipeline::InhabitanceCertificateView(self)
+    }
 }
 
 /// v0.2.2 W8: triadic coordinate of a Datum at level `L`. Bundles the

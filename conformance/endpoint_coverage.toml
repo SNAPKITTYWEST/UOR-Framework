@@ -847,3 +847,47 @@ symbols = [
     "K_INVARIANTS_OUTPUT_BYTES_MAX",
 ]
 behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-041 — typed-coordinate resolver carriers. Nine
+# `#[repr(transparent)]` newtypes wrap byte slices to type-check ψ-stage
+# composition at the resolver-impl boundary. The catamorphism's
+# resolver-bound fold-rules construct these carriers before invoking
+# the application's resolver; the `psi_chain_*` end-to-end smoke tests
+# in `uor-foundation-sdk/tests/smoke.rs` exercise every wrapper through
+# the canonical k-invariants branch and the homology/cohomology branches.
+[coverage.adr041_typed_coordinate_carriers]
+symbols = [
+    "SimplicialComplexBytes",
+    "ChainComplexBytes",
+    "HomologyGroupsBytes",
+    "BettiNumbersBytes",
+    "CochainComplexBytes",
+    "CohomologyGroupsBytes",
+    "PostnikovTowerBytes",
+    "HomotopyGroupsBytes",
+    "KInvariantsBytes",
+]
+behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-042 — typed Rust inhabitance-verdict surface.
+# Foundation exposes:
+#   - `InhabitanceCertificateView<'a, T, Tag>` — zero-cost view over
+#     `&Grounded<T, Tag>` with κ-label, witness, certificate accessors.
+#   - `InhabitanceImpossibilityCertificate<'a>` — view over
+#     `&PipelineFailure` with the `contradiction_proof` accessor.
+#   - `WitnessValueTuple<'a>` + `WitnessTupleSource` — concrete witness
+#     view backed by Grounded's binding table.
+#   - `inhabitance::dispatch_through_table` — three-arm decider helper.
+# All five symbols are covered end-to-end by the comprehensive ψ-pipeline
+# verification test in `uor-foundation-sdk/tests/smoke.rs` (the
+# `psi_chain_inhabitance_verdict_surface_end_to_end` test exercises
+# every accessor path).
+[coverage.adr042_inhabitance_verdict_surface]
+symbols = [
+    "InhabitanceCertificateView",
+    "InhabitanceImpossibilityCertificate",
+    "WitnessValueTuple",
+    "WitnessTupleSource",
+    "inhabitance",
+]
+behavior = "behavior_catamorphism_evaluator"

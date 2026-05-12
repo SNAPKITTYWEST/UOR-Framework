@@ -41,6 +41,10 @@ def GreaterEqBound : UOR.User.Type_.BoundShape UOR.Prims.Standard := {
 def LessEqBound : UOR.User.Type_.BoundShape UOR.Prims.Standard := {
 }
 
+-- Predicate form: `observable(datum) <= bound` over byte-sequence-valued observables under canonical big-endian unsigned ordering. Fixed-length: lexicographic byte-wise comparison. Variable-length: lexicographic with shorter-prefix-rule (the shorter sequence is less than the longer when bytes match through the shorter's length). Wiki ADR-040 + ADR-038: this is the BoundShape primitive for byte-sequence-valued AxisProjectionObservable instances (e.g. axis-realized hash projections) — LessEqBound is the integer-valued primitive (HammingMetric, DerivationDepthObservable, etc.).
+def LexicographicLessEqBound : UOR.User.Type_.BoundShape UOR.Prims.Standard := {
+}
+
 -- The canonical A + Unit idiom for optional values.
 def OptionType : UOR.User.Type_.SumType UOR.Prims.Standard := {
   variant := #[]

@@ -1794,6 +1794,26 @@ fn individuals() -> Vec<Individual> {
                       combination of the BoundConstraint's affine generators.",
             properties: &[],
         },
+        // Wiki ADR-040: 7th BoundShape individual — the byte-sequence-valued
+        // comparison primitive. Catalog declaration alone determines the
+        // comparison semantics; resolvers do not dispatch on observable type.
+        Individual {
+            id: "https://uor.foundation/type/LexicographicLessEqBound",
+            type_: "https://uor.foundation/type/BoundShape",
+            label: "LexicographicLessEqBound",
+            comment: "Predicate form: `observable(datum) <= bound` over \
+                      byte-sequence-valued observables under canonical \
+                      big-endian unsigned ordering. Fixed-length: lexicographic \
+                      byte-wise comparison. Variable-length: lexicographic with \
+                      shorter-prefix-rule (the shorter sequence is less than the \
+                      longer when bytes match through the shorter's length). \
+                      Wiki ADR-040 + ADR-038: this is the BoundShape primitive \
+                      for byte-sequence-valued AxisProjectionObservable instances \
+                      (e.g. axis-realized hash projections) — LessEqBound is the \
+                      integer-valued primitive (HammingMetric, \
+                      DerivationDepthObservable, etc.).",
+            properties: &[],
+        },
         // ─────────────────────────────────────────────────────────────────
         // v0.2.2 Phase D — BoundConstraint kind individuals (6 catalogued
         // (observable, shape) pairs replacing the v0.2.1 enumerated

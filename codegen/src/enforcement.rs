@@ -6433,6 +6433,23 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    pub fn with_bindings(self, bindings: BindingsTable) -> Self {");
     f.line("        Self { bindings, ..self }");
     f.line("    }");
+    f.blank();
+    // ADR-042: typed inhabitance-verdict view over Grounded<T>.
+    f.indented_doc_comment("Wiki ADR-042: borrow `self` as an");
+    f.indented_doc_comment("[`crate::pipeline::InhabitanceCertificateView`] over the canonical");
+    f.indented_doc_comment("k-invariants branch's verdict envelope.");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("Universal — available for any `Grounded<T, Tag>`; applications whose");
+    f.indented_doc_comment("admission relations are not inhabitance questions simply don't");
+    f.indented_doc_comment("call the typed accessors. The view is zero-cost");
+    f.indented_doc_comment("(`#[repr(transparent)]` over `&'a Grounded<T, Tag>`).");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line(
+        "    pub fn as_inhabitance_certificate(&self) -> crate::pipeline::InhabitanceCertificateView<'_, T, Tag> {",
+    );
+    f.line("        crate::pipeline::InhabitanceCertificateView(self)");
+    f.line("    }");
     f.line("}");
     f.blank();
 

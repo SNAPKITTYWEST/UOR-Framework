@@ -2485,50 +2485,151 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
+    // ADR-041: nine #[repr(transparent)] typed-coordinate carriers
+    // wrapping byte slices. Zero runtime cost (layout identical to &[u8]);
+    // the type wrapper is purely compile-time discrimination of which
+    // ψ-stage's output the bytes represent. Cross-stage composition is
+    // type-checked: passing `ChainComplexBytes` to a resolver expecting
+    // `SimplicialComplexBytes` is a compile-time type error rather than
+    // a runtime ShapeViolation.
+    let carrier_specs: &[(&str, &str, &str)] = &[
+        (
+            "SimplicialComplexBytes",
+            "ψ_1",
+            "the simplicial-complex serialization produced by `NerveResolver::resolve`",
+        ),
+        (
+            "ChainComplexBytes",
+            "ψ_2",
+            "the chain-complex serialization produced by `ChainComplexResolver::resolve`",
+        ),
+        (
+            "HomologyGroupsBytes",
+            "ψ_3",
+            "the homology-groups serialization produced by `HomologyGroupResolver::resolve`",
+        ),
+        (
+            "BettiNumbersBytes",
+            "ψ_4",
+            "the Betti-number tuple serialization produced by the resolver-free `Term::Betti` fold-rule (a byte projection of HomologyGroupsBytes)",
+        ),
+        (
+            "CochainComplexBytes",
+            "ψ_5",
+            "the cochain-complex serialization produced by `CochainComplexResolver::resolve`",
+        ),
+        (
+            "CohomologyGroupsBytes",
+            "ψ_6",
+            "the cohomology-groups serialization produced by `CohomologyGroupResolver::resolve`",
+        ),
+        (
+            "PostnikovTowerBytes",
+            "ψ_7",
+            "the Postnikov-tower serialization produced by `PostnikovResolver::resolve`",
+        ),
+        (
+            "HomotopyGroupsBytes",
+            "ψ_8",
+            "the homotopy-groups serialization produced by `HomotopyGroupResolver::resolve`",
+        ),
+        (
+            "KInvariantsBytes",
+            "ψ_9",
+            "the κ-label byte serialization produced by `KInvariantResolver::resolve` — the canonical k-invariants-branch output (ADR-035) classifying the input's homotopy type up to weak equivalence",
+        ),
+    ];
+    for (carrier_name, psi_stage, semantics) in carrier_specs {
+        f.doc_comment(&format!(
+            "Wiki ADR-041: zero-cost typed-coordinate carrier for {psi_stage} output —"
+        ));
+        f.doc_comment(&format!("{semantics}."));
+        f.line("///");
+        f.doc_comment("`#[repr(transparent)]` over `&'a [u8]`: layout identical to a byte");
+        f.doc_comment("slice; the type wrapper is purely compile-time discrimination so");
+        f.doc_comment("ψ-stage composition is type-checked at the resolver-impl boundary.");
+        f.line("#[repr(transparent)]");
+        f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
+        f.line(&format!("pub struct {carrier_name}<'a>(pub &'a [u8]);"));
+        f.blank();
+        f.line(&format!("impl<'a> {carrier_name}<'a> {{"));
+        f.indented_doc_comment("Borrow the underlying byte slice.");
+        f.line("    #[must_use]");
+        f.line("    pub fn as_bytes(&self) -> &[u8] {");
+        f.line("        self.0");
+        f.line("    }");
+        f.line("    /// Length of the underlying byte slice.");
+        f.line("    #[must_use]");
+        f.line("    pub fn len(&self) -> usize {");
+        f.line("        self.0.len()");
+        f.line("    }");
+        f.line("    /// Whether the underlying byte slice is empty.");
+        f.line("    #[must_use]");
+        f.line("    pub fn is_empty(&self) -> bool {");
+        f.line("        self.0.is_empty()");
+        f.line("    }");
+        f.line("}");
+        f.blank();
+    }
+
     // Eight resolver category traits. Per the user's directive, generic
     // over <H> (no Hasher bound) — the seal is the gate.
-    let resolver_traits: &[(&str, &str)] = &[
+    // ADR-041: each resolver after ψ_1 takes the prior ψ-stage's typed
+    // carrier as input; `NerveResolver` retains `&[u8]` input because
+    // its source is the per-value bytes (not a ψ-stage emission).
+    let resolver_traits: &[(&str, &str, &str)] = &[
         (
             "NerveResolver",
             "ψ_1 — per-value bytes → SimplicialComplex per ADR-035.",
+            "&[u8]",
         ),
         (
             "ChainComplexResolver",
             "ψ_2 — SimplicialComplex → ChainComplex per ADR-035.",
+            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomologyGroupResolver",
             "ψ_3 — ChainComplex → HomologyGroups per ADR-035.",
+            "ChainComplexBytes<'_>",
         ),
         (
             "CochainComplexResolver",
             "ψ_5 — ChainComplex → CochainComplex per ADR-035.",
+            "ChainComplexBytes<'_>",
         ),
         (
             "CohomologyGroupResolver",
             "ψ_6 — CochainComplex → CohomologyGroups per ADR-035.",
+            "CochainComplexBytes<'_>",
         ),
         (
             "PostnikovResolver",
             "ψ_7 — SimplicialComplex → PostnikovTower per ADR-035.",
+            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomotopyGroupResolver",
             "ψ_8 — PostnikovTower → HomotopyGroups per ADR-035.",
+            "PostnikovTowerBytes<'_>",
         ),
         (
             "KInvariantResolver",
             "ψ_9 — HomotopyGroups → KInvariants per ADR-035.",
+            "HomotopyGroupsBytes<'_>",
         ),
     ];
-    for (trait_name, doc) in resolver_traits {
+    for (trait_name, doc, input_ty) in resolver_traits {
         f.doc_comment(&format!("ADR-036 resolver trait: {doc}"));
-        f.doc_comment("");
+        f.line("///");
         f.doc_comment("Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so");
         f.doc_comment("resolver impls compute content-addressed fingerprints using the");
         f.doc_comment("model's chosen hash impl. Sealed via [`__sdk_seal::Sealed`]: only");
         f.doc_comment("the SDK `resolver!` macro emits impls. Foundation provides a Null");
         f.doc_comment("impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.");
+        f.line("///");
+        f.doc_comment("ADR-041: `input` is a zero-cost typed carrier so ψ-stage");
+        f.doc_comment("composition is type-checked at the resolver-impl boundary.");
         f.line(&format!(
             "pub trait {trait_name}<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {{"
         ));
@@ -2541,7 +2642,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.indented_doc_comment("the `RESOLVER_ABSENT` discriminator).");
         f.line("    fn resolve(");
         f.line("        &self,");
-        f.line("        input: &[u8],");
+        f.line(&format!("        input: {input_ty},"));
         f.line("        out: &mut [u8],");
         f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation>;");
         f.line("}");
@@ -2619,38 +2720,56 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    // Eight Null<Category>Resolver impls.
-    let null_resolvers: &[(&str, &str, &str)] = &[
-        ("NullNerveResolver", "NerveResolver", "Nerve"),
+    // Eight Null<Category>Resolver impls. Each per-category null impl
+    // takes the ADR-041 typed-coordinate carrier for its resolver-trait
+    // input. NerveResolver retains `&[u8]` (per-value bytes); the other
+    // seven take their typed predecessor-stage carrier.
+    let null_resolvers: &[(&str, &str, &str, &str)] = &[
+        ("NullNerveResolver", "NerveResolver", "Nerve", "&[u8]"),
         (
             "NullChainComplexResolver",
             "ChainComplexResolver",
             "ChainComplex",
+            "SimplicialComplexBytes<'_>",
         ),
         (
             "NullHomologyGroupResolver",
             "HomologyGroupResolver",
             "HomologyGroup",
+            "ChainComplexBytes<'_>",
         ),
         (
             "NullCochainComplexResolver",
             "CochainComplexResolver",
             "CochainComplex",
+            "ChainComplexBytes<'_>",
         ),
         (
             "NullCohomologyGroupResolver",
             "CohomologyGroupResolver",
             "CohomologyGroup",
+            "CochainComplexBytes<'_>",
         ),
-        ("NullPostnikovResolver", "PostnikovResolver", "Postnikov"),
+        (
+            "NullPostnikovResolver",
+            "PostnikovResolver",
+            "Postnikov",
+            "SimplicialComplexBytes<'_>",
+        ),
         (
             "NullHomotopyGroupResolver",
             "HomotopyGroupResolver",
             "HomotopyGroup",
+            "PostnikovTowerBytes<'_>",
         ),
-        ("NullKInvariantResolver", "KInvariantResolver", "KInvariant"),
+        (
+            "NullKInvariantResolver",
+            "KInvariantResolver",
+            "KInvariant",
+            "HomotopyGroupsBytes<'_>",
+        ),
     ];
-    for (null_ty, resolver_trait, category) in null_resolvers {
+    for (null_ty, resolver_trait, category, input_ty) in null_resolvers {
         f.doc_comment(&format!(
             "ADR-036 Null `{resolver_trait}` impl. `resolve` always emits the"
         ));
@@ -2681,7 +2800,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         ));
         f.line("    fn resolve(");
         f.line("        &self,");
-        f.line("        _input: &[u8],");
+        f.line(&format!("        _input: {input_ty},"));
         f.line("        _out: &mut [u8],");
         f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
         f.line("        Err(crate::enforcement::ShapeViolation {");
@@ -2711,57 +2830,67 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     // reasons" commitment: applications can default to NullResolverTuple in
     // tests/smoke contexts and recover RESOLVER_ABSENT at runtime via
     // `Term::Try`.
-    let absent_impls: &[(&str, &str, &str, &str)] = &[
+    // Each tuple element: resolver_trait, marker, accessor, category,
+    // input_type (per ADR-041 typed-coordinate carrier).
+    let absent_impls: &[(&str, &str, &str, &str, &str)] = &[
         (
             "NerveResolver",
             "HasNerveResolver",
             "nerve_resolver",
             "Nerve",
+            "&[u8]",
         ),
         (
             "ChainComplexResolver",
             "HasChainComplexResolver",
             "chain_complex_resolver",
             "ChainComplex",
+            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomologyGroupResolver",
             "HasHomologyGroupResolver",
             "homology_group_resolver",
             "HomologyGroup",
+            "ChainComplexBytes<'_>",
         ),
         (
             "CochainComplexResolver",
             "HasCochainComplexResolver",
             "cochain_complex_resolver",
             "CochainComplex",
+            "ChainComplexBytes<'_>",
         ),
         (
             "CohomologyGroupResolver",
             "HasCohomologyGroupResolver",
             "cohomology_group_resolver",
             "CohomologyGroup",
+            "CochainComplexBytes<'_>",
         ),
         (
             "PostnikovResolver",
             "HasPostnikovResolver",
             "postnikov_resolver",
             "Postnikov",
+            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomotopyGroupResolver",
             "HasHomotopyGroupResolver",
             "homotopy_group_resolver",
             "HomotopyGroup",
+            "PostnikovTowerBytes<'_>",
         ),
         (
             "KInvariantResolver",
             "HasKInvariantResolver",
             "k_invariant_resolver",
             "KInvariant",
+            "HomotopyGroupsBytes<'_>",
         ),
     ];
-    for (resolver_trait, marker, accessor, category) in absent_impls {
+    for (resolver_trait, marker, accessor, category, input_ty) in absent_impls {
         f.doc_comment(&format!(
             "ADR-036: NullResolverTuple satisfies `{resolver_trait}<H>` directly so"
         ));
@@ -2775,7 +2904,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         ));
         f.line("    fn resolve(");
         f.line("        &self,");
-        f.line("        _input: &[u8],");
+        f.line(&format!("        _input: {input_ty},"));
         f.line("        _out: &mut [u8],");
         f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
         f.line("        Err(crate::enforcement::ShapeViolation {");
@@ -2806,6 +2935,288 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.line("}");
         f.blank();
     }
+
+    // ADR-042: typed Rust verdict-envelope surface — InhabitanceCertificateView
+    // / InhabitanceImpossibilityCertificate views over Grounded<T> / PipelineFailure.
+    emit_inhabitance_verdict_surface(f);
+}
+
+/// Emit the ADR-042 typed inhabitance-verdict surface:
+///   - `InhabitanceCertificateView<'a, T, Tag = T>` — zero-cost
+///     `#[repr(transparent)]` view over `&'a Grounded<T, Tag>` with
+///     typed accessors for the κ-label, the concrete witness, the
+///     search trace, and the certified-type IRI.
+///   - `InhabitanceImpossibilityCertificate<'a>` — zero-cost view over
+///     `&'a PipelineFailure` with a `contradiction_proof` accessor.
+///   - `PipelineFailure::as_inhabitance_impossibility_certificate(&self)`
+///     returning `Option<InhabitanceImpossibilityCertificate<'_>>`.
+///   - `inhabitance::dispatch_through_table` helper for optional
+///     consultation of `predicate:InhabitanceDispatchTable` (three rule
+///     arms: TwoSatDecider, HornSatDecider, ResidualVerdictResolver).
+fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
+    f.doc_comment("Wiki ADR-042: typed view over a successful `Grounded<T, Tag>` as the");
+    f.doc_comment("inhabitance-verdict envelope produced by the canonical k-invariants");
+    f.doc_comment("branch (ψ_1 → ψ_7 → ψ_8 → ψ_9 per ADR-035).");
+    f.line("///");
+    f.doc_comment("Zero-cost — `#[repr(transparent)]` over `&'a Grounded<T, Tag>`. Construct");
+    f.doc_comment("via [`crate::enforcement::Grounded::as_inhabitance_certificate`].");
+    f.line("///");
+    f.doc_comment("Realizes `cert:InhabitanceCertificate` per the ontology");
+    f.doc_comment("(`<https://uor.foundation/cert/InhabitanceCertificate>`). Foundation");
+    f.doc_comment("uses the suffix `View` here to distinguish this zero-cost typed");
+    f.doc_comment(
+        "view from the existing sealed-shim `crate::enforcement::InhabitanceCertificate`",
+    );
+    f.doc_comment("value carrier; the wiki names this type `InhabitanceCertificate<'a, T>`");
+    f.doc_comment("in ADR-042 and the typed-view role is the load-bearing concern. The κ-label,");
+    f.doc_comment("concrete `cert:witness`, and `cert:searchTrace` are accessor methods");
+    f.doc_comment("over the underlying `Grounded` — no allocation, no per-application");
+    f.doc_comment("re-derivation.");
+    f.line("#[repr(transparent)]");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line(
+        "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, Tag = T>(",
+    );
+    f.line("    pub &'a crate::enforcement::Grounded<T, Tag>,");
+    f.line(");");
+    f.blank();
+    f.line(
+        "impl<'a, T: crate::enforcement::GroundedShape, Tag> InhabitanceCertificateView<'a, T, Tag> {",
+    );
+    f.indented_doc_comment("The κ-label — the homotopy-classification structural witness at");
+    f.indented_doc_comment("ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's");
+    f.indented_doc_comment("output (exposed via `Grounded::output_bytes`) wrapped in the");
+    f.indented_doc_comment("ADR-041 typed-coordinate carrier so cross-stage composition is");
+    f.indented_doc_comment("type-checked.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn kappa_label(&self) -> KInvariantsBytes<'_> {");
+    f.line("        KInvariantsBytes(self.0.output_bytes())");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("The concrete `cert:witness` ValueTuple — derivable from");
+    f.indented_doc_comment("`Term::Nerve`'s 0-simplices at ψ_1 (the per-value bytes the");
+    f.indented_doc_comment("model's NerveResolver consumed). Foundation exposes the");
+    f.indented_doc_comment("`Grounded`'s bindings as the value-tuple surface; applications");
+    f.indented_doc_comment("whose admission relations carry richer witness data project");
+    f.indented_doc_comment("through the binding table's content addresses.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn witness(&self) -> WitnessValueTuple<'_> {");
+    f.line("        WitnessValueTuple { grounded_bindings: self.0 }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("The `cert:searchTrace` — realized as");
+    f.indented_doc_comment("`<Grounded>::derivation::<H>(...).replay::<...>()` per ADR-039.");
+    f.indented_doc_comment("Foundation surfaces the derivation pointer; applications choose");
+    f.indented_doc_comment("which `Hasher` impl and `HostBounds` parameters to instantiate");
+    f.indented_doc_comment("the replay with.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn certificate(&self) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate> {");
+    f.line("        self.0.certificate()");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment(
+        "The certified type's stable IRI — the `<T as ConstrainedTypeShape>::IRI`",
+    );
+    f.indented_doc_comment("the application registered as the route's output shape.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn certified_type(&self) -> &'static str");
+    f.line("    where T: ConstrainedTypeShape,");
+    f.line("    {");
+    f.line("        <T as ConstrainedTypeShape>::IRI");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // WitnessValueTuple — concrete witness view over Grounded's bindings.
+    f.doc_comment("Wiki ADR-042: concrete `cert:witness` ValueTuple view. Borrows the");
+    f.doc_comment("underlying `Grounded`'s bindings; iterates as `(content_address, bytes)`");
+    f.doc_comment("pairs corresponding to `Term::Nerve`'s 0-simplices.");
+    f.line("#[derive(Clone, Copy)]");
+    f.line("pub struct WitnessValueTuple<'a> {");
+    f.indented_doc_comment("Foundation-internal: the underlying Grounded reference. Public-API");
+    f.indented_doc_comment("access goes through the accessor methods.");
+    f.line("    grounded_bindings: &'a dyn WitnessTupleSource,");
+    f.line("}");
+    f.blank();
+    f.line("impl<'a> core::fmt::Debug for WitnessValueTuple<'a> {");
+    f.line("    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {");
+    f.line("        f.debug_struct(\"WitnessValueTuple\")");
+    f.line("            .field(\"binding_count\", &self.grounded_bindings.binding_count())");
+    f.line("            .finish()");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    f.line("impl<'a> WitnessValueTuple<'a> {");
+    f.indented_doc_comment("Number of bindings in the witness tuple.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn len(&self) -> usize {");
+    f.line("        self.grounded_bindings.binding_count()");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Whether the witness tuple is empty.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn is_empty(&self) -> bool {");
+    f.line("        self.grounded_bindings.binding_count() == 0");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("The witness's content-addressed binding bytes at position `idx`.");
+    f.indented_doc_comment("Returns `None` if `idx >= len()`.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn binding_bytes(&self, idx: usize) -> Option<&'static [u8]> {");
+    f.line("        self.grounded_bindings.binding_bytes_at(idx)");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+    f.doc_comment("Foundation-internal trait letting `Grounded<T, Tag>` expose binding");
+    f.doc_comment("access to `WitnessValueTuple` without leaking the generic-parameter");
+    f.doc_comment("plumbing into the witness-view type.");
+    f.line("pub trait WitnessTupleSource {");
+    f.indented_doc_comment("Number of bindings in this source's table.");
+    f.line("    fn binding_count(&self) -> usize;");
+    f.indented_doc_comment("Binding bytes at the given index, or `None` if out of range.");
+    f.line("    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;");
+    f.line("}");
+    f.blank();
+    f.line("impl<T: crate::enforcement::GroundedShape, Tag> WitnessTupleSource");
+    f.line("    for crate::enforcement::Grounded<T, Tag>");
+    f.line("{");
+    f.line("    fn binding_count(&self) -> usize {");
+    f.line("        self.iter_bindings().count()");
+    f.line("    }");
+    f.line("    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]> {");
+    f.line("        self.iter_bindings().nth(idx).map(|e| e.bytes)");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // InhabitanceImpossibilityCertificate.
+    f.doc_comment("Wiki ADR-042: typed view over an `Err(PipelineFailure)` as the");
+    f.doc_comment("inhabitance-impossibility envelope. Realizes");
+    f.doc_comment("`cert:InhabitanceImpossibilityCertificate` per the ontology:");
+    f.doc_comment("`<https://uor.foundation/cert/InhabitanceImpossibilityCertificate>`.");
+    f.line("///");
+    f.doc_comment("Zero-cost — `#[repr(transparent)]` over `&'a PipelineFailure`. Construct");
+    f.doc_comment(
+        "via [`crate::enforcement::PipelineFailure::as_inhabitance_impossibility_certificate`].",
+    );
+    f.line("#[repr(transparent)]");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("pub struct InhabitanceImpossibilityCertificate<'a>(");
+    f.line("    pub &'a crate::enforcement::PipelineFailure,");
+    f.line(");");
+    f.blank();
+    f.line("impl<'a> InhabitanceImpossibilityCertificate<'a> {");
+    f.indented_doc_comment("The contradiction-proof bytes — canonical-form encoding of the");
+    f.indented_doc_comment("failure trace, suitable for Lean 4 by-contradiction reconstruction");
+    f.indented_doc_comment("per ADR-039 + ADR-042. Foundation provides the shape-violation's");
+    f.indented_doc_comment("`shape_iri` bytes as the proof's canonical-form witness; richer");
+    f.indented_doc_comment("contradiction data is application-provided via the failure trace.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn contradiction_proof(&self) -> &'static [u8] {");
+    f.line("        match self.0 {");
+    f.line(
+        "            crate::enforcement::PipelineFailure::ShapeViolation { report } => report.shape_iri.as_bytes(),",
+    );
+    f.line("            _ => b\"https://uor.foundation/proof/InhabitanceImpossibilityWitness\",");
+    f.line("        }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Borrow the underlying `PipelineFailure`.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn failure(&self) -> &crate::enforcement::PipelineFailure {");
+    f.line("        self.0");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // PipelineFailure inherent impl with the typed accessor.
+    f.doc_comment("Wiki ADR-042: typed verdict-envelope accessors on `PipelineFailure`.");
+    f.line("impl crate::enforcement::PipelineFailure {");
+    f.indented_doc_comment("Borrow `self` as an [`InhabitanceImpossibilityCertificate`] view");
+    f.indented_doc_comment("when the failure's structural cause is an inhabitance-impossibility");
+    f.indented_doc_comment("witness (per ADR-042). Returns `Some` for `ShapeViolation` whose");
+    f.indented_doc_comment("`shape_iri` carries one of the foundation-declared inhabitance");
+    f.indented_doc_comment("proof IRIs (e.g. `RESOLVER_ABSENT`, the constraint-nerve-empty-");
+    f.indented_doc_comment("Kan-completion sentinel); foundation accepts `Some(...)` universally");
+    f.indented_doc_comment("for `PipelineFailure` so applications consume the verdict-envelope");
+    f.indented_doc_comment("view at their discretion.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line(
+        "    pub fn as_inhabitance_impossibility_certificate(&self) -> Option<InhabitanceImpossibilityCertificate<'_>> {",
+    );
+    f.line("        Some(InhabitanceImpossibilityCertificate(self))");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // inhabitance module with dispatch_through_table helper.
+    f.doc_comment("Wiki ADR-042: `predicate:InhabitanceDispatchTable` consultation helper.");
+    f.doc_comment("Application NerveResolver impls MAY call this helper internally for");
+    f.doc_comment("decider routing across the ontology's three canonical rule arms");
+    f.doc_comment("(TwoSatDecider, HornSatDecider, ResidualVerdictResolver). Foundation");
+    f.doc_comment("provides the dispatch surface; rule-arm semantics are application-");
+    f.doc_comment("provided through the closures the caller threads in.");
+    f.line("pub mod inhabitance {");
+    f.indented_doc_comment("Three rule arms a `predicate:InhabitanceDispatchTable` consultation");
+    f.indented_doc_comment("dispatches through, per the ontology's canonical decider routing.");
+    f.line("    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
+    f.line("    pub enum InhabitanceRuleArm {");
+    f.indented_doc_comment(
+        "        TwoSatDecider — `predicate:TwoSatDecider`. Decides 2-SAT constraint nerves.",
+    );
+    f.line("        TwoSatDecider,");
+    f.indented_doc_comment(
+        "        HornSatDecider — `predicate:HornSatDecider`. Decides Horn-SAT constraint nerves.",
+    );
+    f.line("        HornSatDecider,");
+    f.indented_doc_comment(
+        "        ResidualVerdictResolver — `predicate:ResidualVerdictResolver`. Residual",
+    );
+    f.indented_doc_comment(
+        "        catch-all for constraint nerves outside the 2-SAT / Horn-SAT coverage.",
+    );
+    f.line("        ResidualVerdictResolver,");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment(
+        "Dispatch through the `predicate:InhabitanceDispatchTable` rule arms in",
+    );
+    f.indented_doc_comment(
+        "ontology order (TwoSatDecider → HornSatDecider → ResidualVerdictResolver).",
+    );
+    f.indented_doc_comment("Each closure returns `Some(verdict)` if the arm decides, or `None` to");
+    f.indented_doc_comment("delegate to the next arm. Returns the first decisive verdict.");
+    f.line("    #[inline]");
+    f.line("    pub fn dispatch_through_table<F1, F2, F3, V>(");
+    f.line("        two_sat: F1,");
+    f.line("        horn_sat: F2,");
+    f.line("        residual: F3,");
+    f.line("    ) -> (InhabitanceRuleArm, V)");
+    f.line("    where");
+    f.line("        F1: FnOnce() -> Option<V>,");
+    f.line("        F2: FnOnce() -> Option<V>,");
+    f.line("        F3: FnOnce() -> V,");
+    f.line("    {");
+    f.line("        if let Some(v) = two_sat() {");
+    f.line("            return (InhabitanceRuleArm::TwoSatDecider, v);");
+    f.line("        }");
+    f.line("        if let Some(v) = horn_sat() {");
+    f.line("            return (InhabitanceRuleArm::HornSatDecider, v);");
+    f.line("        }");
+    f.line("        (InhabitanceRuleArm::ResidualVerdictResolver, residual())");
+    f.line("    }");
+    f.line("}");
+    f.blank();
 }
 
 /// Emits the wiki ADR-020 + ADR-022 surface: the [`FoundationClosed`]
@@ -3957,66 +4368,80 @@ fn emit_prism_model(f: &mut RustFile) {
     // custom HostBounds can tune resolver output capacity per ψ-stage
     // independently. The fourth column below names the HostBounds
     // associated constant the fold-rule's scratch buffer reads from.
-    let resolver_bound_variants: &[(&str, &str, &str, &str)] = &[
+    // ADR-041 — fifth column names the typed-carrier wrapping expression
+    // the fold-rule applies to `operand.bytes()` before invoking the
+    // resolver. NerveResolver receives the raw `&[u8]` (per-value bytes);
+    // every other resolver receives a `#[repr(transparent)]` typed view
+    // over the prior ψ-stage's output bytes.
+    let resolver_bound_variants: &[(&str, &str, &str, &str, &str)] = &[
         (
             "Term::Nerve { value_index }",
             "value_index",
             "nerve_resolver",
             "NERVE_OUTPUT_BYTES_MAX",
+            "operand.bytes()",
         ),
         (
             "Term::ChainComplex { simplicial_index }",
             "simplicial_index",
             "chain_complex_resolver",
             "CHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+            "crate::pipeline::SimplicialComplexBytes(operand.bytes())",
         ),
         (
             "Term::HomologyGroups { chain_index }",
             "chain_index",
             "homology_group_resolver",
             "HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+            "crate::pipeline::ChainComplexBytes(operand.bytes())",
         ),
         (
             "Term::CochainComplex { chain_index }",
             "chain_index",
             "cochain_complex_resolver",
             "COCHAIN_COMPLEX_OUTPUT_BYTES_MAX",
+            "crate::pipeline::ChainComplexBytes(operand.bytes())",
         ),
         (
             "Term::CohomologyGroups { cochain_index }",
             "cochain_index",
             "cohomology_group_resolver",
             "COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
+            "crate::pipeline::CochainComplexBytes(operand.bytes())",
         ),
         (
             "Term::PostnikovTower { simplicial_index }",
             "simplicial_index",
             "postnikov_resolver",
             "POSTNIKOV_TOWER_OUTPUT_BYTES_MAX",
+            "crate::pipeline::SimplicialComplexBytes(operand.bytes())",
         ),
         (
             "Term::HomotopyGroups { postnikov_index }",
             "postnikov_index",
             "homotopy_group_resolver",
             "HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX",
+            "crate::pipeline::PostnikovTowerBytes(operand.bytes())",
         ),
         (
             "Term::KInvariants { homotopy_index }",
             "homotopy_index",
             "k_invariant_resolver",
             "K_INVARIANTS_OUTPUT_BYTES_MAX",
+            "crate::pipeline::HomotopyGroupsBytes(operand.bytes())",
         ),
     ];
-    for (pattern, operand_field, accessor, host_bound_cap) in resolver_bound_variants {
+    for (pattern, operand_field, accessor, host_bound_cap, typed_input) in resolver_bound_variants {
         f.line(&format!("        crate::enforcement::{pattern} => {{"));
-        f.line("            // ADR-035 + ADR-036: resolver-bound ψ-Term variant.");
-        f.line("            // Evaluate the operand subtree, then dispatch the operand");
-        f.line("            // bytes to the application's resolver via the");
-        f.line("            // `Has<Category>Resolver` accessor. The resolver's output");
-        f.line("            // bytes populate the variant's `TermValue`; resolver-side");
-        f.line("            // `Err` propagates as a `PipelineFailure::ShapeViolation`");
-        f.line("            // (the Null defaults emit `RESOLVER_ABSENT`, recoverable");
-        f.line("            // via `Term::Try`'s default-propagation handler).");
+        f.line("            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.");
+        f.line("            // Evaluate the operand subtree, wrap the resulting bytes in the");
+        f.line("            // ADR-041 typed-coordinate carrier for this ψ-stage's expected");
+        f.line("            // input, then dispatch through the application's resolver via the");
+        f.line("            // `Has<Category>Resolver` accessor. The resolver's output bytes");
+        f.line("            // populate the variant's `TermValue`; resolver-side `Err`");
+        f.line("            // propagates as `PipelineFailure::ShapeViolation` (the Null");
+        f.line("            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s");
+        f.line("            // default-propagation handler).");
         f.line("            //");
         f.line(&format!(
             "            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::{host_bound_cap}`"
@@ -4029,7 +4454,7 @@ fn emit_prism_model(f: &mut RustFile) {
             "            let mut out_buf = [0u8; <crate::DefaultHostBounds as crate::HostBounds>::{host_bound_cap}];"
         ));
         f.line(&format!(
-            "            match resolvers.{accessor}().resolve(operand.bytes(), &mut out_buf) {{"
+            "            match resolvers.{accessor}().resolve({typed_input}, &mut out_buf) {{"
         ));
         f.line("                Ok(written) => {");
         f.line("                    let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");

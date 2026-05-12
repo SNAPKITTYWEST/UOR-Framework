@@ -6373,6 +6373,9 @@ pub mod residue_class_bound {}
 /// Predicate form: `observable(datum) == offset + Σ αᵢ·generatorᵢ`. The datum's observable projection must equal an affine combination of the BoundConstraint's affine generators.
 pub mod affine_equal_bound {}
 
+/// Predicate form: `observable(datum) <= bound` over byte-sequence-valued observables under canonical big-endian unsigned ordering. Fixed-length: lexicographic byte-wise comparison. Variable-length: lexicographic with shorter-prefix-rule (the shorter sequence is less than the longer when bytes match through the shorter's length). Wiki ADR-040 + ADR-038: this is the BoundShape primitive for byte-sequence-valued AxisProjectionObservable instances (e.g. axis-realized hash projections) — LessEqBound is the integer-valued primitive (HammingMetric, DerivationDepthObservable, etc.).
+pub mod lexicographic_less_eq_bound {}
+
 /// Parametric replacement for the v0.2.1 ResidueConstraint class: (observable:ValueModObservable, type:ResidueClassBound). The Rust foundation exposes this kind via the `ResidueConstraint` type alias with `pub const fn new(modulus, residue)`.
 pub mod residue_constraint_kind {
     /// `boundArguments`

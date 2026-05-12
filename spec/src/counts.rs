@@ -112,7 +112,10 @@ pub const NAMESPACE_PROPERTIES: usize = 947;
 /// expands into LiteralExpression / ForAllDeclaration individuals in the
 /// schema namespace. Proof individuals carry no lhs/rhs/forAll strings so
 /// they contribute no derived AST terms.
-pub const INDIVIDUALS: usize = 3559;
+/// Wiki ADR-040: +1 (type:LexicographicLessEqBound — the 7th BoundShape
+/// individual, the byte-sequence-valued comparison primitive paralleling
+/// LessEqBound under canonical big-endian unsigned ordering).
+pub const INDIVIDUALS: usize = 3560;
 
 /// Number of SHACL test instance graphs.
 ///
@@ -312,7 +315,9 @@ pub const LEAN_INDUCTIVES: usize = 23;
 /// individuals. Actual value 3422 matches the
 /// `lean4/structure — Individual def count drift` validator's typed-def
 /// count after regeneration.
-pub const LEAN_CONSTANT_NAMESPACES: usize = 3422;
+/// Wiki ADR-040: +1 (type:LexicographicLessEqBound — 7th BoundShape
+/// individual emitted by Lean codegen alongside the other six).
+pub const LEAN_CONSTANT_NAMESPACES: usize = 3423;
 
 /// Number of concept pages on the website (one per content/concepts/*.md file).
 /// Number of concept pages on the website (one per `website/content/concepts/*.md`,
