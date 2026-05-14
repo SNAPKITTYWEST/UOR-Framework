@@ -995,6 +995,17 @@ instance : Inhabited (RingMetric UOR.Prims.Standard) where
     hasUnit := none
   }
 
+/-- ADR-049: an observable whose value is a structural reading of a digest's frequency-domain spectrum. Distinct from the seven internally-derived Observable categories (Stratum / Metric / Path / Reduction / Catastrophe / Curvature / Holonomy) — its values are Walsh–Hadamard parities at specific frequencies, not derivable from the framework's internal algebraic/topological structure. Foundation's typed observable `WalshHadamardParity` per ADR-049 falls under this subclass; predicates over its values enter the typed-commitment surface per ADR-048 as `SingletonCommitment<WalshHadamardParity>` operands. -/
+structure SpectralObservable (P : Primitives) extends Observable P
+
+instance : Inhabited (SpectralObservable UOR.Prims.Standard) where
+  default := {
+    value := none
+    source := none
+    target := none
+    hasUnit := none
+  }
+
 /-- An observable measuring stratum-level properties: position within the ring's layer structure. -/
 structure StratumObservable (P : Primitives) extends Observable P
 

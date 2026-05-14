@@ -133,7 +133,12 @@ fn prism_model_input_bound_includes_into_binding_value() {
                 TestHasher,
                 Self,
                 uor_foundation::pipeline::NullResolverTuple,
-            >(input, &uor_foundation::pipeline::NullResolverTuple)
+                uor_foundation::pipeline::EmptyCommitment,
+            >(
+                input,
+                &uor_foundation::pipeline::NullResolverTuple,
+                &uor_foundation::pipeline::EmptyCommitment,
+            )
         }
     }
     _input_implements_into_binding::<DefaultHostTypes, DefaultHostBounds, TestHasher, IdentityModel>(

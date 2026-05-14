@@ -92,7 +92,12 @@ impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityMod
             TestHasher,
             Self,
             uor_foundation::pipeline::NullResolverTuple,
-        >(input, &uor_foundation::pipeline::NullResolverTuple)
+            uor_foundation::pipeline::EmptyCommitment,
+        >(
+            input,
+            &uor_foundation::pipeline::NullResolverTuple,
+            &uor_foundation::pipeline::EmptyCommitment,
+        )
     }
 }
 
@@ -225,9 +230,11 @@ fn run_route_is_canonical_catamorphism_call_site() {
         TestHasher,
         IdentityModel,
         uor_foundation::pipeline::NullResolverTuple,
+        uor_foundation::pipeline::EmptyCommitment,
     >(
         ConstrainedTypeInput::default(),
         &uor_foundation::pipeline::NullResolverTuple,
+        &uor_foundation::pipeline::EmptyCommitment,
     );
     // Surface the categorical commitment: the call returns a
     // `Result<Grounded<Output>, PipelineFailure>` — whichever variant

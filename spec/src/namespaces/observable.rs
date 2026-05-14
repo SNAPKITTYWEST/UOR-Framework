@@ -100,6 +100,31 @@ fn classes() -> Vec<Class> {
             subclass_of: &["https://uor.foundation/observable/Observable"],
             disjoint_with: &[],
         },
+        // Wiki ADR-049 closed-catalog extension: SpectralObservable as a
+        // top-level Observable subclass parallel to the seven
+        // internally-derived categories. Distinct because its values are
+        // structural readings of the σ-projection's frequency-domain
+        // spectrum (Walsh–Hadamard parities at specific frequencies),
+        // not from algebraic / topological structure. Foundation's
+        // `WalshHadamardParity` observable lives under this subclass.
+        Class {
+            id: "https://uor.foundation/observable/SpectralObservable",
+            label: "SpectralObservable",
+            comment: "ADR-049: an observable whose value is a structural \
+                      reading of a digest's frequency-domain spectrum. \
+                      Distinct from the seven internally-derived Observable \
+                      categories (Stratum / Metric / Path / Reduction / \
+                      Catastrophe / Curvature / Holonomy) — its values are \
+                      Walsh–Hadamard parities at specific frequencies, \
+                      not derivable from the framework's internal \
+                      algebraic/topological structure. Foundation's typed \
+                      observable `WalshHadamardParity` per ADR-049 falls \
+                      under this subclass; predicates over its values \
+                      enter the typed-commitment surface per ADR-048 as \
+                      `SingletonCommitment<WalshHadamardParity>` operands.",
+            subclass_of: &["https://uor.foundation/observable/Observable"],
+            disjoint_with: &[],
+        },
         // ADR-038 closed-catalog extension: AxisProjectionObservable as
         // a top-level Observable subclass parallel to the seven
         // internally-derived categories (Stratum / Metric / Path /

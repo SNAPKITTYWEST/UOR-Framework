@@ -39,8 +39,30 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         r"(?m)(?:^|[^a-zA-Z0-9_])(?P<m>: f64\b|-> f64\b|f64,|<f64>|: &f64\b|: \[f64\b)",
     )?;
 
+    // Wiki ADR-047 / ADR-048 / ADR-049 carve-out: the σ-Projection
+    // Hardening Principle's bandwidth metrics + the TypedCommitment /
+    // ObservablePredicate / cryptanalysis-battery surfaces are
+    // normatively f64-typed at the trait level (`accept_prob`,
+    // `bandwidth_bits`, and their helpers reason in PRF probability
+    // space). Foundation cannot polymorphize these over a generic
+    // `HostTypes::Decimal` because the wiki commits the f64
+    // signatures verbatim. The exempt files are the pipeline module
+    // hosting the trait surface + the foundation-internal libm helpers
+    // those impls delegate to.
+    let exempt_file_substrings: &[&str] = &[
+        // ADR-047/048/049 commitment + observable surface.
+        "foundation/src/pipeline.rs",
+    ];
+
     let mut hits: Vec<String> = Vec::new();
     for (path, src) in &sources {
+        let path_str = path.to_string_lossy();
+        if exempt_file_substrings
+            .iter()
+            .any(|frag| path_str.contains(frag))
+        {
+            continue;
+        }
         let cleaned = strip_cfg_test_blocks(src);
         for cap in pat.captures_iter(&cleaned) {
             if let Some(m) = cap.name("m") {

@@ -1461,9 +1461,14 @@ struct PrismModelInput {
     b_ty: syn::Type,
     a_ty: syn::Type,
     /// `Some(R)` for `impl PrismModel<H, B, A, R> for Model` (ADR-036
-    /// four-position form); `None` for the legacy three-position form
+    /// four-position form); `None` for the three-position form
     /// (R defaults to `NullResolverTuple` on the trait).
     r_ty: Option<syn::Type>,
+    /// `Some(C)` for `impl PrismModel<H, B, A, R, C> for Model` (ADR-048
+    /// five-position form); `None` defaults to `EmptyCommitment` per the
+    /// `PrismModel` trait's default-type parameter. Wiki ADR-048 commits
+    /// the 5th substrate parameter as the cost-model commitment surface.
+    c_ty: Option<syn::Type>,
     input_ty: syn::Type,
     output_ty: syn::Type,
     route_input_ident: Ident,
@@ -1474,6 +1479,12 @@ struct PrismModelInput {
     /// default (`R::default()` for `R: Default`, falling back to
     /// `NullResolverTuple` when `r_ty` is `None`) at expansion time.
     resolvers_body: Option<syn::Block>,
+    /// Optional `fn commitment() -> C { <expr> }` clause supplying the
+    /// TypedCommitment instance the macro-emitted `forward` body borrows.
+    /// Present iff the user includes the clause; foundation derives the
+    /// default (`C::default()` for `C: Default`, falling back to
+    /// `EmptyCommitment` when `c_ty` is `None`) at expansion time.
+    commitment_body: Option<syn::Block>,
 }
 
 impl Parse for PrismModelInput {
@@ -1496,7 +1507,7 @@ impl Parse for PrismModelInput {
         if trait_ident != "PrismModel" {
             return Err(syn::Error::new(
                 trait_ident.span(),
-                "prism_model! expects an `impl PrismModel<H, B, A[, R]> for <Model>` block",
+                "prism_model! expects an `impl PrismModel<H, B, A[, R[, C]]> for <Model>` block",
             ));
         }
         input.parse::<Token![<]>()?;
@@ -1507,6 +1518,13 @@ impl Parse for PrismModelInput {
         let a_ty: syn::Type = input.parse()?;
         // ADR-036: optional fourth substrate-parameter position (R: ResolverTuple).
         let r_ty: Option<syn::Type> = if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            Some(input.parse::<syn::Type>()?)
+        } else {
+            None
+        };
+        // ADR-048: optional fifth substrate-parameter position (C: TypedCommitment).
+        let c_ty: Option<syn::Type> = if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
             Some(input.parse::<syn::Type>()?)
         } else {
@@ -1592,31 +1610,51 @@ impl Parse for PrismModelInput {
         let _output_param_ty: syn::Type = body.parse()?;
         let route_body: syn::Block = body.parse()?;
 
-        // Optional `fn resolvers() -> R { … }` (ADR-036).
-        let resolvers_body: Option<syn::Block> = if body.peek(Token![fn]) {
+        // Optional `fn resolvers() -> R { … }` (ADR-036) followed by
+        // optional `fn commitment() -> C { … }` (ADR-048). The two
+        // clauses are independent and order-flexible — the parser
+        // consumes whichever `fn` it sees and matches by identifier.
+        let mut resolvers_body: Option<syn::Block> = None;
+        let mut commitment_body: Option<syn::Block> = None;
+        while body.peek(Token![fn]) {
             body.parse::<Token![fn]>()?;
-            let resolvers_kw: Ident = body.parse()?;
-            if resolvers_kw != "resolvers" {
+            let method_kw: Ident = body.parse()?;
+            let method_name = method_kw.to_string();
+            if method_name != "resolvers" && method_name != "commitment" {
                 return Err(syn::Error::new(
-                    resolvers_kw.span(),
-                    "the only optional method after `fn route` is `fn resolvers() -> R { … }` (ADR-036)",
+                    method_kw.span(),
+                    "the only optional methods after `fn route` are `fn resolvers() -> R { … }` (ADR-036) and `fn commitment() -> C { … }` (ADR-048)",
                 ));
             }
-            let resolvers_params;
-            syn::parenthesized!(resolvers_params in body);
-            if !resolvers_params.is_empty() {
+            let method_params;
+            syn::parenthesized!(method_params in body);
+            if !method_params.is_empty() {
                 return Err(syn::Error::new(
-                    resolvers_kw.span(),
-                    "`fn resolvers()` takes no parameters — its return value is the per-call ResolverTuple instance",
+                    method_kw.span(),
+                    "`fn resolvers()` / `fn commitment()` take no parameters — their return value is the per-call substrate instance",
                 ));
             }
             body.parse::<Token![->]>()?;
-            let _resolvers_ret_ty: syn::Type = body.parse()?;
+            let _ret_ty: syn::Type = body.parse()?;
             let block: syn::Block = body.parse()?;
-            Some(block)
-        } else {
-            None
-        };
+            if method_name == "resolvers" {
+                if resolvers_body.is_some() {
+                    return Err(syn::Error::new(
+                        method_kw.span(),
+                        "duplicate `fn resolvers()` clause in `prism_model!` body",
+                    ));
+                }
+                resolvers_body = Some(block);
+            } else {
+                if commitment_body.is_some() {
+                    return Err(syn::Error::new(
+                        method_kw.span(),
+                        "duplicate `fn commitment()` clause in `prism_model!` body",
+                    ));
+                }
+                commitment_body = Some(block);
+            }
+        }
 
         Ok(Self {
             model_vis,
@@ -1627,11 +1665,13 @@ impl Parse for PrismModelInput {
             b_ty,
             a_ty,
             r_ty,
+            c_ty,
             input_ty,
             output_ty,
             route_input_ident,
             route_body,
             resolvers_body,
+            commitment_body,
         })
     }
 }
@@ -3972,11 +4012,13 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         b_ty,
         a_ty,
         r_ty,
+        c_ty,
         input_ty,
         output_ty,
         route_input_ident,
         route_body,
         resolvers_body,
+        commitment_body,
     } = parsed;
 
     // ADR-036 resolver-tuple wiring:
@@ -3984,7 +4026,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
     //     binds it explicitly and `forward` constructs an R instance
     //     either from the optional `fn resolvers() -> R { … }` clause or
     //     via `<R as Default>::default()` when the clause is omitted.
-    //   - When R is omitted (the legacy 3-position form), R defaults to
+    //   - When R is omitted (the 3-position form), R defaults to
     //     `NullResolverTuple` and `forward` borrows the foundation's
     //     zero-sized null tuple — RESOLVER_ABSENT propagation per
     //     ADR-022 D3 G9 for any resolver-bound ψ-Term encountered.
@@ -3997,6 +4039,27 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         (None, _) => (
             quote! { ::uor_foundation::pipeline::NullResolverTuple },
             quote! { ::uor_foundation::pipeline::NullResolverTuple },
+        ),
+    };
+
+    // ADR-048 typed-commitment wiring — prism's cost-model surface:
+    //   - When the user names a fifth substrate parameter C, the impl
+    //     binds it explicitly and `forward` constructs a C instance
+    //     either from the optional `fn commitment() -> C { … }` clause
+    //     or via `<C as Default>::default()` when the clause is omitted.
+    //   - When C is omitted (3- or 4-position form), C defaults to
+    //     `EmptyCommitment` and the catamorphism's post-resolver
+    //     `evaluate(kappa_label)` consultation accepts unconditionally
+    //     (the bare base-admission semantics from ADR-035).
+    let (commitment_ty_tokens, commitment_construction) = match (&c_ty, &commitment_body) {
+        (Some(c), Some(block)) => (quote! { #c }, quote! { #block }),
+        (Some(c), None) => (
+            quote! { #c },
+            quote! { <#c as ::core::default::Default>::default() },
+        ),
+        (None, _) => (
+            quote! { ::uor_foundation::pipeline::EmptyCommitment },
+            quote! { ::uor_foundation::pipeline::EmptyCommitment },
         ),
     };
 
@@ -4064,31 +4127,36 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // ADR-020 + ADR-022 D4 + ADR-036 D-resolver: PrismModel impl.
-        // The trait's fourth substrate-parameter slot binds the route's
-        // ResolverTuple (`NullResolverTuple` for the legacy three-position
-        // form; an application-author tuple when the user names R).
-        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens> for #model_name {
+        // ADR-020 + ADR-022 D4 + ADR-036 + ADR-048: PrismModel impl with
+        // 5-position substrate parameter list. The 4th slot binds the
+        // route's ResolverTuple per ADR-036 (NullResolverTuple default);
+        // the 5th slot binds the model's TypedCommitment per ADR-048
+        // (EmptyCommitment default). The macro-emitted `forward` body
+        // constructs both substrate instances and threads them to
+        // `pipeline::run_route` per ADR-022 D5.
+        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
             type Input = #input_ty;
             type Output = #output_ty;
             type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens>>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
-                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens>>::Output,
+                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
                 let __resolvers: #resolver_ty_tokens = #resolver_construction;
+                let __commitment: #commitment_ty_tokens = #commitment_construction;
                 ::uor_foundation::pipeline::run_route::<
                     #h_ty,
                     #b_ty,
                     #a_ty,
                     Self,
                     #resolver_ty_tokens,
-                >(input, &__resolvers)
+                    #commitment_ty_tokens,
+                >(input, &__resolvers, &__commitment)
             }
         }
     };
@@ -4611,6 +4679,11 @@ fn format_ident_suffix(base: &Ident, suffix: &str) -> Ident {
 /// SCREAMING_SNAKE_CASE. Handles runs of uppercase letters, interior
 /// underscores, and digit boundaries so the result is idiomatic
 /// SCREAMING_SNAKE.
+/// Convert CamelCase / PascalCase to lower_snake_case.
+fn camel_to_snake(s: &str) -> String {
+    to_screaming_snake(s).to_ascii_lowercase()
+}
+
 fn to_screaming_snake(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     let chars: Vec<char> = s.chars().collect();
@@ -4711,44 +4784,96 @@ pub fn axis(input: TokenStream) -> TokenStream {
             pub const #const_name: u32 = #id;
         });
     }
-    // Emit dispatch_kernel arms.
+    // Emit dispatch_kernel arms. The arms live INSIDE the per-struct
+    // companion macro's macro_rules body, so the implementing type is
+    // the `$struct_ident` metavariable (not a generic `T`). The
+    // proc-macro emits the literal token sequence `$ struct_ident` —
+    // quote!'s `$` handling preserves it for macro_rules to substitute
+    // at the companion-macro call site.
+    let dollar = proc_macro2::Punct::new('$', proc_macro2::Spacing::Joint);
+    let struct_ident_meta: proc_macro2::TokenStream = quote!(#dollar struct_ident);
     let dispatch_arms: Vec<proc_macro2::TokenStream> = kernel_idents
         .iter()
         .enumerate()
         .map(|(i, ident)| {
             let id = i as u32;
             quote! {
-                #id => <T as #trait_name>::#ident(input, out),
+                #id => <#struct_ident_meta as #trait_name>::#ident(input, out),
             }
         })
         .collect();
 
+    // Wiki ADR-030: the axis trait has `AxisExtension` as a supertrait.
+    // The blanket `impl<T: MyAxis> AxisExtension for T` cannot be emitted
+    // here without violating Rust's orphan rule (AxisExtension is a
+    // foundation-foreign trait when the macro is invoked from an
+    // application crate). Instead, the macro emits a companion
+    // `axis_extension_impl_for_<lower_snake_case>!(<StructIdent>)` macro
+    // the user invokes per implementing struct; that macro produces an
+    // `impl AxisExtension for <StructIdent>` with the kernel-routed
+    // dispatch arms. The companion-macro pattern is the standard
+    // ecosystem idiom for foreign-trait blanket-implementation
+    // emission (cf. `serde::__impl_de_unsized_impl_block!`).
+    //
+    // Foundation-internal axis declarations (foundation-private crates
+    // invoking `axis!`) get the orphan rule for free because
+    // `AxisExtension` is local to foundation; the companion macro is
+    // optional in that context but emitted regardless for surface
+    // uniformity.
+    let trait_name_lower = camel_to_snake(&trait_name.to_string());
+    let companion_macro_ident = Ident::new(
+        &format!("axis_extension_impl_for_{trait_name_lower}"),
+        trait_name.span(),
+    );
     let expansion = quote! {
         #trait_decl
 
         #(#kernel_consts)*
 
-        impl<T: #trait_name> ::uor_foundation::pipeline::AxisExtension for T {
-            const AXIS_ADDRESS: &'static str = <T as #trait_name>::AXIS_ADDRESS;
-            const MAX_OUTPUT_BYTES: usize = <T as #trait_name>::MAX_OUTPUT_BYTES;
-            fn dispatch_kernel(
-                kernel_id: u32,
-                input: &[u8],
-                out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                match kernel_id {
-                    #(#dispatch_arms)*
-                    _ => Err(::uor_foundation::enforcement::ShapeViolation {
-                        shape_iri: "https://uor.foundation/axis/AxisExtensionShape",
-                        constraint_iri: "https://uor.foundation/axis/AxisExtensionShape/kernelId",
-                        property_iri: "https://uor.foundation/axis/kernelId",
-                        expected_range: "https://uor.foundation/axis/RecognisedKernelId",
-                        min_count: 0,
-                        max_count: 0,
-                        kind: ::uor_foundation::ViolationKind::ValueCheck,
-                    }),
+        /// Wiki ADR-030 companion macro: instantiate `AxisExtension`
+        /// for a concrete struct implementing this axis trait. The
+        /// macro emits an `impl AxisExtension for <StructIdent>` block
+        /// that delegates `dispatch_kernel` to the axis-trait methods
+        /// per `KERNEL_*` id. The orphan-rule-conformant per-struct
+        /// impl mechanism replacing the blanket
+        /// `impl<T: <axis>> AxisExtension for T` (which would violate
+        /// Rust's orphan rule from any crate that does not define
+        /// `AxisExtension`).
+        #[macro_export]
+        macro_rules! #companion_macro_ident {
+            ($struct_ident:ident) => {
+                impl ::uor_foundation::pipeline::AxisExtension for $struct_ident {
+                    const AXIS_ADDRESS: &'static str =
+                        <$struct_ident as #trait_name>::AXIS_ADDRESS;
+                    const MAX_OUTPUT_BYTES: usize =
+                        <$struct_ident as #trait_name>::MAX_OUTPUT_BYTES;
+                    fn dispatch_kernel(
+                        kernel_id: u32,
+                        input: &[u8],
+                        out: &mut [u8],
+                    ) -> ::core::result::Result<
+                        usize,
+                        ::uor_foundation::enforcement::ShapeViolation,
+                    > {
+                        match kernel_id {
+                            #(#dispatch_arms)*
+                            _ => Err(::uor_foundation::enforcement::ShapeViolation {
+                                shape_iri:
+                                    "https://uor.foundation/axis/AxisExtensionShape",
+                                constraint_iri:
+                                    "https://uor.foundation/axis/AxisExtensionShape/kernelId",
+                                property_iri:
+                                    "https://uor.foundation/axis/kernelId",
+                                expected_range:
+                                    "https://uor.foundation/axis/RecognisedKernelId",
+                                min_count: 0,
+                                max_count: 0,
+                                kind: ::uor_foundation::ViolationKind::ValueCheck,
+                            }),
+                        }
+                    }
                 }
-            }
+            };
         }
     };
     expansion.into()

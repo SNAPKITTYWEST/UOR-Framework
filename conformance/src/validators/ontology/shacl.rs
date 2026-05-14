@@ -1445,6 +1445,12 @@ pub fn validate() -> ConformanceReport {
         tests::fixtures::TEST288_AXIS_PROJECTION_OBSERVABLE,
         &mut report,
     );
+    // Wiki ADR-049: SpectralObservable closed-catalog extension.
+    run_test(
+        "test289_spectral_observable",
+        tests::fixtures::TEST289_SPECTRAL_OBSERVABLE,
+        &mut report,
+    );
 
     // Verify test fixture count matches expected
     let test_count = report.results.len() - before_tests;

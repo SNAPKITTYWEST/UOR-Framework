@@ -2115,3 +2115,525 @@ fn adr040_lexicographic_less_eq_bound_is_in_closed_catalog() {
     #[allow(unused_imports)]
     use uor_foundation::user::type_::lexicographic_less_eq_bound;
 }
+
+// =====================================================================
+// Wiki ADR-047 + ADR-048 + ADR-049 — Cost-model enforcement +
+// implementor-facing end-to-end verification.
+//
+// Foundation enforces prism's cost model through the `TypedCommitment`
+// trait (ADR-048) — the 5th substrate parameter on `PrismModel` whose
+// `evaluate(kappa_label)` consultation gates the catamorphism's
+// success-envelope. Models that don't opt into the cost model default
+// to `EmptyCommitment` (always-accept); models that DO opt in receive
+// deterministic admission via the typed-bandwidth surface per
+// Hardening Principle U6 (ADR-047).
+//
+// Foundation also exposes four typed observable primitives (ADR-049)
+// composable as `SingletonCommitment<P>` / `AndCommitment<A, B>` to
+// build per-application typed-bandwidth admission relations without
+// per-application accessor reimplementation.
+
+use uor_foundation::pipeline::{
+    axis::cryptanalyze, AffineParity, AndCommitment, EmptyCommitment, ObservablePredicate,
+    SingletonCommitment, Stratum, TestOutcome, TypedCommitment, UltrametricCloseTo,
+    WalshHadamardParity,
+};
+
+/// ADR-048 surface pin: `EmptyCommitment` always accepts unconditionally;
+/// `bandwidth_bits = 0`, `accept_prob = 1`, `predicate_count = 0`. The
+/// foundation-default for any `PrismModel`'s 5th substrate parameter.
+#[test]
+fn adr048_empty_commitment_always_accepts() {
+    let c = EmptyCommitment;
+    assert_eq!(c.bandwidth_bits(), 0.0);
+    assert_eq!(c.accept_prob(), 1.0);
+    assert_eq!(c.predicate_count(), 0);
+    assert!(c.evaluate(&[]));
+    assert!(c.evaluate(&[0u8; 32]));
+    assert!(c.evaluate(&[0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88]));
+}
+
+/// ADR-048 + ADR-049 surface pin: `SingletonCommitment<P>` wraps one
+/// `ObservablePredicate` and delegates `evaluate / accept_prob /
+/// bandwidth_bits` to the wrapped predicate. The wiki's three
+/// foundation-built impls (Empty / Singleton / And) cover the canonical
+/// composition shapes.
+#[test]
+fn adr048_singleton_commitment_delegates_to_observable_predicate() {
+    // AffineParity at bit 0, expecting `true` (bit is set).
+    let pred = AffineParity {
+        bit_index: 0,
+        expected: true,
+    };
+    let c = SingletonCommitment { predicate: pred };
+    assert_eq!(c.accept_prob(), 0.5);
+    // bandwidth_bits = -log2(0.5) = 1.0 — one bit per single-bit
+    // predicate per Hardening Principle U6 (ADR-047).
+    assert!((c.bandwidth_bits() - 1.0).abs() < 1e-9);
+    assert_eq!(c.predicate_count(), 1);
+
+    // bit_index = 0 = least-significant bit of byte 0. `0x01` has bit 0 set;
+    // `0xfe` has bit 0 clear. The predicate accepts when bit 0 = 1.
+    assert!(c.evaluate(&[0x01]));
+    assert!(!c.evaluate(&[0xfe]));
+}
+
+/// ADR-048 surface pin: `AndCommitment<A, B>` is the typed conjunction.
+/// `bandwidth_bits = A::bandwidth_bits + B::bandwidth_bits`, `accept_prob
+/// = A::accept_prob * B::accept_prob`, and `evaluate(kl) = A.evaluate(kl)
+/// && B.evaluate(kl)`. Type-level composition — `<A, B>` carries the
+/// conjunction structure at compile time.
+#[test]
+fn adr048_and_commitment_composes_typed_predicates_at_type_level() {
+    let bit0 = SingletonCommitment {
+        predicate: AffineParity {
+            bit_index: 0,
+            expected: true,
+        },
+    };
+    let bit1 = SingletonCommitment {
+        predicate: AffineParity {
+            bit_index: 1,
+            expected: false,
+        },
+    };
+    let conjunction = AndCommitment {
+        left: bit0,
+        right: bit1,
+    };
+    // bandwidth: each predicate is 1 bit; conjunction is 2 bits.
+    assert!((conjunction.bandwidth_bits() - 2.0).abs() < 1e-9);
+    // accept_prob: 0.5 * 0.5 = 0.25.
+    assert!((conjunction.accept_prob() - 0.25).abs() < 1e-9);
+    assert_eq!(conjunction.predicate_count(), 2);
+
+    // bit_0 = 1, bit_1 = 0: `0x01` (binary 00000001) — bit 0 set, bit 1 clear → accept.
+    assert!(conjunction.evaluate(&[0x01]));
+    // bit_0 = 1, bit_1 = 1: `0x03` (binary 00000011) — bit 0 set, bit 1 set → reject (bit_1 expected false).
+    assert!(!conjunction.evaluate(&[0x03]));
+    // bit_0 = 0: `0x02` (bit 0 clear) → reject.
+    assert!(!conjunction.evaluate(&[0x02]));
+}
+
+// ADR-048 end-to-end pin: a `PrismModel` opting into a non-empty `C:
+// TypedCommitment` rejects routes whose κ-label fails the typed
+// predicate. The catamorphism's post-resolver `evaluate(kappa_label)`
+// consultation surfaces the failure as
+// `PipelineFailure::ShapeViolation` with the
+// `commitment/TypedCommitment/VIOLATED` shape IRI. Implementors using
+// this surface get deterministic commitment enforcement built-in.
+prism_model! {
+    pub struct CostModelRejectsModel;
+    pub struct CostModelRejectsRoute;
+    impl PrismModel<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        SmokeHasher,
+        CompleteResolvers<SmokeHasher>,
+        SingletonCommitment<AffineParity>
+    > for CostModelRejectsModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = CostModelRejectsRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            // Canonical k-invariants branch — κ-label is the Psi9KInvariant
+            // sentinel output (bytes [0x01, 0x07, 0x08, 0x09]).
+            k_invariants(homotopy_groups(postnikov_tower(nerve(input))))
+        }
+        fn resolvers() -> CompleteResolvers<SmokeHasher> {
+            complete_resolvers()
+        }
+        fn commitment() -> SingletonCommitment<AffineParity> {
+            // Reject all κ-labels whose bit 0 is clear. The sentinel
+            // κ-label [0x01, 0x07, 0x08, 0x09] has bit 0 = 1 in byte 0
+            // (the 0x01 byte). Switch to bit 5 — which is 0 in 0x01 —
+            // so the predicate REJECTS the canonical k-invariants κ-label
+            // and the catamorphism surfaces ShapeViolation.
+            SingletonCommitment {
+                predicate: AffineParity {
+                    bit_index: 5,
+                    expected: true,
+                },
+            }
+        }
+    }
+}
+
+#[test]
+fn adr048_cost_model_rejects_kappa_label_on_predicate_failure() {
+    run_psi_chain_body(|| {
+        let result = <CostModelRejectsModel as PrismModel<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            SmokeHasher,
+            CompleteResolvers<SmokeHasher>,
+            SingletonCommitment<AffineParity>,
+        >>::forward(ConstrainedTypeInput::default());
+        // The post-resolver `commitment.evaluate(kappa_label)` MUST surface
+        // the failure as `PipelineFailure::ShapeViolation` — implementor
+        // deterministic-rejection contract per ADR-048.
+        match result {
+            Err(uor_foundation::PipelineFailure::ShapeViolation { report }) => {
+                assert_eq!(
+                    report.shape_iri, "https://uor.foundation/commitment/TypedCommitment/VIOLATED",
+                    "ADR-048: commitment violation surfaces with the foundation-vetted shape IRI",
+                );
+            }
+            other => panic!("expected Err(ShapeViolation{{commitment-VIOLATED}}) — got {other:?}"),
+        }
+    });
+}
+
+// ADR-048 end-to-end pin: a `PrismModel` opting into a non-empty `C`
+// that DOES accept its κ-label completes successfully. The catamorphism's
+// success envelope is the application's complete admission verdict.
+prism_model! {
+    pub struct CostModelAcceptsModel;
+    pub struct CostModelAcceptsRoute;
+    impl PrismModel<
+        DefaultHostTypes,
+        DefaultHostBounds,
+        SmokeHasher,
+        CompleteResolvers<SmokeHasher>,
+        SingletonCommitment<AffineParity>
+    > for CostModelAcceptsModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = CostModelAcceptsRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            k_invariants(homotopy_groups(postnikov_tower(nerve(input))))
+        }
+        fn resolvers() -> CompleteResolvers<SmokeHasher> {
+            complete_resolvers()
+        }
+        fn commitment() -> SingletonCommitment<AffineParity> {
+            // Accept when bit 0 of byte 0 is set. The sentinel κ-label
+            // starts with 0x01 → bit 0 = 1 → accept.
+            SingletonCommitment {
+                predicate: AffineParity {
+                    bit_index: 0,
+                    expected: true,
+                },
+            }
+        }
+    }
+}
+
+#[test]
+fn adr048_cost_model_accepts_kappa_label_on_predicate_success() {
+    run_psi_chain_body(|| {
+        let result = <CostModelAcceptsModel as PrismModel<
+            DefaultHostTypes,
+            DefaultHostBounds,
+            SmokeHasher,
+            CompleteResolvers<SmokeHasher>,
+            SingletonCommitment<AffineParity>,
+        >>::forward(ConstrainedTypeInput::default())
+        .expect(
+            "ADR-048: commitment accepts when predicate matches the canonical k-invariants κ-label",
+        );
+        let grounded = result;
+        // The κ-label is exposed as the route's output payload.
+        assert_eq!(
+            grounded.output_bytes(),
+            &[PSI_1_MARKER, PSI_7_MARKER, PSI_8_MARKER, PSI_9_MARKER][..],
+            "ADR-048: success envelope's output_bytes carry the κ-label the commitment accepted",
+        );
+    });
+}
+
+/// ADR-049 surface pin: the four foundation-declared typed observables
+/// (`Stratum<P>`, `WalshHadamardParity`, `UltrametricCloseTo<P>`,
+/// `AffineParity`) implement `ObservablePredicate` and expose their
+/// `accept_prob` / `evaluate` / `observable_iri` accessors.
+#[test]
+fn adr049_typed_observables_expose_predicate_surface() {
+    // Stratum<2> { k: 0 } — accepts digests whose 2-adic valuation is 0.
+    let stratum = Stratum::<2> { k: 0 };
+    // Accept prob = (2 - 1) / 2^1 = 0.5.
+    assert!((stratum.accept_prob() - 0.5).abs() < 1e-9);
+    // Odd byte → ν_2 = 0 → accept.
+    assert!(stratum.evaluate(&[0x01]));
+    // Even byte → ν_2 ≥ 1 → reject for k=0.
+    assert!(!stratum.evaluate(&[0x02]));
+    assert!(stratum
+        .observable_iri()
+        .starts_with("https://uor.foundation/observable/Stratum"));
+
+    // WalshHadamardParity — accepts when popcount(d & frequency) mod 2 == expected.
+    const FREQ: &[u8] = &[0xff];
+    let wh = WalshHadamardParity {
+        frequency: FREQ,
+        expected: true,
+    };
+    assert!((wh.accept_prob() - 0.5).abs() < 1e-9);
+    // Byte 0x07 = 0b00000111: popcount(0x07 & 0xff) = 3 → odd → accept (expected true).
+    assert!(wh.evaluate(&[0x07]));
+    // Byte 0x03 = 0b00000011: popcount = 2 → even → reject.
+    assert!(!wh.evaluate(&[0x03]));
+    assert_eq!(
+        wh.observable_iri(),
+        "https://uor.foundation/observable/WalshHadamardParity"
+    );
+
+    // UltrametricCloseTo<2> — accepts when ν_2(d XOR reference) >= k.
+    const REF: &[u8] = &[0x00];
+    let ult = UltrametricCloseTo::<2> {
+        reference: REF,
+        k: 1,
+    };
+    assert!((ult.accept_prob() - 0.5).abs() < 1e-9);
+    // d=0x02, ref=0x00: d XOR ref = 0x02, ν_2(2) = 1 ≥ 1 → accept.
+    assert!(ult.evaluate(&[0x02]));
+    // d=0x01, ref=0x00: d XOR ref = 0x01, ν_2(1) = 0 < 1 → reject.
+    assert!(!ult.evaluate(&[0x01]));
+    assert!(ult
+        .observable_iri()
+        .starts_with("https://uor.foundation/observable/UltrametricCloseTo"));
+
+    // AffineParity — accepts when single bit at bit_index matches expected.
+    let aff = AffineParity {
+        bit_index: 3,
+        expected: true,
+    };
+    assert!((aff.accept_prob() - 0.5).abs() < 1e-9);
+    // 0x08 = 0b00001000 — bit 3 set → accept.
+    assert!(aff.evaluate(&[0x08]));
+    // 0x07 = 0b00000111 — bit 3 clear → reject.
+    assert!(!aff.evaluate(&[0x07]));
+    assert_eq!(
+        aff.observable_iri(),
+        "https://uor.foundation/observable/AffineParity"
+    );
+}
+
+/// ADR-049 surface pin: `axis::cryptanalyze::<H>(samples)` returns a
+/// `CryptanalysisReport` enumerating the §A–§J test outcomes. The
+/// minimal-conformance surface qualifies the candidate axis as
+/// UOR-hardened per Hardening Principle U1–U6 (ADR-047) when every test
+/// passes.
+#[test]
+fn adr049_cryptanalysis_battery_surfaces_test_outcomes() {
+    let report = cryptanalyze::<SmokeHasher>(1024);
+    assert_eq!(report.samples, 1024);
+    // The minimal-conformance form passes every test; this is the
+    // wiring pin. Production implementations layer in the full
+    // statistical battery (α = 0.001, 10^7 samples) per ADR-049.
+    assert!(report.all_pass());
+    assert_eq!(report.a_triadic_uniformity, TestOutcome::Pass);
+    assert_eq!(report.b_avalanche, TestOutcome::Pass);
+    assert_eq!(report.c_walsh_hadamard, TestOutcome::Pass);
+    assert_eq!(report.d_stratum_autocorrelation, TestOutcome::Pass);
+    assert_eq!(report.e_kappa_autocorrelation, TestOutcome::Pass);
+    assert_eq!(report.f_p_adic_stratification, TestOutcome::Pass);
+    assert_eq!(report.g_joint_independence, TestOutcome::Pass);
+    assert_eq!(report.h_differential, TestOutcome::Pass);
+    assert_eq!(report.i_u1_marginal, TestOutcome::Pass);
+    assert_eq!(report.j_u2_joint, TestOutcome::Pass);
+}
+
+// =====================================================================
+// Wiki ADR-030 + ADR-031 — `axis!` SDK macro test coverage. Foundation
+// emits the `AxisExtension` blanket impl per ADR-030; the `axis!` macro
+// declares the application's axis trait and emits `KERNEL_*` ids +
+// `dispatch_kernel` routing. Implementors-side bug regression: prior
+// emissions didn't include the `__sdk_seal::Sealed` blanket nor
+// validate method signatures; these tests pin the wiki commitments.
+
+use uor_foundation::pipeline::AxisExtension;
+use uor_foundation_sdk::axis;
+
+axis! {
+    /// A foundation-internal sample axis used to verify the `axis!`
+    /// macro's emission shape. Two kernels routed by `KERNEL_PROBE_BIT`
+    /// / `KERNEL_PROBE_BYTE` per the wiki's kernel-id naming convention.
+    pub trait SampleProbeAxis: ::uor_foundation::pipeline::AxisExtension {
+        const AXIS_ADDRESS: &'static str = "https://uor.foundation/test/SampleProbeAxis";
+        const MAX_OUTPUT_BYTES: usize = 16;
+        fn probe_bit(
+            input: &[u8],
+            out: &mut [u8],
+        ) -> Result<usize, uor_foundation::enforcement::ShapeViolation>;
+        fn probe_byte(
+            input: &[u8],
+            out: &mut [u8],
+        ) -> Result<usize, uor_foundation::enforcement::ShapeViolation>;
+    }
+}
+
+/// Foundation-internal SampleProbeAxis implementor for the macro tests.
+/// `probe_bit` returns the LSB of `input[0]` (or 0 if input is empty);
+/// `probe_byte` copies up to `MAX_OUTPUT_BYTES` bytes of input into out.
+pub struct ProbeImpl;
+
+impl SampleProbeAxis for ProbeImpl {
+    fn probe_bit(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        if out.is_empty() {
+            return Ok(0);
+        }
+        out[0] = input.first().copied().unwrap_or(0) & 0x01;
+        Ok(1)
+    }
+    fn probe_byte(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        let n = input.len().min(out.len()).min(16);
+        out[..n].copy_from_slice(&input[..n]);
+        Ok(n)
+    }
+}
+
+// Wiki ADR-030: invoke the macro-emitted companion `axis_extension_impl_for_…!`
+// to instantiate `AxisExtension` for `ProbeImpl`. This is the
+// orphan-rule-conformant pattern (cf. the user-flagged axis! macro bug):
+// the trait declaration's `impl<T> AxisExtension for T` blanket would
+// be a foreign-trait blanket and rejected by Rust's orphan rule from
+// any external crate; the companion macro emits a per-struct impl
+// that's local-typed and orphan-safe.
+axis_extension_impl_for_sample_probe_axis!(ProbeImpl);
+
+#[test]
+fn axis_macro_emits_kernel_id_constants_per_method() {
+    // The wiki ADR-030 commits one `KERNEL_<UPPER>: u32` const per
+    // axis-trait method, monotonically indexed from 0. The macro emits
+    // these at the surrounding module's scope.
+    assert_eq!(KERNEL_PROBE_BIT, 0);
+    assert_eq!(KERNEL_PROBE_BYTE, 1);
+}
+
+#[test]
+fn axis_macro_emits_axis_extension_blanket_impl() {
+    // The wiki ADR-030 commits a `impl<T: MyAxis> AxisExtension for T`
+    // blanket so any axis impl is consumable through the foundation's
+    // `dispatch_kernel` surface. Verify the blanket is in scope by
+    // coercing the trait surface to AxisExtension at compile time.
+    fn _requires_axis_extension<T: AxisExtension>() {}
+    _requires_axis_extension::<ProbeImpl>();
+    // `AXIS_ADDRESS` and `MAX_OUTPUT_BYTES` flow through from the
+    // trait's const items.
+    assert_eq!(
+        <ProbeImpl as AxisExtension>::AXIS_ADDRESS,
+        "https://uor.foundation/test/SampleProbeAxis"
+    );
+    assert_eq!(<ProbeImpl as AxisExtension>::MAX_OUTPUT_BYTES, 16);
+}
+
+#[test]
+fn axis_macro_dispatch_kernel_routes_by_id() {
+    // Foundation's `dispatch_kernel(kernel_id, input, out)` routes to
+    // the matching trait method. KERNEL_PROBE_BIT consumes `input[0] &
+    // 0x01`; KERNEL_PROBE_BYTE copies up to 16 bytes.
+    let mut out = [0u8; 32];
+    // Route through KERNEL_PROBE_BIT — expect bit 0 of input.
+    let bit_input = [0x01u8];
+    let n = <ProbeImpl as AxisExtension>::dispatch_kernel(KERNEL_PROBE_BIT, &bit_input, &mut out)
+        .expect("dispatch_kernel routes to probe_bit");
+    assert_eq!(n, 1);
+    assert_eq!(out[0], 0x01);
+
+    // Route through KERNEL_PROBE_BYTE — expect a byte copy.
+    let byte_input = [0xa1u8, 0xb2, 0xc3];
+    let n = <ProbeImpl as AxisExtension>::dispatch_kernel(KERNEL_PROBE_BYTE, &byte_input, &mut out)
+        .expect("dispatch_kernel routes to probe_byte");
+    assert_eq!(n, 3);
+    assert_eq!(&out[..3], &[0xa1, 0xb2, 0xc3]);
+}
+
+#[test]
+fn axis_macro_dispatch_kernel_rejects_unknown_kernel_id() {
+    // The wiki ADR-030 commits a closed kernel-id space; unknown ids
+    // surface as `ShapeViolation` with the canonical AxisExtensionShape
+    // IRI per the macro's dispatch_kernel routing.
+    let mut out = [0u8; 8];
+    let result = <ProbeImpl as AxisExtension>::dispatch_kernel(99, &[], &mut out);
+    let err = result.expect_err("unknown kernel_id must surface a ShapeViolation");
+    assert_eq!(
+        err.shape_iri,
+        "https://uor.foundation/axis/AxisExtensionShape"
+    );
+    assert_eq!(
+        err.constraint_iri,
+        "https://uor.foundation/axis/AxisExtensionShape/kernelId"
+    );
+}
+
+// Regression pin: trait with a single kernel must compile and route.
+// Reproduces the user-reported axis! bug — the macro must handle
+// single-kernel-method declarations cleanly (no off-by-one in the
+// dispatch arm-list generation, no missing const-id for the lone
+// method, and no foreign-trait blanket impl violating Rust's orphan
+// rule from external crates).
+axis! {
+    pub trait SingleKernelAxis: ::uor_foundation::pipeline::AxisExtension {
+        const AXIS_ADDRESS: &'static str = "https://uor.foundation/test/SingleKernelAxis";
+        const MAX_OUTPUT_BYTES: usize = 4;
+        fn only_kernel(
+            input: &[u8],
+            out: &mut [u8],
+        ) -> Result<usize, uor_foundation::enforcement::ShapeViolation>;
+    }
+}
+
+pub struct SingleKernelImpl;
+
+impl SingleKernelAxis for SingleKernelImpl {
+    fn only_kernel(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        let n = input.len().min(out.len()).min(4);
+        out[..n].copy_from_slice(&input[..n]);
+        Ok(n)
+    }
+}
+
+axis_extension_impl_for_single_kernel_axis!(SingleKernelImpl);
+
+#[test]
+fn axis_macro_handles_single_kernel_trait_correctly() {
+    // KERNEL_ONLY_KERNEL must be 0 (sole method → id 0).
+    assert_eq!(KERNEL_ONLY_KERNEL, 0);
+    // Dispatch routes correctly.
+    let mut out = [0u8; 4];
+    let n = <SingleKernelImpl as AxisExtension>::dispatch_kernel(
+        KERNEL_ONLY_KERNEL,
+        &[0x42, 0x43],
+        &mut out,
+    )
+    .expect("single-kernel dispatch resolves");
+    assert_eq!(n, 2);
+    assert_eq!(&out[..2], &[0x42, 0x43]);
+}
+
+/// Pin the wiki ADR-030 method-signature contract: every axis method
+/// MUST take `(input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation>`.
+/// Confirmed structurally — the test above coerces both kernels of
+/// `SampleProbeAxis` to that exact signature via the dispatch_kernel
+/// routing.
+#[test]
+fn axis_macro_method_signature_contract_holds() {
+    type ExpectedSig =
+        fn(&[u8], &mut [u8]) -> Result<usize, uor_foundation::enforcement::ShapeViolation>;
+    // Coerce ProbeImpl's methods to the wiki-mandated signature.
+    let _: ExpectedSig = <ProbeImpl as SampleProbeAxis>::probe_bit;
+    let _: ExpectedSig = <ProbeImpl as SampleProbeAxis>::probe_byte;
+    let _: ExpectedSig = <SingleKernelImpl as SingleKernelAxis>::only_kernel;
+}
+
+#[test]
+fn axis_macro_blanket_impl_propagates_axis_address_and_max_bytes() {
+    // The wiki ADR-030 + ADR-031 commits `AxisExtension::AXIS_ADDRESS`
+    // and `AxisExtension::MAX_OUTPUT_BYTES` flow through from the
+    // axis trait's const items. Foundation-bound static-dispatch
+    // consumers (`Term::AxisInvocation` fold-rules in particular)
+    // read these constants from `<A as AxisExtension>::*`.
+    assert_eq!(
+        <SingleKernelImpl as AxisExtension>::AXIS_ADDRESS,
+        "https://uor.foundation/test/SingleKernelAxis"
+    );
+    assert_eq!(<SingleKernelImpl as AxisExtension>::MAX_OUTPUT_BYTES, 4);
+}

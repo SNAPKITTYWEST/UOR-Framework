@@ -43,7 +43,11 @@ pub const NAMESPACES: usize = 34;
 /// Observable subclass parallel to the seven internally-derived
 /// categories, carrying axis-realized projection values from the
 /// substrate-extension surface per ADR-030).
-pub const CLASSES: usize = 472;
+/// Wiki ADR-049: +1 (observable:SpectralObservable — top-level
+/// Observable subclass hosting Walsh–Hadamard-parity-derived spectral
+/// readings of the σ-projection's frequency-domain spectrum, parallel
+/// to the seven internally-derived categories).
+pub const CLASSES: usize = 473;
 
 /// Total properties including the global `uor:space` annotation.
 ///
@@ -128,7 +132,9 @@ pub const INDIVIDUALS: usize = 3560;
 /// new kernel/bridge classes; close the meta/shacl_fixture_coverage gaps).
 /// Wiki ADR-038: +1 (test288 AxisProjectionObservable — instance fixture
 /// for the closed-catalog extension's Observable subclass).
-pub const SHACL_TESTS: usize = 284;
+/// Wiki ADR-049: +1 (test289 SpectralObservable — instance fixture for
+/// the Walsh–Hadamard-parity-derived spectral subclass).
+pub const SHACL_TESTS: usize = 285;
 
 /// Total conformance checks in the full suite.
 ///
@@ -205,7 +211,7 @@ pub const SHACL_TESTS: usize = 284;
 /// `docs/orphan-closure/classification_report.md` agrees with
 /// `classify_all` and that the `CLASSIFICATION_*` constants in this
 /// file match the live counts.
-pub const CONFORMANCE_CHECKS: usize = 544;
+pub const CONFORMANCE_CHECKS: usize = 545;
 
 /// Number of amendments applied to the base ontology.
 pub const AMENDMENTS: usize = 95;
@@ -369,7 +375,9 @@ pub const CLASSIFICATION_ALREADY_IMPLEMENTED: usize = 4;
 /// Wiki ADR-038: +1 (observable:AxisProjectionObservable — closed-
 /// catalog extension carried through the standard Path-1 codegen path
 /// alongside the seven internally-derived Observable categories).
-pub const CLASSIFICATION_PATH1: usize = 414;
+/// Wiki ADR-049: +1 (observable:SpectralObservable — Walsh–Hadamard-
+/// parity-derived spectral subclass added under Path-1 codegen).
+pub const CLASSIFICATION_PATH1: usize = 415;
 
 /// Path 2 — theorem-witness classes closed by the Phase 3
 /// `{Foo}Witness` + `{Foo}MintInputs` + `impl VerifiedMint` codegen

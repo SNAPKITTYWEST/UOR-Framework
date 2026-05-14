@@ -52,6 +52,9 @@ pub trait CurvatureObservable<H: HostTypes>: Observable<H> {}
 /// An observable measuring holonomy: the accumulated transformation when traversing a closed path in the ring.
 pub trait HolonomyObservable<H: HostTypes>: Observable<H> {}
 
+/// ADR-049: an observable whose value is a structural reading of a digest's frequency-domain spectrum. Distinct from the seven internally-derived Observable categories (Stratum / Metric / Path / Reduction / Catastrophe / Curvature / Holonomy) — its values are Walsh–Hadamard parities at specific frequencies, not derivable from the framework's internal algebraic/topological structure. Foundation's typed observable `WalshHadamardParity` per ADR-049 falls under this subclass; predicates over its values enter the typed-commitment surface per ADR-048 as `SingletonCommitment\<WalshHadamardParity\>` operands.
+pub trait SpectralObservable<H: HostTypes>: Observable<H> {}
+
 /// ADR-038: an observable whose value is the axis-realized projection of typed sites through an application-declared AxisTuple kernel per ADR-030. Distinct from the seven internally-derived Observable categories (Stratum, Metric, Path, Reduction, Catastrophe, Curvature, Holonomy) — its values carry from the substrate-extension surface (axis kernels), not from the framework's internal algebraic / topological structure. The closed-catalog discipline holds: foundation owns the subclass; applications consume catalog variants through canonical-string-form `args_repr` on `ConstraintRef::Bound`. The args_repr encoding (per ADR-038) is `axis_address=<hex>;kernel=<symbolic>;sites=<site-list>\[;target=<target-spec>\]` — axis identification by content-address (AXIS_ADDRESS per ADR-030), not by tuple position, so the encoding is application-invariant.
 pub trait AxisProjectionObservable<H: HostTypes>: Observable<H> {}
 
@@ -641,6 +644,44 @@ impl<H: HostTypes> Observable<H> for NullHolonomyObservable<H> {
     }
 }
 impl<H: HostTypes> HolonomyObservable<H> for NullHolonomyObservable<H> {}
+
+/// Phase 2 (orphan-closure) — resolver-absent default impl of `SpectralObservable<H>`.
+/// Every accessor returns `H::EMPTY_*` sentinels (for scalar / host-typed
+/// returns) or a `'static`-lifetime reference to a sibling `Null*`'s `ABSENT`
+/// const (for trait-typed returns).  Downstream provides concrete impls;
+/// this stub closes the ontology-derived trait orphan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NullSpectralObservable<H: HostTypes> {
+    _phantom: core::marker::PhantomData<H>,
+}
+impl<H: HostTypes> Default for NullSpectralObservable<H> {
+    fn default() -> Self {
+        Self {
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+impl<H: HostTypes> NullSpectralObservable<H> {
+    /// Absent-value sentinel. `&Self::ABSENT` gives every trait-typed accessor a `'static`-lifetime reference target.
+    pub const ABSENT: NullSpectralObservable<H> = NullSpectralObservable {
+        _phantom: core::marker::PhantomData,
+    };
+}
+impl<H: HostTypes> Observable<H> for NullSpectralObservable<H> {
+    fn value(&self) -> H::Decimal {
+        H::EMPTY_DECIMAL
+    }
+    fn source(&self) -> &H::HostString {
+        H::EMPTY_HOST_STRING
+    }
+    fn target(&self) -> &H::HostString {
+        H::EMPTY_HOST_STRING
+    }
+    fn has_unit(&self) -> MeasurementUnit {
+        <MeasurementUnit>::default()
+    }
+}
+impl<H: HostTypes> SpectralObservable<H> for NullSpectralObservable<H> {}
 
 /// Phase 2 (orphan-closure) — resolver-absent default impl of `AxisProjectionObservable<H>`.
 /// Every accessor returns `H::EMPTY_*` sentinels (for scalar / host-typed
@@ -3480,6 +3521,133 @@ impl<'r, R: HolonomyObservableResolver<H>, H: HostTypes> Observable<H>
 }
 impl<'r, R: HolonomyObservableResolver<H>, H: HostTypes> HolonomyObservable<H>
     for ResolvedHolonomyObservable<'r, R, H>
+{
+}
+
+/// Phase 8 (orphan-closure) — content-addressed handle for `SpectralObservable<H>`.
+///
+/// Pairs a [`crate::enforcement::ContentFingerprint`] with a phantom
+/// `H` so type-state checks can't mix handles across `HostTypes` impls.
+#[derive(Debug)]
+pub struct SpectralObservableHandle<H: HostTypes> {
+    /// Content fingerprint identifying the resolved record.
+    pub fingerprint: crate::enforcement::ContentFingerprint,
+    _phantom: core::marker::PhantomData<H>,
+}
+impl<H: HostTypes> Copy for SpectralObservableHandle<H> {}
+impl<H: HostTypes> Clone for SpectralObservableHandle<H> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<H: HostTypes> PartialEq for SpectralObservableHandle<H> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.fingerprint == other.fingerprint
+    }
+}
+impl<H: HostTypes> Eq for SpectralObservableHandle<H> {}
+impl<H: HostTypes> core::hash::Hash for SpectralObservableHandle<H> {
+    #[inline]
+    fn hash<S: core::hash::Hasher>(&self, state: &mut S) {
+        self.fingerprint.hash(state);
+    }
+}
+impl<H: HostTypes> SpectralObservableHandle<H> {
+    /// Construct a handle from its content fingerprint.
+    #[inline]
+    #[must_use]
+    pub const fn new(fingerprint: crate::enforcement::ContentFingerprint) -> Self {
+        Self {
+            fingerprint,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+/// Phase 8 (orphan-closure) — resolver trait for `SpectralObservable<H>`.
+///
+/// Hosts implement this trait to map a handle into a typed record.
+/// The default Null stub does not implement this trait — it carries
+/// no record. Resolution is the responsibility of the host pipeline.
+pub trait SpectralObservableResolver<H: HostTypes> {
+    /// Resolve a handle into its record. Returns `None` when the
+    /// handle does not correspond to known content.
+    fn resolve(&self, handle: SpectralObservableHandle<H>) -> Option<SpectralObservableRecord<H>>;
+}
+
+/// Phase 8 (orphan-closure) — typed record for `SpectralObservable<H>`.
+///
+/// Carries a field per functional accessor of the trait. Object
+/// fields hold `{Range}Handle<H>`; iterate via the Resolved wrapper
+/// chain-resolver methods.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SpectralObservableRecord<H: HostTypes> {
+    #[doc(hidden)]
+    pub _phantom: core::marker::PhantomData<H>,
+}
+
+/// Phase 8 (orphan-closure) — content-addressed wrapper for `SpectralObservable<H>`.
+///
+/// Caches the resolver's lookup at construction. Accessors return
+/// the cached record's fields when present, falling back to the
+/// `Null{Class}<H>` absent sentinels when the resolver returned
+/// `None`. Object accessors always return absent sentinels — use
+/// the `resolve_{m}` chain methods to descend into sub-records.
+pub struct ResolvedSpectralObservable<'r, R: SpectralObservableResolver<H>, H: HostTypes> {
+    handle: SpectralObservableHandle<H>,
+    resolver: &'r R,
+    record: Option<SpectralObservableRecord<H>>,
+}
+impl<'r, R: SpectralObservableResolver<H>, H: HostTypes> ResolvedSpectralObservable<'r, R, H> {
+    /// Construct the wrapper, eagerly resolving the handle.
+    #[inline]
+    pub fn new(handle: SpectralObservableHandle<H>, resolver: &'r R) -> Self {
+        let record = resolver.resolve(handle);
+        Self {
+            handle,
+            resolver,
+            record,
+        }
+    }
+    /// The handle this wrapper resolves.
+    #[inline]
+    #[must_use]
+    pub const fn handle(&self) -> SpectralObservableHandle<H> {
+        self.handle
+    }
+    /// The resolver supplied at construction.
+    #[inline]
+    #[must_use]
+    pub const fn resolver(&self) -> &'r R {
+        self.resolver
+    }
+    /// The cached record, or `None` when the resolver returned `None`.
+    #[inline]
+    #[must_use]
+    pub const fn record(&self) -> Option<&SpectralObservableRecord<H>> {
+        self.record.as_ref()
+    }
+}
+impl<'r, R: SpectralObservableResolver<H>, H: HostTypes> Observable<H>
+    for ResolvedSpectralObservable<'r, R, H>
+{
+    fn value(&self) -> H::Decimal {
+        H::EMPTY_DECIMAL
+    }
+    fn source(&self) -> &H::HostString {
+        H::EMPTY_HOST_STRING
+    }
+    fn target(&self) -> &H::HostString {
+        H::EMPTY_HOST_STRING
+    }
+    fn has_unit(&self) -> MeasurementUnit {
+        <MeasurementUnit>::default()
+    }
+}
+impl<'r, R: SpectralObservableResolver<H>, H: HostTypes> SpectralObservable<H>
+    for ResolvedSpectralObservable<'r, R, H>
 {
 }
 

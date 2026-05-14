@@ -2151,6 +2151,13 @@ uor-sh:AxisProjectionObservableShape
     sh:targetClass  observable:AxisProjectionObservable ;
     rdfs:label      "AxisProjectionObservableShape" .
 
+# Wiki ADR-049: SpectralObservable — closed-catalog extension hosting
+# Walsh–Hadamard-parity-derived spectral readings of the σ-projection.
+uor-sh:SpectralObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  observable:SpectralObservable ;
+    rdfs:label      "SpectralObservableShape" .
+
 uor-sh:RingMetricShape
     a               sh:NodeShape ;
     sh:targetClass  observable:RingMetric ;

@@ -891,3 +891,46 @@ symbols = [
     "inhabitance",
 ]
 behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-048 — TypedCommitment cost-model surface. Foundation
+# emits the `TypedCommitment` trait + three built-in implementors
+# (EmptyCommitment, SingletonCommitment<P>, AndCommitment<A, B>) plus
+# two wire-format slots (SINGLETON_IRI_SLOT, AND_IRI_SLOT) used by the
+# `CommitmentEvaluated` trace event. End-to-end coverage by the
+# `adr048_*` tests in `uor-foundation-sdk/tests/smoke.rs` exercising
+# the cost-model enforcement path from prism_model! to forward()
+# through commitment.evaluate(kappa_label).
+[coverage.adr048_typed_commitment_cost_model]
+symbols = [
+    "TypedCommitment",
+    "EmptyCommitment",
+    "SingletonCommitment",
+    "AndCommitment",
+    "SINGLETON_IRI_SLOT",
+    "AND_IRI_SLOT",
+]
+behavior = "behavior_catamorphism_evaluator"
+
+# ─── Mapping: ADR-049 — ObservablePredicate surface + 4 typed
+# observable primitives + axis::cryptanalyze battery + CryptanalysisReport
+# + TestOutcome. The observable predicate surface and cryptanalysis
+# battery let any implementor consume the canonical hash axis as
+# substrate-attested through Hardening Principle U1–U6 (ADR-047)
+# without re-deriving the empirical-validation harness. End-to-end
+# coverage by `adr049_*` smoke tests.
+[coverage.adr049_observable_predicate_surface]
+symbols = [
+    "ObservablePredicate",
+    "Stratum",
+    "WalshHadamardParity",
+    "UltrametricCloseTo",
+    "AffineParity",
+    "CryptanalysisReport",
+    "TestOutcome",
+    "axis",
+    "stratum_p_adic_valuation_be",
+    "stratum_p_adic_valuation_xor_be",
+    "walsh_hadamard_parity",
+    "single_bit_value",
+]
+behavior = "behavior_catamorphism_evaluator"
