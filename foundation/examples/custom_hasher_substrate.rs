@@ -56,10 +56,7 @@ impl Hasher for MyFnv1aHasher {
     }
 }
 
-static ROOT_TERMS: &[Term] = &[Term::Literal {
-    value: 1,
-    level: WittLevel::W8,
-}];
+static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {

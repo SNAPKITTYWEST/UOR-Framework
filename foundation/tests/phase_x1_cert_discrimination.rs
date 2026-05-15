@@ -155,10 +155,7 @@ fn geodesic_validator_produces_geodesic_certificate() {
 
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 static ROOT_TERMS: &[uor_foundation::enforcement::Term] =
-    &[uor_foundation::enforcement::Term::Literal {
-        value: 1,
-        level: WittLevel::W8,
-    }];
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 
 fn probe_unit(
 ) -> uor_foundation::enforcement::Validated<uor_foundation::enforcement::CompileUnit<'static>> {

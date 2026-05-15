@@ -4411,7 +4411,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
     f.doc_comment("catamorphism produces a `TermValue` per variant, propagated up the");
     f.doc_comment("term tree by the per-variant fold rules.");
-    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
     f.line("pub struct TermValue {");
     f.indented_doc_comment("Fixed-capacity byte buffer (zero-padded beyond `len`).");
     f.line("    bytes: [u8; TERM_VALUE_MAX_BYTES],");
@@ -4432,7 +4432,7 @@ fn emit_prism_model(f: &mut RustFile) {
         "Construct a `TermValue` from a slice; copies up to `TERM_VALUE_MAX_BYTES` bytes.",
     );
     f.line("    #[must_use]");
-    f.line("    pub fn from_slice(bytes: &[u8]) -> Self {");
+    f.line("    pub const fn from_slice(bytes: &[u8]) -> Self {");
     f.line("        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
     f.line("        let copy_len = if bytes.len() > TERM_VALUE_MAX_BYTES {");
     f.line("            TERM_VALUE_MAX_BYTES");
@@ -4445,11 +4445,97 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        Self { bytes: buf, len: copy_len as u16 }");
     f.line("    }");
     f.blank();
+    // ADR-051 narrow-form construction helper: `from_u64_be(value, width)`
+    // packs a u64 as a big-endian byte sequence of the declared width,
+    // matching what `literal_u64` emits.
+    f.indented_doc_comment(
+        "ADR-051: construct a `TermValue` from a u64 value at a declared byte width.",
+    );
+    f.indented_doc_comment(
+        "The high (8 - width) bytes of the u64 are discarded; the low `width` bytes are",
+    );
+    f.indented_doc_comment("written into the value buffer in big-endian order.");
+    f.line("    #[must_use]");
+    f.line("    pub const fn from_u64_be(value: u64, width: usize) -> Self {");
+    f.line("        let w = if width > 8 { 8 } else { width };");
+    f.line("        let be = value.to_be_bytes();");
+    f.line("        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("        let mut i = 0;");
+    f.line("        while i < w {");
+    f.line("            buf[i] = be[8 - w + i];");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        Self { bytes: buf, len: w as u16 }");
+    f.line("    }");
+    f.blank();
+    // ADR-051 helper used by `literal_u64`: const constructor from an
+    // already-prepared big-endian byte buffer with the desired width.
+    f.indented_doc_comment(
+        "ADR-051 helper: const-constructor from a prepared big-endian byte buffer.",
+    );
+    f.indented_doc_comment(
+        "`len` MUST be `<= TERM_VALUE_MAX_BYTES`; the function copies the first `len`",
+    );
+    f.indented_doc_comment("bytes of `bytes` and records `len` as the active prefix.");
+    f.line("    #[must_use]");
+    f.line("    pub const fn from_slice_const(bytes: &[u8; TERM_VALUE_MAX_BYTES], len: usize) -> Self {");
+    f.line("        let l = if len > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { len };");
+    f.line("        Self { bytes: *bytes, len: l as u16 }");
+    f.line("    }");
+    f.blank();
     f.indented_doc_comment("Returns the active byte prefix.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn bytes(&self) -> &[u8] {");
-    f.line("        &self.bytes[..self.len as usize]");
+    f.line("    pub const fn bytes(&self) -> &[u8] {");
+    f.line("        let l = self.len as usize;");
+    f.line("        let (head, _) = self.bytes.split_at(l);");
+    f.line("        head");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // ADR-051 narrow-form construction helpers for Term::Literal. The wide
+    // form (`Term::Literal { value: TermValue::from_slice(&bytes), level }`)
+    // is fine for raw construction; `literal_u64` is the SDK-recommended
+    // entry point for callers carrying a u64 value.
+    f.doc_comment(
+        "ADR-051: construct a `Term::Literal` from a u64 value at a declared Witt level.",
+    );
+    f.doc_comment("");
+    f.doc_comment("Packs `value` as a big-endian byte sequence whose length equals the level's");
+    f.doc_comment("byte width (`level.witt_length() / 8`). For widths > 8 bytes, the high bytes");
+    f.doc_comment("are zero-padded.");
+    f.line("#[must_use]");
+    f.line("pub const fn literal_u64(value: u64, level: crate::WittLevel) -> crate::enforcement::Term {");
+    f.line("    let mut width = (level.witt_length() / 8) as usize;");
+    f.line("    if width == 0 { width = 1; }");
+    f.line("    let be = value.to_be_bytes();");
+    f.line("    let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    // Pack the u64's big-endian bytes into the low `min(width, 8)` bytes");
+    f.line("    // of the result, right-aligned. Widths > 8 zero-pad the high portion.");
+    f.line("    let take = if width > 8 { 8 } else { width };");
+    f.line("    let mut i = 0;");
+    f.line("    while i < take {");
+    f.line("        buf[width - take + i] = be[8 - take + i];");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    crate::enforcement::Term::Literal {");
+    f.line("        value: TermValue::from_slice_const(&buf, width),");
+    f.line("        level,");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    f.doc_comment("ADR-051: construct a `Term::Literal` from raw bytes at a declared Witt level.");
+    f.doc_comment("");
+    f.doc_comment("`bytes` MUST have exactly `level.witt_length() / 8` bytes; mismatched lengths");
+    f.doc_comment("are silently truncated/padded by `TermValue::from_slice_const`. Use this for");
+    f.doc_comment("wide-Witt literals (W128+) that don't fit in a u64.");
+    f.line("#[must_use]");
+    f.line("pub const fn literal_bytes(bytes: &[u8], level: crate::WittLevel) -> crate::enforcement::Term {");
+    f.line("    crate::enforcement::Term::Literal {");
+    f.line("        value: TermValue::from_slice(bytes),");
+    f.line("        level,");
     f.line("    }");
     f.line("}");
     f.blank();
@@ -4571,12 +4657,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        });");
     f.line("    }");
     f.line("    match arena[idx] {");
-    f.line("        crate::enforcement::Term::Literal { value, level } => {");
-    f.line("            let width = (level.witt_length() / 8) as usize;");
-    f.line("            let width = if width == 0 { 1 } else if width > 8 { 8 } else { width };");
-    f.line("            let be = value.to_be_bytes();");
-    f.line("            // Take the trailing `width` bytes (big-endian truncation).");
-    f.line("            Ok(TermValue::from_slice(&be[8 - width..]))");
+    f.line("        crate::enforcement::Term::Literal { value, level: _ } => {");
+    f.line("            // ADR-051: the literal's value carrier is a `TermValue` whose");
+    f.line("            // byte length matches `level.witt_length() / 8`. The fold-rule");
+    f.line("            // emits the carrier bytes directly — no width-aware encoding");
+    f.line("            // (which was the pre-ADR-051 truncation logic).");
+    f.line("            Ok(TermValue::from_slice(value.bytes()))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Variable { name_index } => {");
     f.line("            // ADR-022 D3 G2: name_index = 0 is the route input slot.");
@@ -5117,7 +5203,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        | crate::PrimitiveOp::Lt");
     f.line("        | crate::PrimitiveOp::Ge");
     f.line("        | crate::PrimitiveOp::Gt");
-    f.line("        | crate::PrimitiveOp::Concat => 2usize,");
+    f.line("        | crate::PrimitiveOp::Concat");
+    f.line("        // ADR-053 substrate amendment: ring-axis arithmetic completion.");
+    f.line("        | crate::PrimitiveOp::Div");
+    f.line("        | crate::PrimitiveOp::Mod");
+    f.line("        | crate::PrimitiveOp::Pow => 2usize,");
     f.line("    };");
     f.line("    if args_len != arity {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
@@ -5212,18 +5302,68 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                };");
     f.line("                return Ok(TermValue::from_slice(&[result_byte]));");
     f.line("            }");
+    f.line("            // ADR-053 substrate amendment: Div/Mod reject b = 0 with");
+    f.line("            // a ShapeViolation. Per ADR-050, division semantics are");
+    f.line("            // Euclidean (q = floor(a / b), r = a − q·b) over the ring");
+    f.line("            // Z/(2^n)Z where n is max(8·byte-len(a), 8·byte-len(b)).");
+    f.line("            crate::PrimitiveOp::Div if bytes_all_zero(rhs.bytes()) => {");
+    f.line("                return Err(PipelineFailure::ShapeViolation {");
+    f.line("                    report: crate::enforcement::ShapeViolation {");
+    f.line("                        shape_iri: \"https://uor.foundation/op/Div\",");
+    f.line(
+        "                        constraint_iri: \"https://uor.foundation/op/Div/nonZeroDivisor\",",
+    );
+    f.line("                        property_iri: \"https://uor.foundation/op/arity\",");
+    f.line("                        expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",");
+    f.line("                        min_count: 1,");
+    f.line("                        max_count: 1,");
+    f.line("                        kind: crate::ViolationKind::ValueCheck,");
+    f.line("                    },");
+    f.line("                });");
+    f.line("            }");
+    f.line("            crate::PrimitiveOp::Mod if bytes_all_zero(rhs.bytes()) => {");
+    f.line("                return Err(PipelineFailure::ShapeViolation {");
+    f.line("                    report: crate::enforcement::ShapeViolation {");
+    f.line("                        shape_iri: \"https://uor.foundation/op/Mod\",");
+    f.line(
+        "                        constraint_iri: \"https://uor.foundation/op/Mod/nonZeroDivisor\",",
+    );
+    f.line("                        property_iri: \"https://uor.foundation/op/arity\",");
+    f.line("                        expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",");
+    f.line("                        min_count: 1,");
+    f.line("                        max_count: 1,");
+    f.line("                        kind: crate::ViolationKind::ValueCheck,");
+    f.line("                    },");
+    f.line("                });");
+    f.line("            }");
     f.line("            _ => {}");
+    f.line("        }");
+    f.line("        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);");
+    f.line("        // ADR-050 width-parametric dispatch: widths > 8 bytes route");
+    f.line("        // through the byte-level kernel `byte_arith_be` so wide-Witt");
+    f.line("        // operands (Limbs<N>-backed levels W160..W32768) compute");
+    f.line("        // correctly under Z/(2^(8·width))Z without truncating to u64.");
+    f.line("        if width > 8 {");
+    f.line("            return byte_arith_be(operator, lhs.bytes(), rhs.bytes(), width);");
     f.line("        }");
     f.line("        let a = bytes_to_u64_be(lhs.bytes());");
     f.line("        let b = bytes_to_u64_be(rhs.bytes());");
-    f.line("        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);");
+    f.line("        // ADR-050 width-parametric mask: arithmetic results are reduced");
+    f.line("        // mod 2^(8·width) before truncation. For the u64 hot path this");
+    f.line("        // is `(1 << (width·8)) − 1` for width < 8 and u64::MAX for width = 8.");
+    f.line("        let mask: u64 = if width >= 8 { u64::MAX } else { (1u64 << (width * 8)).wrapping_sub(1) };");
     f.line("        let r = match operator {");
-    f.line("            crate::PrimitiveOp::Add => a.wrapping_add(b),");
-    f.line("            crate::PrimitiveOp::Sub => a.wrapping_sub(b),");
-    f.line("            crate::PrimitiveOp::Mul => a.wrapping_mul(b),");
-    f.line("            crate::PrimitiveOp::Xor => a ^ b,");
-    f.line("            crate::PrimitiveOp::And => a & b,");
-    f.line("            crate::PrimitiveOp::Or => a | b,");
+    f.line("            crate::PrimitiveOp::Add => a.wrapping_add(b) & mask,");
+    f.line("            crate::PrimitiveOp::Sub => a.wrapping_sub(b) & mask,");
+    f.line("            crate::PrimitiveOp::Mul => a.wrapping_mul(b) & mask,");
+    f.line("            crate::PrimitiveOp::Xor => (a ^ b) & mask,");
+    f.line("            crate::PrimitiveOp::And => (a & b) & mask,");
+    f.line("            crate::PrimitiveOp::Or => (a | b) & mask,");
+    f.line("            // ADR-053: Euclidean division/remainder over Z/(2^(8·width))Z.");
+    f.line("            crate::PrimitiveOp::Div => (a & mask) / (b & mask),");
+    f.line("            crate::PrimitiveOp::Mod => (a & mask) % (b & mask),");
+    f.line("            // ADR-053: modular exponentiation by repeated squaring.");
+    f.line("            crate::PrimitiveOp::Pow => u64_modpow(a & mask, b & mask, mask),");
     f.line("            _ => return Err(PipelineFailure::ShapeViolation {");
     f.line("                report: crate::enforcement::ShapeViolation {");
     f.line(
@@ -5242,9 +5382,199 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                },");
     f.line("            }),");
     f.line("        };");
-    f.line("        let width = if width > 8 { 8 } else { width };");
     f.line("        let arr = r.to_be_bytes();");
     f.line("        Ok(TermValue::from_slice(&arr[8 - width..]))");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
+    // ADR-050 byte-level kernel: width-parametric arithmetic over byte
+    // slices, used by `apply_primitive_op` when width > 8 (i.e., Limbs-
+    // backed Witt levels). Operands are padded with leading zeros to
+    // `width` bytes, computed under Z/(2^(8·width))Z, and the result is
+    // returned as a `TermValue` of width bytes (big-endian).
+    f.doc_comment("ADR-050: byte-level fold-rule dispatch for binary ring-axis primitives over");
+    f.doc_comment("widths > 8 bytes. Matches the const-fn `const_ring_eval_w{n}` helpers'");
+    f.doc_comment("semantics but operates on the runtime catamorphism's `TermValue` byte slices");
+    f.doc_comment("rather than on typed `Limbs<N>` values.");
+    f.line("#[allow(clippy::too_many_lines)]");
+    f.line("fn byte_arith_be(");
+    f.line("    operator: crate::PrimitiveOp,");
+    f.line("    lhs: &[u8],");
+    f.line("    rhs: &[u8],");
+    f.line("    width: usize,");
+    f.line(") -> Result<TermValue, PipelineFailure> {");
+    f.line("    // Pad both operands to `width` bytes (leading zeros, big-endian).");
+    f.line("    let mut a = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    let mut b = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    let w = if width > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { width };");
+    f.line("    {");
+    f.line("        let la = lhs.len().min(w);");
+    f.line("        let dst_off = w - la;");
+    f.line("        let src_off = lhs.len() - la;");
+    f.line("        let mut i = 0;");
+    f.line("        while i < la { a[dst_off + i] = lhs[src_off + i]; i += 1; }");
+    f.line("    }");
+    f.line("    {");
+    f.line("        let lb = rhs.len().min(w);");
+    f.line("        let dst_off = w - lb;");
+    f.line("        let src_off = rhs.len() - lb;");
+    f.line("        let mut i = 0;");
+    f.line("        while i < lb { b[dst_off + i] = rhs[src_off + i]; i += 1; }");
+    f.line("    }");
+    f.line("    let mut out = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    match operator {");
+    f.line("        crate::PrimitiveOp::And => {");
+    f.line("            let mut i = 0; while i < w { out[i] = a[i] & b[i]; i += 1; }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Or => {");
+    f.line("            let mut i = 0; while i < w { out[i] = a[i] | b[i]; i += 1; }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Xor => {");
+    f.line("            let mut i = 0; while i < w { out[i] = a[i] ^ b[i]; i += 1; }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Add => {");
+    f.line("            let mut carry: u16 = 0;");
+    f.line("            let mut i = w;");
+    f.line("            while i > 0 { i -= 1; let s = a[i] as u16 + b[i] as u16 + carry; out[i] = (s & 0xFF) as u8; carry = s >> 8; }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Sub => {");
+    f.line("            let mut borrow: i16 = 0;");
+    f.line("            let mut i = w;");
+    f.line("            while i > 0 { i -= 1; let d = a[i] as i16 - b[i] as i16 - borrow; if d < 0 { out[i] = (d + 256) as u8; borrow = 1; } else { out[i] = d as u8; borrow = 0; } }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Mul => {");
+    f.line("            // Schoolbook multiplication mod 2^(8·w). `a` and `b` are");
+    f.line("            // big-endian w-byte operands; output is the low w bytes of");
+    f.line("            // the 2w-byte product, written back big-endian.");
+    f.line("            //");
+    f.line("            // Algorithm: walk `i` from LSB to MSB (a[w-1] = LSB), and");
+    f.line("            // for each `i` walk `j` similarly. The byte product");
+    f.line("            // a[w-1-i] * b[w-1-j] contributes to output position");
+    f.line("            // (w-1)-(i+j) when (i+j) < w; otherwise it overflows the");
+    f.line("            // ring modulus and is discarded.");
+    f.line("            let mut tmp = [0u32; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut i: usize = 0;");
+    f.line("            while i < w {");
+    f.line("                let mut j: usize = 0;");
+    f.line("                while j < w - i {");
+    f.line("                    let dst = w - 1 - (i + j);");
+    f.line("                    tmp[dst] += a[w - 1 - i] as u32 * b[w - 1 - j] as u32;");
+    f.line("                    j += 1;");
+    f.line("                }");
+    f.line("                i += 1;");
+    f.line("            }");
+    f.line("            // Carry-propagate within the low w bytes (high bytes are");
+    f.line("            // discarded — the ring modulus reduces them away).");
+    f.line("            let mut carry: u32 = 0;");
+    f.line("            let mut k = w;");
+    f.line("            while k > 0 {");
+    f.line("                k -= 1;");
+    f.line("                let v = tmp[k] + carry;");
+    f.line("                out[k] = (v & 0xFF) as u8;");
+    f.line("                carry = v >> 8;");
+    f.line("            }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Div | crate::PrimitiveOp::Mod => {");
+    f.line("            // Binary long division MSB→LSB over the byte slice.");
+    f.line("            let mut q = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut r = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let total_bits = w * 8;");
+    f.line("            let mut i = 0;");
+    f.line("            while i < total_bits {");
+    f.line("                bytes_shl1(&mut r, w);");
+    f.line("                let bit_word = i / 8;");
+    f.line("                let bit_idx = 7 - (i % 8);");
+    f.line("                let cur_bit = (a[bit_word] >> bit_idx) & 1;");
+    f.line("                if cur_bit == 1 { r[w - 1] |= 1; }");
+    f.line("                if bytes_le_be(&b[..w], &r[..w]) {");
+    f.line("                    bytes_sub_in_place(&mut r, &b, w);");
+    f.line("                    bytes_shl1(&mut q, w);");
+    f.line("                    q[w - 1] |= 1;");
+    f.line("                } else {");
+    f.line("                    bytes_shl1(&mut q, w);");
+    f.line("                }");
+    f.line("                i += 1;");
+    f.line("            }");
+    f.line("            let src = match operator { crate::PrimitiveOp::Div => &q, _ => &r };");
+    f.line("            let mut k = 0; while k < w { out[k] = src[k]; k += 1; }");
+    f.line("        }");
+    f.line("        crate::PrimitiveOp::Pow => {");
+    f.line("            // Square-and-multiply over byte-slice operands. Exponent");
+    f.line("            // bits walked LSB→MSB; each iteration squares the running");
+    f.line("            // base and conditionally multiplies into the accumulator.");
+    f.line("            let mut result = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            result[w - 1] = 1;");
+    f.line("            let mut base = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut k = 0; while k < w { base[k] = a[k]; k += 1; }");
+    f.line("            let mut byte = w;");
+    f.line("            while byte > 0 {");
+    f.line("                byte -= 1;");
+    f.line("                let mut bit = 0u32;");
+    f.line("                while bit < 8 {");
+    f.line("                    if ((b[byte] >> bit) & 1) == 1 {");
+    f.line("                        let prod = byte_arith_be(crate::PrimitiveOp::Mul, &result[..w], &base[..w], w)?;");
+    f.line("                        let pb = prod.bytes();");
+    f.line("                        let dst_off = w - pb.len().min(w);");
+    f.line("                        let mut j = 0;");
+    f.line("                        while j < w { result[j] = 0; j += 1; }");
+    f.line("                        let mut j2 = 0; while j2 < pb.len().min(w) { result[dst_off + j2] = pb[j2]; j2 += 1; }");
+    f.line("                    }");
+    f.line("                    let sq = byte_arith_be(crate::PrimitiveOp::Mul, &base[..w], &base[..w], w)?;");
+    f.line("                    let sb = sq.bytes();");
+    f.line("                    let dst_off = w - sb.len().min(w);");
+    f.line("                    let mut j = 0;");
+    f.line("                    while j < w { base[j] = 0; j += 1; }");
+    f.line("                    let mut j2 = 0; while j2 < sb.len().min(w) { base[dst_off + j2] = sb[j2]; j2 += 1; }");
+    f.line("                    bit += 1;");
+    f.line("                }");
+    f.line("            }");
+    f.line("            let mut k = 0; while k < w { out[k] = result[k]; k += 1; }");
+    f.line("        }");
+    f.line("        _ => return Err(PipelineFailure::ShapeViolation {");
+    f.line("            report: crate::enforcement::ShapeViolation {");
+    f.line("                shape_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape\",");
+    f.line("                constraint_iri: \"https://uor.foundation/pipeline/PrimitiveOpArityShape/unary-as-binary\",");
+    f.line("                property_iri: \"https://uor.foundation/pipeline/operatorArity\",");
+    f.line(
+        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
+    );
+    f.line("                min_count: 1,");
+    f.line("                max_count: 1,");
+    f.line("                kind: crate::ViolationKind::CardinalityViolation,");
+    f.line("            },");
+    f.line("        }),");
+    f.line("    }");
+    f.line("    Ok(TermValue::from_slice(&out[..w]))");
+    f.line("}");
+    f.blank();
+
+    // Byte-level helpers used by `byte_arith_be`.
+    f.line("fn bytes_shl1(buf: &mut [u8], w: usize) {");
+    f.line("    let mut carry: u8 = 0;");
+    f.line("    let mut i = w;");
+    f.line(
+        "    while i > 0 { i -= 1; let v = buf[i]; buf[i] = (v << 1) | carry; carry = v >> 7; }",
+    );
+    f.line("}");
+    f.blank();
+    f.line("fn bytes_le_be(a: &[u8], b: &[u8]) -> bool {");
+    f.line("    let mut i = 0;");
+    f.line("    while i < a.len() {");
+    f.line("        if a[i] < b[i] { return true; }");
+    f.line("        if a[i] > b[i] { return false; }");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    true");
+    f.line("}");
+    f.blank();
+    f.line("fn bytes_sub_in_place(dst: &mut [u8], rhs: &[u8], w: usize) {");
+    f.line("    let mut borrow: i16 = 0;");
+    f.line("    let mut i = w;");
+    f.line("    while i > 0 {");
+    f.line("        i -= 1;");
+    f.line("        let d = dst[i] as i16 - rhs[i] as i16 - borrow;");
+    f.line("        if d < 0 { dst[i] = (d + 256) as u8; borrow = 1; } else { dst[i] = d as u8; borrow = 0; }");
     f.line("    }");
     f.line("}");
     f.blank();
@@ -5281,6 +5611,36 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        i += 1;");
     f.line("    }");
     f.line("    acc");
+    f.line("}");
+    f.blank();
+
+    // ADR-053: zero check on a byte slice — true iff every byte is 0.
+    // Used by the Div/Mod fold-rules to detect a zero divisor at runtime.
+    f.line("fn bytes_all_zero(bytes: &[u8]) -> bool {");
+    f.line("    let mut i = 0;");
+    f.line("    while i < bytes.len() {");
+    f.line("        if bytes[i] != 0 { return false; }");
+    f.line("        i += 1;");
+    f.line("    }");
+    f.line("    true");
+    f.line("}");
+    f.blank();
+
+    // ADR-053: modular exponentiation by repeated squaring within the
+    // u64 hot path. The mask captures the ring width (`u64::MAX` for
+    // 8-byte operands; `(1 << (width*8)) - 1` for narrower widths).
+    f.line("fn u64_modpow(base: u64, exp: u64, mask: u64) -> u64 {");
+    f.line("    let mut result: u64 = 1u64 & mask;");
+    f.line("    let mut b: u64 = base & mask;");
+    f.line("    let mut e: u64 = exp;");
+    f.line("    while e > 0 {");
+    f.line("        if (e & 1) == 1 {");
+    f.line("            result = result.wrapping_mul(b) & mask;");
+    f.line("        }");
+    f.line("        b = b.wrapping_mul(b) & mask;");
+    f.line("        e >>= 1;");
+    f.line("    }");
+    f.line("    result");
     f.line("}");
     f.blank();
 
@@ -7037,7 +7397,9 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
     f.doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] }");
     f.doc_comment("# }");
-    f.doc_comment("static TERMS: &[Term] = &[Term::Literal { value: 1, level: WittLevel::W8 }];");
+    f.doc_comment(
+        "static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];",
+    );
     f.doc_comment("static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];");
     f.doc_comment("");
     f.doc_comment("let unit = CompileUnitBuilder::new()");

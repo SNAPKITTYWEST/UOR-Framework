@@ -119,7 +119,14 @@ pub const NAMESPACE_PROPERTIES: usize = 947;
 /// Wiki ADR-040: +1 (type:LexicographicLessEqBound — the 7th BoundShape
 /// individual, the byte-sequence-valued comparison primitive paralleling
 /// LessEqBound under canonical big-endian unsigned ordering).
-pub const INDIVIDUALS: usize = 3560;
+/// Wiki ADR-053: +41 — six new PrimitiveOp/GeometricCharacter individuals
+/// (op:div, op:mod, op:pow, op:Quotient, op:Remainder, op:IteratedScaling),
+/// seven new op:Identity individuals (DV_1..4, PW_1..3) governing the
+/// ring-axis completion Γ = {Add, Sub, Mul, Div, Mod, Pow}, seven matching
+/// proof:AxiomaticDerivation individuals (prf_DV_1..4, prf_PW_1..3), and
+/// twenty-one derived AST-term individuals (three lhs/rhs/forAll strings
+/// per new op:Identity, expanded by schema::generate_ast_individuals).
+pub const INDIVIDUALS: usize = 3601;
 
 /// Number of SHACL test instance graphs.
 ///
@@ -222,7 +229,9 @@ pub const ENUM_CLASSES: usize = 19;
 /// Number of `op:Identity` individuals (and corresponding proofs).
 ///
 /// Product/Coproduct Completion Amendment: +11 (ST_6..ST_10, CPT_1..CPT_6).
-pub const IDENTITY_COUNT: usize = 635;
+/// Wiki ADR-053: +7 (DV_1..4, PW_1..3) — Euclidean-division and modular-
+/// exponentiation identities governing the new ring-axis completion ops.
+pub const IDENTITY_COUNT: usize = 642;
 
 /// Kernel-space namespace count.
 pub const KERNEL_NAMESPACES: usize = 17;
@@ -323,7 +332,14 @@ pub const LEAN_INDUCTIVES: usize = 23;
 /// count after regeneration.
 /// Wiki ADR-040: +1 (type:LexicographicLessEqBound — 7th BoundShape
 /// individual emitted by Lean codegen alongside the other six).
-pub const LEAN_CONSTANT_NAMESPACES: usize = 3423;
+/// Wiki ADR-053: +35 — 6 PrimitiveOp + GeometricCharacter (op:div, op:mod,
+/// op:pow, op:Quotient, op:Remainder, op:IteratedScaling) + 7 op:Identity
+/// (DV_1..4, PW_1..3) + 7 proof:AxiomaticDerivation (prf_DV_1..4,
+/// prf_PW_1..3) + 15 derived AST-term namespace blocks (lhs/rhs/forAll
+/// expansions per the new identities; ring-axis identity exprs reuse
+/// existing `add`/`mul`/`pow`/`div`/`mod`/literal AST nodes for 6 of 21
+/// terms, leaving 15 fresh AST individuals).
+pub const LEAN_CONSTANT_NAMESPACES: usize = 3458;
 
 /// Number of concept pages on the website (one per content/concepts/*.md file).
 /// Number of concept pages on the website (one per `website/content/concepts/*.md`,

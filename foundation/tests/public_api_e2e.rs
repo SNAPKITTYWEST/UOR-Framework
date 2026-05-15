@@ -36,10 +36,7 @@ type Calibration = uor_foundation::enforcement::Calibration<DefaultHostTypes>;
 
 /// v0.2.2 T6: shared sentinel terms + domains for tests that build
 /// fully-specified CompileUnits via the runtime `validate()` path.
-static SENTINEL_TERMS: &[Term] = &[Term::Literal {
-    value: 1,
-    level: WittLevel::W8,
-}];
+static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 /// v0.2.2 T6: helper — build a Validated<CompileUnit, CompileTime> with all

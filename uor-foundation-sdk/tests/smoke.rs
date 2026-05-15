@@ -302,11 +302,11 @@ fn prism_model_macro_emits_term_arena_for_simple_addition() {
         "three terms: two literals + one application"
     );
     match arena[0] {
-        Term::Literal { value, .. } => assert_eq!(value, 2),
+        Term::Literal { value, .. } => assert_eq!(value.bytes(), &[2u8][..]),
         other => panic!("expected Literal(2) at index 0, got {other:?}"),
     }
     match arena[1] {
-        Term::Literal { value, .. } => assert_eq!(value, 3),
+        Term::Literal { value, .. } => assert_eq!(value.bytes(), &[3u8][..]),
         other => panic!("expected Literal(3) at index 1, got {other:?}"),
     }
     match arena[2] {
@@ -616,11 +616,11 @@ fn prism_model_emits_term_arena_for_g10_let_binding() {
     // `two` resolve to the Literal(2) root via the binding scope (G10).
     assert_eq!(arena.len(), 3);
     match arena[0] {
-        Term::Literal { value, .. } => assert_eq!(value, 2),
+        Term::Literal { value, .. } => assert_eq!(value.bytes(), &[2u8][..]),
         other => panic!("expected Literal(2) at index 0, got {other:?}"),
     }
     match arena[1] {
-        Term::Literal { value, .. } => assert_eq!(value, 3),
+        Term::Literal { value, .. } => assert_eq!(value.bytes(), &[3u8][..]),
         other => panic!("expected Literal(3) at index 1, got {other:?}"),
     }
     match arena[2] {
@@ -2636,4 +2636,84 @@ fn axis_macro_blanket_impl_propagates_axis_address_and_max_bytes() {
         "https://uor.foundation/test/SingleKernelAxis"
     );
     assert_eq!(<SingleKernelImpl as AxisExtension>::MAX_OUTPUT_BYTES, 4);
+}
+
+// ── ADR-052: axis_extension_impl_for_*!(@generic …) parametric form ───
+//
+// Pin the wiki-committed @generic emission that lets Layer-3 axis
+// implementations carry generic parameters and where-clauses. This
+// supports parametric crypto axes (e.g., `BlakeAxis<const OUT: usize>`),
+// tensor axes parametric in their scalar (`TensorAxis<T>`), and any
+// future Layer-3 substrate-extension surface needing type-parameter
+// flexibility.
+
+/// Generic axis impl: parameterised by the output-width const.
+pub struct GenericProbeImpl<const W: usize>;
+
+impl<const W: usize> SampleProbeAxis for GenericProbeImpl<W> {
+    fn probe_bit(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        if out.is_empty() {
+            return Ok(0);
+        }
+        out[0] = input.first().copied().unwrap_or(0) & 0x01;
+        Ok(1)
+    }
+    fn probe_byte(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        let n = input.len().min(out.len()).min(W);
+        out[..n].copy_from_slice(&input[..n]);
+        Ok(n)
+    }
+}
+
+// ADR-052: @generic form invocation, providing the generic parameter
+// list bracketed and the implementing type with its parameters.
+axis_extension_impl_for_sample_probe_axis!(@generic GenericProbeImpl<W>, [const W: usize]);
+
+#[test]
+fn axis_macro_generic_form_emits_parametric_axis_extension_impl() {
+    // ADR-052: GenericProbeImpl<W> satisfies AxisExtension for every W.
+    fn _requires_axis_extension<T: AxisExtension>() {}
+    _requires_axis_extension::<GenericProbeImpl<16>>();
+    _requires_axis_extension::<GenericProbeImpl<32>>();
+    assert_eq!(
+        <GenericProbeImpl<16> as AxisExtension>::AXIS_ADDRESS,
+        "https://uor.foundation/test/SampleProbeAxis"
+    );
+    assert_eq!(
+        <GenericProbeImpl<16> as AxisExtension>::MAX_OUTPUT_BYTES,
+        16
+    );
+}
+
+#[test]
+fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
+    // ADR-052: the @generic emission preserves the same kernel-id-driven
+    // dispatch as the non-generic form. Verify by routing the same input
+    // bytes through both kernels.
+    let mut out = [0u8; 32];
+    let bit_input = [0x01u8];
+    let n = <GenericProbeImpl<16> as AxisExtension>::dispatch_kernel(
+        KERNEL_PROBE_BIT,
+        &bit_input,
+        &mut out,
+    )
+    .expect("dispatch_kernel routes probe_bit");
+    assert_eq!(n, 1);
+    assert_eq!(out[0], 0x01);
+
+    let byte_input = [0xa1u8, 0xb2, 0xc3];
+    let n = <GenericProbeImpl<16> as AxisExtension>::dispatch_kernel(
+        KERNEL_PROBE_BYTE,
+        &byte_input,
+        &mut out,
+    )
+    .expect("dispatch_kernel routes probe_byte");
+    assert_eq!(n, 3);
+    assert_eq!(&out[..3], &[0xa1, 0xb2, 0xc3]);
 }

@@ -3442,16 +3442,16 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
         .iter()
         .map(|spec| match spec {
             TermSpec::Literal(value) => quote! {
-                ::uor_foundation::enforcement::Term::Literal {
-                    value: #value,
-                    level: ::uor_foundation::WittLevel::W8,
-                }
+                ::uor_foundation::pipeline::literal_u64(
+                    #value,
+                    ::uor_foundation::WittLevel::W8,
+                )
             },
             TermSpec::LiteralExpr { value, level } => quote! {
-                ::uor_foundation::enforcement::Term::Literal {
-                    value: #value,
-                    level: #level,
-                }
+                ::uor_foundation::pipeline::literal_u64(
+                    #value,
+                    #level,
+                )
             },
             TermSpec::Variable => quote! {
                 ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
@@ -3718,17 +3718,17 @@ fn render_atomic_term_in_builder(
         TermSpec::Literal(value) => {
             let v = *value;
             quote! {
-                ::uor_foundation::enforcement::Term::Literal {
-                    value: #v,
-                    level: ::uor_foundation::WittLevel::W8,
-                }
+                ::uor_foundation::pipeline::literal_u64(
+                    #v,
+                    ::uor_foundation::WittLevel::W8,
+                )
             }
         }
         TermSpec::LiteralExpr { value, level } => quote! {
-            ::uor_foundation::enforcement::Term::Literal {
-                value: #value,
-                level: #level,
-            }
+            ::uor_foundation::pipeline::literal_u64(
+                #value,
+                #level,
+            )
         },
         TermSpec::Variable => quote! {
             ::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }
@@ -4899,6 +4899,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
     // at the companion-macro call site.
     let dollar = proc_macro2::Punct::new('$', proc_macro2::Spacing::Joint);
     let struct_ident_meta: proc_macro2::TokenStream = quote!(#dollar struct_ident);
+    let struct_ty_meta: proc_macro2::TokenStream = quote!(#dollar struct_ty);
     let dispatch_arms: Vec<proc_macro2::TokenStream> = kernel_idents
         .iter()
         .enumerate()
@@ -4906,6 +4907,16 @@ pub fn axis(input: TokenStream) -> TokenStream {
             let id = i as u32;
             quote! {
                 #id => <#struct_ident_meta as #trait_name>::#ident(input, out),
+            }
+        })
+        .collect();
+    let dispatch_arms_generic: Vec<proc_macro2::TokenStream> = kernel_idents
+        .iter()
+        .enumerate()
+        .map(|(i, ident)| {
+            let id = i as u32;
+            quote! {
+                #id => <#struct_ty_meta as #trait_name>::#ident(input, out),
             }
         })
         .collect();
@@ -4948,6 +4959,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
         /// `AxisExtension`).
         #[macro_export]
         macro_rules! #companion_macro_ident {
+            // Non-generic form: simple struct ident.
             ($struct_ident:ident) => {
                 impl ::uor_foundation::pipeline::AxisExtension for $struct_ident {
                     const AXIS_ADDRESS: &'static str =
@@ -4964,6 +4976,53 @@ pub fn axis(input: TokenStream) -> TokenStream {
                     > {
                         match kernel_id {
                             #(#dispatch_arms)*
+                            _ => Err(::uor_foundation::enforcement::ShapeViolation {
+                                shape_iri:
+                                    "https://uor.foundation/axis/AxisExtensionShape",
+                                constraint_iri:
+                                    "https://uor.foundation/axis/AxisExtensionShape/kernelId",
+                                property_iri:
+                                    "https://uor.foundation/axis/kernelId",
+                                expected_range:
+                                    "https://uor.foundation/axis/RecognisedKernelId",
+                                min_count: 0,
+                                max_count: 0,
+                                kind: ::uor_foundation::ViolationKind::ValueCheck,
+                            }),
+                        }
+                    }
+                }
+            };
+            // ADR-052 @generic form: parametric Layer-3 axis implementations.
+            // Accepts the implementing type plus generic parameter list and
+            // optional where-clauses, emitting the `AxisExtension` impl with
+            // the same kernel-id-dispatch surface.
+            //
+            // Examples:
+            //   axis_extension_impl_for_x!(@generic MyImpl<T>, [T], where [T: Bound]);
+            //   axis_extension_impl_for_x!(@generic Wrap<T, const N: usize>, [T, const N: usize]);
+            //
+            // The first repeating group is the generic parameter list as
+            // it would appear after `impl<...>`. The optional `where [...]`
+            // group carries any predicates.
+            (@generic $struct_ty:ty, [$($generic_params:tt)*] $(, where [$($where_clauses:tt)*])?) => {
+                impl<$($generic_params)*> ::uor_foundation::pipeline::AxisExtension for $struct_ty
+                $(where $($where_clauses)*)?
+                {
+                    const AXIS_ADDRESS: &'static str =
+                        <$struct_ty as #trait_name>::AXIS_ADDRESS;
+                    const MAX_OUTPUT_BYTES: usize =
+                        <$struct_ty as #trait_name>::MAX_OUTPUT_BYTES;
+                    fn dispatch_kernel(
+                        kernel_id: u32,
+                        input: &[u8],
+                        out: &mut [u8],
+                    ) -> ::core::result::Result<
+                        usize,
+                        ::uor_foundation::enforcement::ShapeViolation,
+                    > {
+                        match kernel_id {
+                            #(#dispatch_arms_generic)*
                             _ => Err(::uor_foundation::enforcement::ShapeViolation {
                                 shape_iri:
                                     "https://uor.foundation/axis/AxisExtensionShape",

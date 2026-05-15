@@ -56,6 +56,12 @@ inductive PrimitiveOp where
   | gt : PrimitiveOp
   /-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling. -/
   | concat : PrimitiveOp
+  /-- Euclidean quotient: div(a, b) = q where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width. -/
+  | div : PrimitiveOp
+  /-- Euclidean remainder: mod(a, b) = r where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width. -/
+  | mod : PrimitiveOp
+  /-- Modular exponentiation: pow(base, exp) = base^exp mod 2^n. Fold-rule: square-and-multiply over exp bits. pow(_, 0) = 1; pow(0, b > 0) = 0. -/
+  | pow : PrimitiveOp
   deriving DecidableEq, Repr, BEq, Hashable, Inhabited
 
 /-- A classification axis for constraints by their geometric effect. The three axes — vertical (ring/additive), horizontal (Hamming/bitwise), diagonal (incompatibility) — form the tri-metric coordinate system of UOR. -/
@@ -88,6 +94,12 @@ inductive GeometricCharacter where
   | hypercubeProjection : GeometricCharacter
   /-- Join on the hypercube lattice: or(x,y) = x ∨ y. Idempotent; dual to projection. -/
   | hypercubeJoin : GeometricCharacter
+  /-- Euclidean quotient along the ring axis: div(a,b) — the structural dual of Scaling. Geometric character of `op:div` per ADR-053. -/
+  | quotient : GeometricCharacter
+  /-- Euclidean remainder along the ring axis: mod(a,b). Complement of Quotient — together they realize the divmod fold-rule. Geometric character of `op:mod` per ADR-053. -/
+  | remainder : GeometricCharacter
+  /-- Iterated multiplicative scaling along the ring axis: pow(base, exp) = base^exp mod 2^n. Extends the multiplicative Scaling axis via square-and-multiply iteration. Geometric character of `op:pow` per ADR-053. -/
+  | iteratedScaling : GeometricCharacter
   /-- Geometric character of dispatch: constraint-guided selection over the resolver registry lattice. -/
   | constraintSelection : GeometricCharacter
   /-- Geometric character of inference: traversal through the φ-pipeline resolution graph P ∘ Π ∘ G. -/
@@ -420,6 +432,9 @@ def arity : PrimitiveOp → Int
   | .ge => 2
   | .gt => 2
   | .concat => 2
+  | .div => 2
+  | .mod => 2
+  | .pow => 2
 
 /-- Whether this operation is commutative. -/
 def isCommutative : PrimitiveOp → Bool
@@ -438,6 +453,9 @@ def isCommutative : PrimitiveOp → Bool
   | .ge => false
   | .gt => false
   | .concat => false
+  | .div => false
+  | .mod => false
+  | .pow => false
 
 /-- The geometric character of this operation. -/
 def hasGeometricCharacter : PrimitiveOp → GeometricCharacter
@@ -456,6 +474,9 @@ def hasGeometricCharacter : PrimitiveOp → GeometricCharacter
   | .ge => .constraintSelection
   | .gt => .constraintSelection
   | .concat => .hypercubeJoin
+  | .div => .quotient
+  | .mod => .remainder
+  | .pow => .iteratedScaling
 
 end PrimitiveOp
 

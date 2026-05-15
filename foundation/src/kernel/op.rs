@@ -4295,6 +4295,15 @@ pub mod hypercube_projection {}
 /// Join on the hypercube lattice: or(x,y) = x ∨ y. Idempotent; dual to projection.
 pub mod hypercube_join {}
 
+/// Euclidean quotient along the ring axis: div(a,b) — the structural dual of Scaling. Geometric character of `op:div` per ADR-053.
+pub mod quotient {}
+
+/// Euclidean remainder along the ring axis: mod(a,b). Complement of Quotient — together they realize the divmod fold-rule. Geometric character of `op:mod` per ADR-053.
+pub mod remainder {}
+
+/// Iterated multiplicative scaling along the ring axis: pow(base, exp) = base^exp mod 2^n. Extends the multiplicative Scaling axis via square-and-multiply iteration. Geometric character of `op:pow` per ADR-053.
+pub mod iterated_scaling {}
+
 /// Geometric character of dispatch: constraint-guided selection over the resolver registry lattice.
 pub mod constraint_selection {}
 
@@ -4548,6 +4557,90 @@ pub mod r_m5 {
     pub const LHS: &str = "https://uor.foundation/schema/term_R_M5_lhs";
     /// `rhs` -> `term_R_M5_rhs`
     pub const RHS: &str = "https://uor.foundation/schema/term_R_M5_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Division right-identity: div(a, 1) = a.
+pub mod dv_1 {
+    /// `forAll` -> `term_DV_1_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_DV_1_forAll";
+    /// `lhs` -> `term_DV_1_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_DV_1_lhs";
+    /// `rhs` -> `term_DV_1_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_DV_1_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Division left-absorbing: div(0, b) = 0 for b ≠ 0.
+pub mod dv_2 {
+    /// `forAll` -> `term_DV_2_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_DV_2_forAll";
+    /// `lhs` -> `term_DV_2_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_DV_2_lhs";
+    /// `rhs` -> `term_DV_2_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_DV_2_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Division-of-multiplication recovery: div(mul(a, b), b) = a for b ≠ 0 in the unit cone.
+pub mod dv_3 {
+    /// `forAll` -> `term_DV_3_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_DV_3_forAll";
+    /// `lhs` -> `term_DV_3_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_DV_3_lhs";
+    /// `rhs` -> `term_DV_3_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_DV_3_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Euclidean compatibility: a = add(mul(div(a, b), b), mod(a, b)) for b ≠ 0.
+pub mod dv_4 {
+    /// `forAll` -> `term_DV_4_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_DV_4_forAll";
+    /// `lhs` -> `term_DV_4_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_DV_4_lhs";
+    /// `rhs` -> `term_DV_4_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_DV_4_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Zero exponent identity: pow(a, 0) = 1.
+pub mod pw_1 {
+    /// `forAll` -> `term_PW_1_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_PW_1_forAll";
+    /// `lhs` -> `term_PW_1_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_PW_1_lhs";
+    /// `rhs` -> `term_PW_1_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_PW_1_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Unit exponent identity: pow(a, 1) = a.
+pub mod pw_2 {
+    /// `forAll` -> `term_PW_2_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_PW_2_forAll";
+    /// `lhs` -> `term_PW_2_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_PW_2_lhs";
+    /// `rhs` -> `term_PW_2_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_PW_2_rhs";
+    /// `verificationDomain` -> `Algebraic`
+    pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
+}
+
+/// Additive exponent decomposition: pow(a, add(b, c)) = mul(pow(a, b), pow(a, c)).
+pub mod pw_3 {
+    /// `forAll` -> `term_PW_3_forAll`
+    pub const FOR_ALL: &str = "https://uor.foundation/schema/term_PW_3_forAll";
+    /// `lhs` -> `term_PW_3_lhs`
+    pub const LHS: &str = "https://uor.foundation/schema/term_PW_3_lhs";
+    /// `rhs` -> `term_PW_3_rhs`
+    pub const RHS: &str = "https://uor.foundation/schema/term_PW_3_rhs";
     /// `verificationDomain` -> `Algebraic`
     pub const VERIFICATION_DOMAIN: &str = "https://uor.foundation/op/Algebraic";
 }
@@ -13323,6 +13416,9 @@ impl PrimitiveOp {
             Self::Ge => 2,
             Self::Gt => 2,
             Self::Concat => 2,
+            Self::Div => 2,
+            Self::Mod => 2,
+            Self::Pow => 2,
         }
     }
 
@@ -13357,6 +13453,9 @@ impl PrimitiveOp {
             Self::Ge => crate::enums::GeometricCharacter::ConstraintSelection,
             Self::Gt => crate::enums::GeometricCharacter::ConstraintSelection,
             Self::Concat => crate::enums::GeometricCharacter::HypercubeJoin,
+            Self::Div => crate::enums::GeometricCharacter::Quotient,
+            Self::Mod => crate::enums::GeometricCharacter::Remainder,
+            Self::Pow => crate::enums::GeometricCharacter::IteratedScaling,
         }
     }
 

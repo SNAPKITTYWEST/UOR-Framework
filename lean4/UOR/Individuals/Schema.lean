@@ -2514,6 +2514,70 @@ def term_DIS_2_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
 }
 
 -- 
+def term_DV_1_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_DV_1_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("div(a, 1)" : String))
+}
+
+-- 
+def term_DV_1_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("a" : String))
+}
+
+-- 
+def term_DV_2_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_DV_2_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("div(0, b)" : String))
+}
+
+-- 
+def term_DV_2_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("0" : String))
+}
+
+-- 
+def term_DV_3_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_DV_3_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("div(mul(a, b), b)" : String))
+}
+
+-- 
+def term_DV_3_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("a" : String))
+}
+
+-- 
+def term_DV_4_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_DV_4_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("a" : String))
+}
+
+-- 
+def term_DV_4_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("add(mul(div(a, b), b), mod(a, b))" : String))
+}
+
+-- 
 def term_D_1_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
   boundVariables := #[]
   quantifierKind := none
@@ -7247,6 +7311,54 @@ def term_PT_4_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
 -- 
 def term_PT_4_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
   literalValue := some (("S(A) + S(B)" : String))
+}
+
+-- 
+def term_PW_1_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_PW_1_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("pow(a, 0)" : String))
+}
+
+-- 
+def term_PW_1_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("1" : String))
+}
+
+-- 
+def term_PW_2_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_PW_2_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("pow(a, 1)" : String))
+}
+
+-- 
+def term_PW_2_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("a" : String))
+}
+
+-- 
+def term_PW_3_forAll : UOR.Kernel.Schema.ForAllDeclaration UOR.Prims.Standard := {
+  boundVariables := #[]
+  quantifierKind := none
+}
+
+-- 
+def term_PW_3_lhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("pow(a, add(b, c))" : String))
+}
+
+-- 
+def term_PW_3_rhs : UOR.Kernel.Schema.LiteralExpression UOR.Prims.Standard := {
+  literalValue := some (("mul(pow(a, b), pow(a, c))" : String))
 }
 
 -- 

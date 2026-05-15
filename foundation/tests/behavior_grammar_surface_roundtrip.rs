@@ -21,10 +21,7 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::{VerificationDomain, WittLevel};
 
-static SENTINEL_TERMS: &[Term] = &[Term::Literal {
-    value: 1,
-    level: WittLevel::W8,
-}];
+static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 // ─── CompileUnit ────────────────────────────────────────────────────────

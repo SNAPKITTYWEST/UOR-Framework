@@ -67,7 +67,10 @@ pub fn detect_enums(ontology: &Ontology) -> Vec<DetectedEnum> {
         if !op_variants.is_empty() {
             enums.push(DetectedEnum {
                 name: "PrimitiveOp",
-                comment: "The 10 primitive operations defined in the UOR Foundation.",
+                comment: "The 18 primitive operations defined in the UOR Foundation. \
+                    10 original (Neg/Bnot/Succ/Pred/Add/Sub/Mul/Xor/And/Or), \
+                    5 ADR-013/TR-08 substrate amendments (Le/Lt/Ge/Gt/Concat), \
+                    3 ADR-053 ring-axis completion (Div/Mod/Pow).",
                 variants: op_variants,
                 non_exhaustive: false,
             });
@@ -462,13 +465,14 @@ mod tests {
     }
 
     #[test]
-    fn primitive_op_has_15_variants() {
+    fn primitive_op_has_18_variants() {
         let ontology = Ontology::full();
         let enums = detect_enums(ontology);
         let prim_op = enums.iter().find(|e| e.name == "PrimitiveOp").unwrap();
         // 10 original (Neg/Bnot/Succ/Pred/Add/Sub/Mul/Xor/And/Or)
         // + 4 comparison (Le/Lt/Ge/Gt) per ADR-013/TR-08 substrate amendment
         // + 1 byte-packing (Concat) per ADR-013/TR-08 substrate amendment
-        assert_eq!(prim_op.variants.len(), 15);
+        // + 3 ring-axis completion (Div/Mod/Pow) per ADR-053
+        assert_eq!(prim_op.variants.len(), 18);
     }
 }

@@ -3019,6 +3019,90 @@ pub mod prf_r_m5 {
     pub const VERIFIED: bool = true;
 }
 
+/// Axiomatic derivation of DV_1 (div right-identity). Holds at every quantum level: floor(a / 1) = a.
+pub mod prf_dv_1 {
+    /// `provesIdentity` -> `DV_1`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/DV_1";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of DV_2 (div left-absorbing). Holds by the Euclidean-algorithm rule floor(0 / b) = 0 for b ≠ 0.
+pub mod prf_dv_2 {
+    /// `provesIdentity` -> `DV_2`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/DV_2";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of DV_3 (div-of-mul recovery). Holds whenever mul(a, b) is in the unit cone (no overflow); the Euclidean-algorithm yields q = a and r = 0.
+pub mod prf_dv_3 {
+    /// `provesIdentity` -> `DV_3`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/DV_3";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of DV_4 (Euclidean compatibility). Direct consequence of the Euclidean-algorithm definition: a = q·b + r with 0 ≤ r < b.
+pub mod prf_dv_4 {
+    /// `provesIdentity` -> `DV_4`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/DV_4";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of PW_1 (zero-exp identity). Base case of the square-and-multiply construction: empty product = 1.
+pub mod prf_pw_1 {
+    /// `provesIdentity` -> `PW_1`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/PW_1";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of PW_2 (unit-exp identity). Follows from PW_1 + one square-and-multiply step: a · 1 = a.
+pub mod prf_pw_2 {
+    /// `provesIdentity` -> `PW_2`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/PW_2";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
+/// Axiomatic derivation of PW_3 (additive-exp decomposition). Square-and-multiply reduces pow(a, b+c) to interleaved multiplications of pow(a, b) and pow(a, c) within the ring.
+pub mod prf_pw_3 {
+    /// `provesIdentity` -> `PW_3`
+    pub const PROVES_IDENTITY: &str = "https://uor.foundation/op/PW_3";
+    /// `strategy` -> `RingAxiom`
+    pub const STRATEGY: &str = "https://uor.foundation/proof/RingAxiom";
+    /// `universalScope`
+    pub const UNIVERSAL_SCOPE: bool = true;
+    /// `verified`
+    pub const VERIFIED: bool = true;
+}
+
 /// Axiomatic derivation of B_1. Holds at all quantum levels by definition of Z/(2^n)Z.
 pub mod prf_b_1 {
     /// `provesIdentity` -> `B_1`

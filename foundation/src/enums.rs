@@ -27,7 +27,7 @@ impl fmt::Display for Space {
     }
 }
 
-/// The 10 primitive operations defined in the UOR Foundation.
+/// The 18 primitive operations defined in the UOR Foundation. 10 original (Neg/Bnot/Succ/Pred/Add/Sub/Mul/Xor/And/Or), 5 ADR-013/TR-08 substrate amendments (Le/Lt/Ge/Gt/Concat), 3 ADR-053 ring-axis completion (Div/Mod/Pow).
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum PrimitiveOp {
@@ -62,6 +62,12 @@ pub enum PrimitiveOp {
     Gt,
     /// Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling.
     Concat,
+    /// Euclidean quotient: div(a, b) = q where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width.
+    Div,
+    /// Euclidean remainder: mod(a, b) = r where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width.
+    Mod,
+    /// Modular exponentiation: pow(base, exp) = base^exp mod 2^n. Fold-rule: square-and-multiply over exp bits. pow(_, 0) = 1; pow(0, b > 0) = 0.
+    Pow,
 }
 
 impl fmt::Display for PrimitiveOp {
@@ -82,6 +88,9 @@ impl fmt::Display for PrimitiveOp {
             Self::Ge => f.write_str("ge"),
             Self::Gt => f.write_str("gt"),
             Self::Concat => f.write_str("concat"),
+            Self::Div => f.write_str("div"),
+            Self::Mod => f.write_str("mod_"),
+            Self::Pow => f.write_str("pow"),
         }
     }
 }
@@ -152,6 +161,12 @@ pub enum GeometricCharacter {
     HypercubeProjection,
     /// Join on the hypercube lattice: or(x,y) = x ∨ y. Idempotent; dual to projection.
     HypercubeJoin,
+    /// Euclidean quotient along the ring axis: div(a,b) — the structural dual of Scaling. Geometric character of `op:div` per ADR-053.
+    Quotient,
+    /// Euclidean remainder along the ring axis: mod(a,b). Complement of Quotient — together they realize the divmod fold-rule. Geometric character of `op:mod` per ADR-053.
+    Remainder,
+    /// Iterated multiplicative scaling along the ring axis: pow(base, exp) = base^exp mod 2^n. Extends the multiplicative Scaling axis via square-and-multiply iteration. Geometric character of `op:pow` per ADR-053.
+    IteratedScaling,
     /// Geometric character of dispatch: constraint-guided selection over the resolver registry lattice.
     ConstraintSelection,
     /// Geometric character of inference: traversal through the φ-pipeline resolution graph P ∘ Π ∘ G.
@@ -176,6 +191,9 @@ impl fmt::Display for GeometricCharacter {
             Self::HypercubeTranslation => f.write_str("hypercube_translation"),
             Self::HypercubeProjection => f.write_str("hypercube_projection"),
             Self::HypercubeJoin => f.write_str("hypercube_join"),
+            Self::Quotient => f.write_str("quotient"),
+            Self::Remainder => f.write_str("remainder"),
+            Self::IteratedScaling => f.write_str("iterated_scaling"),
             Self::ConstraintSelection => f.write_str("constraint_selection"),
             Self::ResolutionTraversal => f.write_str("resolution_traversal"),
             Self::SiteBinding => f.write_str("site_binding"),

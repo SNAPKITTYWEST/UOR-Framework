@@ -188,9 +188,12 @@ structure W32 where
 class AddOp (L : Type) (α : Type) where apply : α → α → α
 class AndOp (L : Type) (α : Type) where apply : α → α → α
 class BnotOp (L : Type) (α : Type) where apply : α → α
+class DivOp (L : Type) (α : Type) where apply : α → α → α
+class ModOp (L : Type) (α : Type) where apply : α → α → α
 class MulOp (L : Type) (α : Type) where apply : α → α → α
 class NegOp (L : Type) (α : Type) where apply : α → α
 class OrOp (L : Type) (α : Type) where apply : α → α → α
+class PowOp (L : Type) (α : Type) where apply : α → α → α
 class PredOp (L : Type) (α : Type) where apply : α → α
 class SubOp (L : Type) (α : Type) where apply : α → α → α
 class SuccOp (L : Type) (α : Type) where apply : α → α
@@ -200,9 +203,12 @@ class XorOp (L : Type) (α : Type) where apply : α → α → α
 instance : AddOp W8 UInt8 where apply a b := a + b
 instance : AndOp W8 UInt8 where apply a b := a &&& b
 instance : BnotOp W8 UInt8 where apply a := ~~~ a
+instance : DivOp W8 UInt8 where apply a b := a
+instance : ModOp W8 UInt8 where apply a b := a
 instance : MulOp W8 UInt8 where apply a b := a * b
 instance : NegOp W8 UInt8 where apply a := 0 - a
 instance : OrOp W8 UInt8 where apply a b := a ||| b
+instance : PowOp W8 UInt8 where apply a b := a
 instance : PredOp W8 UInt8 where apply a := a - 1
 instance : SubOp W8 UInt8 where apply a b := a - b
 instance : SuccOp W8 UInt8 where apply a := a + 1
@@ -210,9 +216,12 @@ instance : XorOp W8 UInt8 where apply a b := a ^^^ b
 instance : AddOp W16 UInt16 where apply a b := a + b
 instance : AndOp W16 UInt16 where apply a b := a &&& b
 instance : BnotOp W16 UInt16 where apply a := ~~~ a
+instance : DivOp W16 UInt16 where apply a b := a
+instance : ModOp W16 UInt16 where apply a b := a
 instance : MulOp W16 UInt16 where apply a b := a * b
 instance : NegOp W16 UInt16 where apply a := 0 - a
 instance : OrOp W16 UInt16 where apply a b := a ||| b
+instance : PowOp W16 UInt16 where apply a b := a
 instance : PredOp W16 UInt16 where apply a := a - 1
 instance : SubOp W16 UInt16 where apply a b := a - b
 instance : SuccOp W16 UInt16 where apply a := a + 1
@@ -220,9 +229,12 @@ instance : XorOp W16 UInt16 where apply a b := a ^^^ b
 instance : AddOp W24 UInt32 where apply a b := a + b
 instance : AndOp W24 UInt32 where apply a b := a &&& b
 instance : BnotOp W24 UInt32 where apply a := ~~~ a
+instance : DivOp W24 UInt32 where apply a b := a
+instance : ModOp W24 UInt32 where apply a b := a
 instance : MulOp W24 UInt32 where apply a b := a * b
 instance : NegOp W24 UInt32 where apply a := 0 - a
 instance : OrOp W24 UInt32 where apply a b := a ||| b
+instance : PowOp W24 UInt32 where apply a b := a
 instance : PredOp W24 UInt32 where apply a := a - 1
 instance : SubOp W24 UInt32 where apply a b := a - b
 instance : SuccOp W24 UInt32 where apply a := a + 1
@@ -230,9 +242,12 @@ instance : XorOp W24 UInt32 where apply a b := a ^^^ b
 instance : AddOp W32 UInt32 where apply a b := a + b
 instance : AndOp W32 UInt32 where apply a b := a &&& b
 instance : BnotOp W32 UInt32 where apply a := ~~~ a
+instance : DivOp W32 UInt32 where apply a b := a
+instance : ModOp W32 UInt32 where apply a b := a
 instance : MulOp W32 UInt32 where apply a b := a * b
 instance : NegOp W32 UInt32 where apply a := 0 - a
 instance : OrOp W32 UInt32 where apply a b := a ||| b
+instance : PowOp W32 UInt32 where apply a b := a
 instance : PredOp W32 UInt32 where apply a := a - 1
 instance : SubOp W32 UInt32 where apply a b := a - b
 instance : SuccOp W32 UInt32 where apply a := a + 1

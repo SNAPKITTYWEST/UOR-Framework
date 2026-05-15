@@ -2037,6 +2037,58 @@ def DIS_2 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   validKMax := none
 }
 
+-- Division right-identity: div(a, 1) = a.
+def DV_1 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_DV_1_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_DV_1_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_DV_1_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
+-- Division left-absorbing: div(0, b) = 0 for b ≠ 0.
+def DV_2 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_DV_2_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_DV_2_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_DV_2_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
+-- Division-of-multiplication recovery: div(mul(a, b), b) = a for b ≠ 0 in the unit cone.
+def DV_3 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_DV_3_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_DV_3_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_DV_3_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
+-- Euclidean compatibility: a = add(mul(div(a, b), b), mod(a, b)) for b ≠ 0.
+def DV_4 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_DV_4_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_DV_4_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_DV_4_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
 -- Rotation order: succ^[2^n](x) = x.
 def D_1 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   lhs := some (UOR.Kernel.Schema.term_D_1_lhs.toTermExpression)
@@ -5885,6 +5937,45 @@ def PT_4 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   validKMax := none
 }
 
+-- Zero exponent identity: pow(a, 0) = 1.
+def PW_1 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_PW_1_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_PW_1_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_PW_1_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
+-- Unit exponent identity: pow(a, 1) = a.
+def PW_2 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_PW_2_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_PW_2_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_PW_2_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
+-- Additive exponent decomposition: pow(a, add(b, c)) = mul(pow(a, b), pow(a, c)).
+def PW_3 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
+  lhs := some (UOR.Kernel.Schema.term_PW_3_lhs.toTermExpression)
+  rhs := some (UOR.Kernel.Schema.term_PW_3_rhs.toTermExpression)
+  forAll := some (UOR.Kernel.Schema.term_PW_3_forAll)
+  verificationDomain := #[.algebraic]
+  verifiedAtLevel := #[]
+  universallyValid := none
+  validityKind := none
+  validKMin := none
+  validKMax := none
+}
+
 -- neg(bnot(x)) = succ(x) holds in Z/(2ⁿ)Z for all n ≥ 1. Universal form of the Critical Identity across all quantum levels.
 def QL_1 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   lhs := some (UOR.Kernel.Schema.term_QL_1_lhs.toTermExpression)
@@ -8114,6 +8205,18 @@ def dispatch : UOR.Kernel.Op.DispatchOperation UOR.Prims.Standard := {
   isRingOp := none
 }
 
+-- Euclidean quotient: div(a, b) = q where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width.
+def div : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := some (false)
+  associative := some (false)
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.quotient)
+  inverse := none
+  composedOf := none
+  isRingOp := some (true)
+}
+
 -- Byte-level greater-than-or-equal: ge(x, y) = 1 if x ≥ y else 0. Operands compared as big-endian unsigned byte sequences.
 def ge : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
   commutative := none
@@ -8230,6 +8333,18 @@ def lt : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
   inverse := none
   composedOf := none
   isRingOp := some (false)
+}
+
+-- Euclidean remainder: mod(a, b) = r where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width.
+def mod : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := some (false)
+  associative := some (false)
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.remainder)
+  inverse := none
+  composedOf := none
+  isRingOp := some (true)
 }
 
 -- Ring multiplication: mul(x, y) = (x × y) mod 2^n. Commutative, associative; identity element is 1.
@@ -8378,6 +8493,18 @@ def phi_6 : UOR.Kernel.Op.Identity UOR.Prims.Standard := {
   validityKind := none
   validKMin := none
   validKMax := none
+}
+
+-- Modular exponentiation: pow(base, exp) = base^exp mod 2^n. Fold-rule: square-and-multiply over exp bits. pow(_, 0) = 1; pow(0, b > 0) = 0.
+def pow : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
+  commutative := some (false)
+  associative := some (false)
+  identity := none
+  arity := some ((2 : Nat))
+  hasGeometricCharacter := some (.iteratedScaling)
+  inverse := none
+  composedOf := none
+  isRingOp := some (true)
 }
 
 -- Predecessor: pred(x) = bnot(neg(x)) = (x - 1) mod 2^n. The inverse of succ. pred is the composition bnot ∘ neg.

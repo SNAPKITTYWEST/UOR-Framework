@@ -86,11 +86,8 @@ fn empty_arena_evaluates_to_input_bytes() {
 
 #[test]
 fn literal_term_evaluates_to_value_bytes() {
-    // Term::Literal { value: 0x42, level: W8 } → single-byte 0x42.
-    let arena = [Term::Literal {
-        value: 0x42,
-        level: WittLevel::W8,
-    }];
+    // uor_foundation::pipeline::literal_u64(0x42, W8) → single-byte 0x42.
+    let arena = [uor_foundation::pipeline::literal_u64(0x42, WittLevel::W8)];
     let result = eval_zero(&arena, &[]).expect("literal evaluates");
     assert_eq!(result.bytes(), &[0x42][..]);
 }
@@ -99,14 +96,8 @@ fn literal_term_evaluates_to_value_bytes() {
 fn application_add_combines_args() {
     // [Literal(2), Literal(3), Application(Add, [0..2])] → 5 (1 byte).
     let arena = [
-        Term::Literal {
-            value: 2,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 3,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(2, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(3, WittLevel::W8),
         Term::Application {
             operator: PrimitiveOp::Add,
             args: TermList { start: 0, len: 2 },
@@ -164,10 +155,7 @@ fn lift_term_zero_extends_to_target_width() {
     // Term::Lift big-endian zero-extends a narrower value to the target
     // Witt level's byte width.
     let arena = [
-        Term::Literal {
-            value: 0x42,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0x42, WittLevel::W8),
         Term::Lift {
             operand_index: 0,
             target: WittLevel::W32,
@@ -182,10 +170,7 @@ fn lift_term_zero_extends_to_target_width() {
 fn project_term_truncates_to_target_width() {
     // Term::Project takes the trailing `target_width` bytes of the operand.
     let arena = [
-        Term::Literal {
-            value: 0xdeadbeef,
-            level: WittLevel::W32,
-        },
+        uor_foundation::pipeline::literal_u64(0xdeadbeef, WittLevel::W32),
         Term::Project {
             operand_index: 0,
             target: WittLevel::W8,
@@ -206,26 +191,11 @@ fn match_term_dispatches_on_literal_pattern() {
     //   4: Literal(0xbb, W8)          body arm 2 (does not match)
     //   5: Match { scrutinee: 0, arms: [1..5] }
     let arena = [
-        Term::Literal {
-            value: 7,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 7,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 0xaa,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 9,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 0xbb,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(7, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(7, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(0xaa, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(9, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(0xbb, WittLevel::W8),
         Term::Match {
             scrutinee_index: 0,
             arms: TermList { start: 1, len: 4 },
@@ -240,17 +210,11 @@ fn match_term_falls_through_to_wildcard_arm() {
     // Wildcard pattern is `Variable { name_index: u32::MAX }`. When the
     // scrutinee matches no literal arm, the wildcard's body is taken.
     let arena = [
-        Term::Literal {
-            value: 99,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(99, WittLevel::W8),
         Term::Variable {
             name_index: u32::MAX,
         },
-        Term::Literal {
-            value: 0xfa,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0xfa, WittLevel::W8),
         Term::Match {
             scrutinee_index: 0,
             arms: TermList { start: 1, len: 2 },
@@ -269,23 +233,14 @@ fn recurse_term_iterates_step_n_times() {
     use uor_foundation::pipeline::RECURSE_PLACEHOLDER_NAME_INDEX;
     let arena = [
         // 0: measure literal — 3 (one byte)
-        Term::Literal {
-            value: 3,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(3, WittLevel::W8),
         // 1: base literal — 10 (one byte)
-        Term::Literal {
-            value: 10,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(10, WittLevel::W8),
         // 2: step body — Add(placeholder, 1)
         Term::Variable {
             name_index: RECURSE_PLACEHOLDER_NAME_INDEX,
         },
-        Term::Literal {
-            value: 1,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(1, WittLevel::W8),
         Term::Application {
             operator: PrimitiveOp::Add,
             args: TermList { start: 2, len: 2 },
@@ -305,14 +260,8 @@ fn recurse_term_iterates_step_n_times() {
 fn recurse_zero_measure_returns_base() {
     // measure = 0 → base case.
     let arena = [
-        Term::Literal {
-            value: 0,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: 0xbe,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(0xbe, WittLevel::W8),
         // Step: identity (will not run).
         Term::Variable { name_index: 0 },
         Term::Recurse {
@@ -332,19 +281,13 @@ fn unfold_term_iterates_to_kleene_fixpoint() {
     use uor_foundation::pipeline::UNFOLD_PLACEHOLDER_NAME_INDEX;
     let arena = [
         // 0: seed literal — 0
-        Term::Literal {
-            value: 0,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0, WittLevel::W8),
         // 1: state placeholder
         Term::Variable {
             name_index: UNFOLD_PLACEHOLDER_NAME_INDEX,
         },
         // 2: 0xff literal
-        Term::Literal {
-            value: 0xff,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0xff, WittLevel::W8),
         // 3: Or(state, 0xff)
         Term::Application {
             operator: PrimitiveOp::Or,
@@ -364,10 +307,7 @@ fn unfold_term_iterates_to_kleene_fixpoint() {
 fn try_term_propagates_success() {
     // Body succeeds → handler is not invoked.
     let arena = [
-        Term::Literal {
-            value: 0x77,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0x77, WittLevel::W8),
         Term::Try {
             body_index: 0,
             handler_index: u32::MAX,
@@ -388,15 +328,9 @@ fn recurse_two_param_form_binds_iteration_counter() {
     use uor_foundation::pipeline::RECURSE_IDX_NAME_INDEX;
     let arena = [
         // 0: measure literal — 3
-        Term::Literal {
-            value: 3,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(3, WittLevel::W8),
         // 1: base literal — 0
-        Term::Literal {
-            value: 0,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0, WittLevel::W8),
         // 2: step body — Variable referencing the iteration counter
         Term::Variable {
             name_index: RECURSE_IDX_NAME_INDEX,
@@ -425,10 +359,7 @@ fn first_admit_returns_found_coproduct_on_admission() {
     use uor_foundation::pipeline::FIRST_ADMIT_IDX_NAME_INDEX;
     let arena = [
         // 0: domain size = 5
-        Term::Literal {
-            value: 5,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(5, WittLevel::W8),
         // 1: predicate body = Variable referencing the candidate idx
         Term::Variable {
             name_index: FIRST_ADMIT_IDX_NAME_INDEX,
@@ -451,15 +382,9 @@ fn first_admit_returns_not_found_coproduct_on_exhausted_search() {
     // not-found coproduct value (0x00, idx-width zero padding).
     let arena = [
         // 0: domain size = 4
-        Term::Literal {
-            value: 4,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(4, WittLevel::W8),
         // 1: predicate body = Literal(0) — always rejects.
-        Term::Literal {
-            value: 0,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0, WittLevel::W8),
         // 2: FirstAdmit
         Term::FirstAdmit {
             domain_size_index: 0,
@@ -522,10 +447,7 @@ fn project_field_term_slices_source_bytes() {
     let arena = [
         // 0: Source — a 4-byte literal (treated as a partition_product
         // of two 2-byte halves at byte offsets 0 and 2).
-        Term::Literal {
-            value: 0xdeadbeef,
-            level: WittLevel::W32,
-        },
+        uor_foundation::pipeline::literal_u64(0xdeadbeef, WittLevel::W32),
         // 1: Project field 1 → bytes [2..4] = [0xbe, 0xef].
         Term::ProjectField {
             source_index: 0,
@@ -544,10 +466,7 @@ fn project_field_out_of_bounds_rejects() {
     // offsets/lengths from PartitionProductFields, but hand-built arenas
     // and replay-from-trace paths may exercise this guard.
     let arena = [
-        Term::Literal {
-            value: 0x42,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0x42, WittLevel::W8),
         Term::ProjectField {
             source_index: 0,
             byte_offset: 0,
@@ -565,14 +484,8 @@ fn project_field_out_of_bounds_rejects() {
 
 fn binary_op_arena(op: PrimitiveOp, lhs: u64, rhs: u64) -> [Term; 3] {
     [
-        Term::Literal {
-            value: lhs,
-            level: WittLevel::W8,
-        },
-        Term::Literal {
-            value: rhs,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(lhs, WittLevel::W8),
+        uor_foundation::pipeline::literal_u64(rhs, WittLevel::W8),
         Term::Application {
             operator: op,
             args: TermList { start: 0, len: 2 },
@@ -610,14 +523,8 @@ fn comparison_primitives_emit_zero_or_one() {
 fn concat_primitive_packs_byte_sequences() {
     // ADR-013/TR-08: Concat appends rhs's bytes to lhs's.
     let arena = [
-        Term::Literal {
-            value: 0xabcd,
-            level: WittLevel::W16,
-        },
-        Term::Literal {
-            value: 0x1234,
-            level: WittLevel::W16,
-        },
+        uor_foundation::pipeline::literal_u64(0xabcd, WittLevel::W16),
+        uor_foundation::pipeline::literal_u64(0x1234, WittLevel::W16),
         Term::Application {
             operator: PrimitiveOp::Concat,
             args: TermList { start: 0, len: 2 },
@@ -655,10 +562,7 @@ fn unary_primitives_match_ring_semantics() {
     ];
     for (op, operand, expected) in cases {
         let arena = [
-            Term::Literal {
-                value: operand,
-                level: WittLevel::W8,
-            },
+            uor_foundation::pipeline::literal_u64(operand, WittLevel::W8),
             Term::Application {
                 operator: op,
                 args: TermList { start: 0, len: 1 },
@@ -711,10 +615,7 @@ fn betti_term_is_resolver_free_passthrough() {
     // NullResolverTuple, evaluating Term::Betti over a literal homology
     // payload must succeed and return the bytes unchanged.
     let arena = [
-        Term::Literal {
-            value: 0x42,
-            level: WittLevel::W8,
-        },
+        uor_foundation::pipeline::literal_u64(0x42, WittLevel::W8),
         Term::Betti { homology_index: 0 },
     ];
     let result = eval_zero(&arena, &[]).expect("betti is resolver-free");

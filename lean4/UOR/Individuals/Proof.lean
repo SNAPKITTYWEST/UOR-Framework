@@ -2265,6 +2265,62 @@ def prf_DIS_2 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
   formalDerivation := none
 }
 
+-- Axiomatic derivation of DV_1 (div right-identity). Holds at every quantum level: floor(a / 1) = a.
+def prf_DV_1 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.DV_1)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of DV_2 (div left-absorbing). Holds by the Euclidean-algorithm rule floor(0 / b) = 0 for b ≠ 0.
+def prf_DV_2 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.DV_2)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of DV_3 (div-of-mul recovery). Holds whenever mul(a, b) is in the unit cone (no overflow); the Euclidean-algorithm yields q = a and r = 0.
+def prf_DV_3 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.DV_3)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of DV_4 (Euclidean compatibility). Direct consequence of the Euclidean-algorithm definition: a = q·b + r with 0 ≤ r < b.
+def prf_DV_4 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.DV_4)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
 -- Axiomatic derivation of D_1. Holds at all quantum levels by definition of Z/(2^n)Z.
 def prf_D_1 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
   universalScope := some (true)
@@ -6404,6 +6460,48 @@ def prf_PT_4 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
   provesIdentity := some (UOR.Kernel.Op.PT_4)
   verifiedAtLevel := #[]
   strategy := some (.simplification)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of PW_1 (zero-exp identity). Base case of the square-and-multiply construction: empty product = 1.
+def prf_PW_1 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.PW_1)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of PW_2 (unit-exp identity). Follows from PW_1 + one square-and-multiply step: a · 1 = a.
+def prf_PW_2 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.PW_2)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
+  dependsOn := #[]
+  formalDerivation := none
+}
+
+-- Axiomatic derivation of PW_3 (additive-exp decomposition). Square-and-multiply reduces pow(a, b+c) to interleaved multiplications of pow(a, b) and pow(a, c) within the ring.
+def prf_PW_3 : UOR.Bridge.Proof.AxiomaticDerivation UOR.Prims.Standard := {
+  universalScope := some (true)
+  derivationWitness := #[]
+  verified := some (true)
+  timestamp := none
+  witness := #[]
+  provesIdentity := some (UOR.Kernel.Op.PW_3)
+  verifiedAtLevel := #[]
+  strategy := some (.ringAxiom)
   dependsOn := #[]
   formalDerivation := none
 }

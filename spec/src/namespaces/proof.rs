@@ -1196,6 +1196,189 @@ fn individuals() -> Vec<Individual> {
                 ),
             ],
         },
+        // ADR-053 ring-axis completion: proofs for the 7 Euclidean-division
+        // and modular-exponentiation identities. Each is an axiomatic
+        // derivation grounded in the Euclidean-algorithm and square-and-
+        // multiply construction of `pipeline::apply_primitive_op` /
+        // `const_ring_eval_w{n}` per ADR-050.
+        Individual {
+            id: "https://uor.foundation/proof/prf_DV_1",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_DV_1",
+            comment: "Axiomatic derivation of DV_1 (div right-identity). Holds at \
+                      every quantum level: floor(a / 1) = a.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/DV_1"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_DV_2",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_DV_2",
+            comment: "Axiomatic derivation of DV_2 (div left-absorbing). Holds by \
+                      the Euclidean-algorithm rule floor(0 / b) = 0 for b ≠ 0.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/DV_2"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_DV_3",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_DV_3",
+            comment: "Axiomatic derivation of DV_3 (div-of-mul recovery). Holds \
+                      whenever mul(a, b) is in the unit cone (no overflow); the \
+                      Euclidean-algorithm yields q = a and r = 0.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/DV_3"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_DV_4",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_DV_4",
+            comment: "Axiomatic derivation of DV_4 (Euclidean compatibility). \
+                      Direct consequence of the Euclidean-algorithm definition: \
+                      a = q·b + r with 0 ≤ r < b.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/DV_4"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_PW_1",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_PW_1",
+            comment: "Axiomatic derivation of PW_1 (zero-exp identity). Base case \
+                      of the square-and-multiply construction: empty product = 1.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/PW_1"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_PW_2",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_PW_2",
+            comment: "Axiomatic derivation of PW_2 (unit-exp identity). Follows \
+                      from PW_1 + one square-and-multiply step: a · 1 = a.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/PW_2"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/proof/prf_PW_3",
+            type_: "https://uor.foundation/proof/AxiomaticDerivation",
+            label: "prf_PW_3",
+            comment: "Axiomatic derivation of PW_3 (additive-exp decomposition). \
+                      Square-and-multiply reduces pow(a, b+c) to interleaved \
+                      multiplications of pow(a, b) and pow(a, c) within the ring.",
+            properties: &[
+                (
+                    "https://uor.foundation/proof/provesIdentity",
+                    IndividualValue::IriRef("https://uor.foundation/op/PW_3"),
+                ),
+                (
+                    "https://uor.foundation/proof/universalScope",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/verified",
+                    IndividualValue::Bool(true),
+                ),
+                (
+                    "https://uor.foundation/proof/strategy",
+                    IndividualValue::IriRef("https://uor.foundation/proof/RingAxiom"),
+                ),
+            ],
+        },
         Individual {
             id: "https://uor.foundation/proof/prf_B_1",
             type_: "https://uor.foundation/proof/AxiomaticDerivation",

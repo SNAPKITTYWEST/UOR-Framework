@@ -892,7 +892,7 @@ fn generate_witness_types(f: &mut RustFile) {
          // Validated<T> proves that a value passed conformance checking.\n\
          // You cannot construct one directly — only builder validate() methods\n\
          // and the minting boundary produce them.\n\
-         let terms = [Term::Literal { value: 1, level: WittLevel::W8 }];\n\
+         let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
          let domains = [VerificationDomain::Enumerative];\n\
          \n\
          let validated = CompileUnitBuilder::new()\n\
@@ -1789,8 +1789,8 @@ fn generate_term_ast(f: &mut RustFile) {
          let mut arena = TermArena::<4>::new();\n\
          \n\
          // Push leaves first:\n\
-         let idx_3 = arena.push(Term::Literal { value: 3, level: WittLevel::W8 });\n\
-         let idx_5 = arena.push(Term::Literal { value: 5, level: WittLevel::W8 });\n\
+         let idx_3 = arena.push(uor_foundation::pipeline::literal_u64(3, WittLevel::W8));\n\
+         let idx_5 = arena.push(uor_foundation::pipeline::literal_u64(5, WittLevel::W8));\n\
          \n\
          // Push the application node, referencing the leaves by index:\n\
          let idx_add = arena.push(Term::Application {\n\
@@ -1923,7 +1923,7 @@ fn generate_term_ast(f: &mut RustFile) {
          use uor_foundation::{WittLevel, PrimitiveOp};\n\
          \n\
          // Literal: an integer value tagged with a Witt level.\n\
-         let lit = Term::Literal { value: 42, level: WittLevel::W8 };\n\
+         let lit = uor_foundation::pipeline::literal_u64(42, WittLevel::W8);\n\
          \n\
          // Application: an operation applied to arguments.\n\
          // `args` is a TermList { start, len } pointing into a TermArena.\n\
@@ -1939,12 +1939,28 @@ fn generate_term_ast(f: &mut RustFile) {
          let proj = Term::Project { operand_index: 0, target: WittLevel::W8 };",
         "rust",
     );
+    // ADR-051: `Term::Literal` carries a `TermValue` (a fixed-capacity
+    // 4096-byte buffer) so wide-Witt literals (W128+) are natively
+    // representable without `Concat` composition. Other Term variants
+    // are 8-32 bytes, so the size difference triggers
+    // `clippy::large_enum_variant` — the trade-off is accepted per ADR-051
+    // (rejected alternative 2 forbids a separate `LiteralWide` variant).
+    f.line("#[allow(clippy::large_enum_variant)]");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
     f.line("pub enum Term {");
-    f.indented_doc_comment("Integer literal with Witt level annotation.");
+    f.indented_doc_comment("Integer literal with Witt level annotation. Per ADR-051 the value");
+    f.indented_doc_comment(
+        "carrier is a `TermValue` byte sequence whose length matches the declared",
+    );
+    f.indented_doc_comment(
+        "`level`'s byte width. Use `uor_foundation::pipeline::literal_u64(value, level)`",
+    );
+    f.indented_doc_comment("to construct a literal from a `u64` value (the narrow form).");
     f.line("    Literal {");
-    f.line("        /// The literal integer value.");
-    f.line("        value: u64,");
+    f.line("        /// The literal value as a byte sequence (ADR-051). Length equals");
+    f.line("        /// `level.witt_length() / 8`. Wider widths (W128, W256, …) are");
+    f.line("        /// natively representable without `Concat` composition.");
+    f.line("        value: crate::pipeline::TermValue,");
     f.line("        /// The Witt level of this literal.");
     f.line("        level: WittLevel,");
     f.line("    },");
@@ -2472,7 +2488,7 @@ fn generate_builders(f: &mut RustFile) {
          \n\
          // A CompileUnit packages a term graph for reduction admission.\n\
          // The builder enforces that all required fields are present.\n\
-         let terms = [Term::Literal { value: 1, level: WittLevel::W8 }];\n\
+         let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
          let domains = [VerificationDomain::Enumerative];\n\
          \n\
          let unit = CompileUnitBuilder::new()\n\
@@ -3711,6 +3727,10 @@ fn generate_const_ring_eval(f: &mut RustFile, ontology: &Ontology) {
 
         f.line("#[inline]");
         f.line("#[must_use]");
+        // ADR-053: `if b == 0 { 0 } else { a / b }` is the const-fn-compatible
+        // safe-divisor pattern; `checked_div().unwrap_or(0)` is not const-eval
+        // on stable Rust 1.83 because `Option::unwrap_or` is not const.
+        f.line("#[allow(clippy::manual_checked_ops)]");
         f.line(&format!(
             "pub const fn const_ring_eval_{lower}(op: PrimitiveOp, a: {rust_ty}, b: {rust_ty}) -> {rust_ty} {{"
         ));
@@ -3758,8 +3778,62 @@ fn generate_const_ring_eval(f: &mut RustFile, ontology: &Ontology) {
         // via `apply_primitive_op`. Const-ring helpers return the ring's
         // additive identity for completeness.
         f.line("        PrimitiveOp::Concat => 0,");
+        // ADR-053 substrate amendment: ring-axis completion under Γ = {+,−,×,÷,mod,^}.
+        // Div / Mod: Euclidean division; b = 0 is rejected at runtime by the
+        // catamorphism (`apply_primitive_op` returns a ShapeViolation). The
+        // const-eval helpers cannot raise errors, so they treat b = 0 as the
+        // ring's additive identity to keep `const fn` total.
+        f.line(&format!(
+            "        PrimitiveOp::Div => if b == 0 {{ 0 }} else {{ {} }},",
+            apply_mask("a / b".to_string())
+        ));
+        f.line(&format!(
+            "        PrimitiveOp::Mod => if b == 0 {{ 0 }} else {{ {} }},",
+            apply_mask("a % b".to_string())
+        ));
+        // Pow: modular exponentiation by repeated squaring within the
+        // width's ring; emitted as a const-evaluable expression that walks
+        // the exponent's bits MSB→LSB. Implemented as a helper because
+        // const fn cannot loop over the bit pattern of `b` directly.
+        f.line(&format!(
+            "        PrimitiveOp::Pow => {},",
+            apply_mask(format!("const_pow_{lower}(a, b)"))
+        ));
         f.line("        _ => 0,");
         f.line("    }");
+        f.line("}");
+        f.blank();
+
+        // ADR-053: const-evaluable square-and-multiply for Pow over the
+        // native ring width. Total in `const fn`.
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "pub const fn const_pow_{lower}(base: {rust_ty}, exp: {rust_ty}) -> {rust_ty} {{"
+        ));
+        if needs_mask {
+            f.line(&format!("    const MASK: {rust_ty} = {mask_lit};"));
+        }
+        f.line(&format!("    let mut result: {rust_ty} = 1;"));
+        f.line(&format!(
+            "    let mut b: {rust_ty} = {};",
+            apply_mask("base".to_string())
+        ));
+        f.line(&format!("    let mut e: {rust_ty} = exp;"));
+        f.line("    while e > 0 {");
+        f.line("        if (e & 1) == 1 {");
+        f.line(&format!(
+            "            result = {};",
+            apply_mask("result.wrapping_mul(b)".to_string())
+        ));
+        f.line("        }");
+        f.line(&format!(
+            "        b = {};",
+            apply_mask("b.wrapping_mul(b)".to_string())
+        ));
+        f.line("        e >>= 1;");
+        f.line("    }");
+        f.line("    result");
         f.line("}");
         f.blank();
 
@@ -3864,6 +3938,19 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
             f.line(&format!(
                 "        PrimitiveOp::Concat => Limbs::<{limb_count}>::zero(),"
             ));
+            // ADR-053 substrate amendment: Div/Mod/Pow over Limbs widths.
+            // Div / Mod: const-eval helpers cannot raise errors; b = 0 is
+            // rejected by the runtime catamorphism. Helpers return the
+            // ring's additive identity to keep `const fn` total.
+            f.line(&format!(
+                "        PrimitiveOp::Div => if limbs_is_zero_{limb_count}(b) {{ Limbs::<{limb_count}>::zero() }} else {{ limbs_div_{limb_count}(a, b) }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Mod => if limbs_is_zero_{limb_count}(b) {{ Limbs::<{limb_count}>::zero() }} else {{ limbs_mod_{limb_count}(a, b) }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Pow => limbs_pow_{limb_count}(a, b),"
+            ));
             f.line("    }");
         } else {
             f.line("    let raw = match op {");
@@ -3897,6 +3984,16 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
             ));
             f.line(&format!(
                 "        PrimitiveOp::Concat => Limbs::<{limb_count}>::zero(),"
+            ));
+            // ADR-053: Div/Mod/Pow with high-bit mask applied below.
+            f.line(&format!(
+                "        PrimitiveOp::Div => if limbs_is_zero_{limb_count}(b) {{ Limbs::<{limb_count}>::zero() }} else {{ limbs_div_{limb_count}(a, b) }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Mod => if limbs_is_zero_{limb_count}(b) {{ Limbs::<{limb_count}>::zero() }} else {{ limbs_mod_{limb_count}(a, b) }},"
+            ));
+            f.line(&format!(
+                "        PrimitiveOp::Pow => limbs_pow_{limb_count}(a, b),"
             ));
             f.line("    };");
             f.line(&format!("    raw.mask_high_bits({bits})"));
@@ -3966,6 +4063,163 @@ fn generate_const_ring_eval_limbs(f: &mut RustFile, ontology: &Ontology) {
         f.line("        if aw[i] > bw[i] { return false; }");
         f.line("    }");
         f.line("    true");
+        f.line("}");
+        f.blank();
+    }
+
+    // ADR-053 substrate amendment: const-eval Div/Mod/Pow helpers for the
+    // Limbs widths. `limbs_is_zero_N` is a constant-time zero check; the
+    // binary-long-division companion lets `const_ring_eval_w{n}` produce
+    // Euclidean quotient and remainder at compile time. `limbs_pow_N`
+    // uses square-and-multiply in the ring (`mod 2^(width)` is folded
+    // into the caller's `mask_high_bits`).
+    f.doc_comment("ADR-053: zero-check, binary-long-division, and square-and-multiply");
+    f.doc_comment("helpers used by the const-fn `Div`/`Mod`/`Pow` arms of `const_ring_eval_w{n}`.");
+    for &n in &ns {
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_is_zero_{n}(a: Limbs<{n}>) -> bool {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line("    let mut i = 0usize;");
+        f.line(&format!("    while i < {n} {{"));
+        f.line("        if aw[i] != 0 { return false; }");
+        f.line("        i += 1;");
+        f.line("    }");
+        f.line("    true");
+        f.line("}");
+        f.blank();
+
+        // Limb-level shift-left by one bit, used by binary long division.
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_shl1_{n}(a: Limbs<{n}>) -> Limbs<{n}> {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line(&format!("    let mut out = [0u64; {n}];"));
+        f.line("    let mut carry: u64 = 0;");
+        f.line("    let mut i = 0usize;");
+        f.line(&format!("    while i < {n} {{"));
+        f.line("        let v = aw[i];");
+        f.line("        out[i] = (v << 1) | carry;");
+        f.line("        carry = v >> 63;");
+        f.line("        i += 1;");
+        f.line("    }");
+        f.line(&format!("    Limbs::<{n}>::from_words(out)"));
+        f.line("}");
+        f.blank();
+
+        // Set bit 0 of a limbs value.
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_set_bit0_{n}(a: Limbs<{n}>) -> Limbs<{n}> {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line(&format!("    let mut out = [0u64; {n}];"));
+        f.line("    let mut i = 0usize;");
+        f.line(&format!("    while i < {n} {{"));
+        f.line("        out[i] = aw[i];");
+        f.line("        i += 1;");
+        f.line("    }");
+        f.line("    out[0] |= 1u64;");
+        f.line(&format!("    Limbs::<{n}>::from_words(out)"));
+        f.line("}");
+        f.blank();
+
+        // Get bit `b` (counted from MSB across all words). Used by long
+        // division: 0 is the highest bit of word[N-1], N*64-1 is bit 0 of
+        // word[0].
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_bit_msb_{n}(a: Limbs<{n}>, msb_index: usize) -> u64 {{"
+        ));
+        f.line("    let aw = a.words();");
+        f.line(&format!("    let total_bits = {n} * 64;"));
+        f.line("    let lsb_index = total_bits - 1 - msb_index;");
+        f.line("    let word = lsb_index / 64;");
+        f.line("    let bit = lsb_index % 64;");
+        f.line("    (aw[word] >> bit) & 1u64");
+        f.line("}");
+        f.blank();
+
+        // Binary long division: standard MSB→LSB shift-subtract algorithm.
+        // Returns (quotient, remainder) as a pair packaged as Limbs pair.
+        // Caller passes b != 0 (guarded by `limbs_is_zero_N`).
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_divmod_{n}(a: Limbs<{n}>, b: Limbs<{n}>) -> (Limbs<{n}>, Limbs<{n}>) {{"
+        ));
+        f.line(&format!("    let mut q = Limbs::<{n}>::zero();"));
+        f.line(&format!("    let mut r = Limbs::<{n}>::zero();"));
+        f.line(&format!("    let total_bits = {n} * 64;"));
+        f.line("    let mut i = 0usize;");
+        f.line("    while i < total_bits {");
+        f.line(&format!("        r = limbs_shl1_{n}(r);"));
+        f.line(&format!("        if limbs_bit_msb_{n}(a, i) == 1 {{"));
+        f.line(&format!("            r = limbs_set_bit0_{n}(r);"));
+        f.line("        }");
+        f.line(&format!("        if limbs_le_{n}(b, r) {{"));
+        f.line("            r = r.wrapping_sub(b);");
+        f.line(&format!("            q = limbs_shl1_{n}(q);"));
+        f.line(&format!("            q = limbs_set_bit0_{n}(q);"));
+        f.line("        } else {");
+        f.line(&format!("            q = limbs_shl1_{n}(q);"));
+        f.line("        }");
+        f.line("        i += 1;");
+        f.line("    }");
+        f.line("    (q, r)");
+        f.line("}");
+        f.blank();
+
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_div_{n}(a: Limbs<{n}>, b: Limbs<{n}>) -> Limbs<{n}> {{"
+        ));
+        f.line(&format!("    let (q, _) = limbs_divmod_{n}(a, b);"));
+        f.line("    q");
+        f.line("}");
+        f.blank();
+
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_mod_{n}(a: Limbs<{n}>, b: Limbs<{n}>) -> Limbs<{n}> {{"
+        ));
+        f.line(&format!("    let (_, r) = limbs_divmod_{n}(a, b);"));
+        f.line("    r");
+        f.line("}");
+        f.blank();
+
+        // Square-and-multiply. Walks the exponent's bits LSB→MSB through
+        // each limb-word; relies on caller's mask_high_bits to enforce the
+        // ring's bit-width discipline.
+        f.line("#[inline]");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "const fn limbs_pow_{n}(base: Limbs<{n}>, exp: Limbs<{n}>) -> Limbs<{n}> {{"
+        ));
+        f.line(&format!("    let mut result = limbs_one_{n}();"));
+        f.line("    let mut b = base;");
+        f.line("    let ew = exp.words();");
+        f.line("    let mut word = 0usize;");
+        f.line(&format!("    while word < {n} {{"));
+        f.line("        let mut bit = 0u32;");
+        f.line("        while bit < 64 {");
+        f.line("            if ((ew[word] >> bit) & 1u64) == 1u64 {");
+        f.line("                result = result.wrapping_mul(b);");
+        f.line("            }");
+        f.line("            b = b.wrapping_mul(b);");
+        f.line("            bit += 1;");
+        f.line("        }");
+        f.line("        word += 1;");
+        f.line("    }");
+        f.line("    result");
         f.line("}");
         f.blank();
     }
@@ -5186,7 +5440,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 7;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 8;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");
@@ -5486,6 +5740,10 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("        crate::PrimitiveOp::Ge => 12,");
     f.line("        crate::PrimitiveOp::Gt => 13,");
     f.line("        crate::PrimitiveOp::Concat => 14,");
+    f.line("        // ADR-053 substrate amendment: ring-axis arithmetic completion.");
+    f.line("        crate::PrimitiveOp::Div => 15,");
+    f.line("        crate::PrimitiveOp::Mod => 16,");
+    f.line("        crate::PrimitiveOp::Pow => 17,");
     f.line("    }");
     f.line("}");
     f.blank();
@@ -10349,7 +10607,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
     f.indented_doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] } }");
     f.indented_doc_comment(
-        "static TERMS: &[Term] = &[Term::Literal { value: 7, level: WittLevel::W8 }];",
+        "static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];",
     );
     f.indented_doc_comment(
         "static DOMS: &[VerificationDomain] = &[VerificationDomain::Enumerative];",

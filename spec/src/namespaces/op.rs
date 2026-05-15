@@ -1032,6 +1032,40 @@ fn raw_individuals_vec() -> Vec<Individual> {
                       Idempotent; dual to projection.",
             properties: &[],
         },
+        // Wiki ADR-053: three ring-axis arithmetic geometric characters
+        // for Div/Mod/Pow per the catalog extension. The fold-rule
+        // dual-naming preserves the dihedral-group action structure
+        // (`Quotient` ⊣ `Scaling`, `Remainder` complements `Quotient`,
+        // `IteratedScaling` extends the multiplicative `Scaling` axis).
+        Individual {
+            id: "https://uor.foundation/op/Quotient",
+            type_: "https://uor.foundation/op/GeometricCharacter",
+            label: "Quotient",
+            comment: "Euclidean quotient along the ring axis: div(a,b) — the \
+                      structural dual of Scaling. Geometric character of \
+                      `op:div` per ADR-053.",
+            properties: &[],
+        },
+        Individual {
+            id: "https://uor.foundation/op/Remainder",
+            type_: "https://uor.foundation/op/GeometricCharacter",
+            label: "Remainder",
+            comment: "Euclidean remainder along the ring axis: mod(a,b). \
+                      Complement of Quotient — together they realize the \
+                      divmod fold-rule. Geometric character of `op:mod` \
+                      per ADR-053.",
+            properties: &[],
+        },
+        Individual {
+            id: "https://uor.foundation/op/IteratedScaling",
+            type_: "https://uor.foundation/op/GeometricCharacter",
+            label: "IteratedScaling",
+            comment: "Iterated multiplicative scaling along the ring axis: \
+                      pow(base, exp) = base^exp mod 2^n. Extends the \
+                      multiplicative Scaling axis via square-and-multiply \
+                      iteration. Geometric character of `op:pow` per ADR-053.",
+            properties: &[],
+        },
         // Amendment 62: Composed-operation geometric characters (5)
         Individual {
             id: "https://uor.foundation/op/ConstraintSelection",
@@ -1400,6 +1434,85 @@ fn raw_individuals_vec() -> Vec<Individual> {
                 ),
             ],
         },
+        // Wiki ADR-053: three ring-axis arithmetic primitives extending the
+        // closed PrimitiveOp catalog. Each is realized as a
+        // folding-transformation fold-rule per ADR-050's width-parametric
+        // evaluation. Discriminant ordering preserves the prior 15-variant
+        // layout (Neg=0..Concat=14); Div/Mod/Pow append at 15/16/17.
+        Individual {
+            id: "https://uor.foundation/op/div",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "div",
+            comment: "Euclidean quotient: div(a, b) = q where a = q·b + r, \
+                      0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a \
+                      ShapeViolation. Operands read as unsigned big-endian \
+                      integers at the operand width.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(true)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/Quotient"),
+                ),
+                (
+                    "https://uor.foundation/op/commutative",
+                    IndividualValue::Bool(false),
+                ),
+                (
+                    "https://uor.foundation/op/associative",
+                    IndividualValue::Bool(false),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/mod",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "mod",
+            comment: "Euclidean remainder: mod(a, b) = r where a = q·b + r, \
+                      0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a \
+                      ShapeViolation. Operands read as unsigned big-endian \
+                      integers at the operand width.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(true)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/Remainder"),
+                ),
+                (
+                    "https://uor.foundation/op/commutative",
+                    IndividualValue::Bool(false),
+                ),
+                (
+                    "https://uor.foundation/op/associative",
+                    IndividualValue::Bool(false),
+                ),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/pow",
+            type_: "https://uor.foundation/op/BinaryOp",
+            label: "pow",
+            comment: "Modular exponentiation: pow(base, exp) = base^exp mod 2^n. \
+                      Fold-rule: square-and-multiply over exp bits. \
+                      pow(_, 0) = 1; pow(0, b > 0) = 0.",
+            properties: &[
+                ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
+                ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(true)),
+                (
+                    "https://uor.foundation/op/hasGeometricCharacter",
+                    IndividualValue::IriRef("https://uor.foundation/op/IteratedScaling"),
+                ),
+                (
+                    "https://uor.foundation/op/commutative",
+                    IndividualValue::Bool(false),
+                ),
+                (
+                    "https://uor.foundation/op/associative",
+                    IndividualValue::Bool(false),
+                ),
+            ],
+        },
         // Amendment 62: 5 composed operation individuals
         Individual {
             id: "https://uor.foundation/op/dispatch",
@@ -1752,6 +1865,95 @@ fn raw_individuals_vec() -> Vec<Individual> {
                 ("https://uor.foundation/op/lhs", IndividualValue::Str("mul(x, 0)")),
                 ("https://uor.foundation/op/rhs", IndividualValue::Str("0")),
                 ("https://uor.foundation/op/forAll", IndividualValue::Str("x ∈ R_n")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        // ADR-053 Ring-axis completion: Euclidean division identities (DV_1..4)
+        // and modular-exponentiation identities (PW_1..3). Each governs the
+        // corresponding fold-rule in pipeline::apply_primitive_op and the
+        // const-eval `const_ring_eval_w{n}` helpers per ADR-050's width-
+        // parametric kernel.
+        Individual {
+            id: "https://uor.foundation/op/DV_1",
+            type_: "https://uor.foundation/op/Identity",
+            label: "DV_1",
+            comment: "Division right-identity: div(a, 1) = a.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("div(a, 1)")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("a")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a ∈ R_n")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/DV_2",
+            type_: "https://uor.foundation/op/Identity",
+            label: "DV_2",
+            comment: "Division left-absorbing: div(0, b) = 0 for b ≠ 0.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("div(0, b)")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("0")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("b ∈ R_n, b ≠ 0")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/DV_3",
+            type_: "https://uor.foundation/op/Identity",
+            label: "DV_3",
+            comment: "Division-of-multiplication recovery: div(mul(a, b), b) = a for b ≠ 0 in the unit cone.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("div(mul(a, b), b)")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("a")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a, b ∈ R_n, b ≠ 0, mul(a, b) does not overflow")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/DV_4",
+            type_: "https://uor.foundation/op/Identity",
+            label: "DV_4",
+            comment: "Euclidean compatibility: a = add(mul(div(a, b), b), mod(a, b)) for b ≠ 0.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("a")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("add(mul(div(a, b), b), mod(a, b))")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a, b ∈ R_n, b ≠ 0")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/PW_1",
+            type_: "https://uor.foundation/op/Identity",
+            label: "PW_1",
+            comment: "Zero exponent identity: pow(a, 0) = 1.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("pow(a, 0)")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("1")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a ∈ R_n")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/PW_2",
+            type_: "https://uor.foundation/op/Identity",
+            label: "PW_2",
+            comment: "Unit exponent identity: pow(a, 1) = a.",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("pow(a, 1)")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("a")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a ∈ R_n")),
+                ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
+            ],
+        },
+        Individual {
+            id: "https://uor.foundation/op/PW_3",
+            type_: "https://uor.foundation/op/Identity",
+            label: "PW_3",
+            comment: "Additive exponent decomposition: pow(a, add(b, c)) = mul(pow(a, b), pow(a, c)).",
+            properties: &[
+                ("https://uor.foundation/op/lhs", IndividualValue::Str("pow(a, add(b, c))")),
+                ("https://uor.foundation/op/rhs", IndividualValue::Str("mul(pow(a, b), pow(a, c))")),
+                ("https://uor.foundation/op/forAll", IndividualValue::Str("a, b, c ∈ R_n")),
                 ("https://uor.foundation/op/verificationDomain", IndividualValue::IriRef("https://uor.foundation/op/Algebraic")),
             ],
         },

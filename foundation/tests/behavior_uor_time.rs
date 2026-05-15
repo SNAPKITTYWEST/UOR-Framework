@@ -33,10 +33,7 @@ type Calibration = uor_foundation::enforcement::Calibration<DefaultHostTypes>;
 type LandauerBudget = uor_foundation::enforcement::LandauerBudget<DefaultHostTypes>;
 type UorTime = uor_foundation::enforcement::UorTime<DefaultHostTypes>;
 
-static SENTINEL_TERMS: &[Term] = &[Term::Literal {
-    value: 1,
-    level: WittLevel::W8,
-}];
+static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static>, CompileTime> {

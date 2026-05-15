@@ -25,10 +25,7 @@ use uor_foundation::pipeline::validate_compile_unit_const;
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
 
-static SENTINEL_TERMS: &[Term] = &[Term::Literal {
-    value: 1,
-    level: WittLevel::W8,
-}];
+static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn build_unit() -> Validated<CompileUnit<'static>, uor_foundation::enforcement::CompileTime> {

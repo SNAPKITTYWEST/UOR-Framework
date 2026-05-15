@@ -17,10 +17,7 @@ use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
 
-static ROOT_TERMS: &[Term] = &[Term::Literal {
-    value: 42,
-    level: WittLevel::W8,
-}];
+static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 /// A Utf8-projection sink: renders a grounded value as a host-readable

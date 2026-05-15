@@ -894,7 +894,7 @@ impl ValidationPhase for Runtime {}
 /// // Validated<T> proves that a value passed conformance checking.
 /// // You cannot construct one directly — only builder validate() methods
 /// // and the minting boundary produce them.
-/// let terms = [Term::Literal { value: 1, level: WittLevel::W8 }];
+/// let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 /// let domains = [VerificationDomain::Enumerative];
 ///
 /// let validated = CompileUnitBuilder::new()
@@ -1647,8 +1647,8 @@ pub struct TermList {
 /// let mut arena = TermArena::<4>::new();
 ///
 /// // Push leaves first:
-/// let idx_3 = arena.push(Term::Literal { value: 3, level: WittLevel::W8 });
-/// let idx_5 = arena.push(Term::Literal { value: 5, level: WittLevel::W8 });
+/// let idx_3 = arena.push(uor_foundation::pipeline::literal_u64(3, WittLevel::W8));
+/// let idx_5 = arena.push(uor_foundation::pipeline::literal_u64(5, WittLevel::W8));
 ///
 /// // Push the application node, referencing the leaves by index:
 /// let idx_add = arena.push(Term::Application {
@@ -1778,7 +1778,7 @@ impl<const CAP: usize> Default for TermArena<CAP> {
 /// use uor_foundation::{WittLevel, PrimitiveOp};
 ///
 /// // Literal: an integer value tagged with a Witt level.
-/// let lit = Term::Literal { value: 42, level: WittLevel::W8 };
+/// let lit = uor_foundation::pipeline::literal_u64(42, WittLevel::W8);
 ///
 /// // Application: an operation applied to arguments.
 /// // `args` is a TermList { start, len } pointing into a TermArena.
@@ -1793,12 +1793,18 @@ impl<const CAP: usize> Default for TermArena<CAP> {
 /// // Project: canonical surjection from a higher to a lower level.
 /// let proj = Term::Project { operand_index: 0, target: WittLevel::W8 };
 /// ```
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Term {
-    /// Integer literal with Witt level annotation.
+    /// Integer literal with Witt level annotation. Per ADR-051 the value
+    /// carrier is a `TermValue` byte sequence whose length matches the declared
+    /// `level`'s byte width. Use `uor_foundation::pipeline::literal_u64(value, level)`
+    /// to construct a literal from a `u64` value (the narrow form).
     Literal {
-        /// The literal integer value.
-        value: u64,
+        /// The literal value as a byte sequence (ADR-051). Length equals
+        /// `level.witt_length() / 8`. Wider widths (W128, W256, …) are
+        /// natively representable without `Concat` composition.
+        value: crate::pipeline::TermValue,
         /// The Witt level of this literal.
         level: WittLevel,
     },
@@ -2274,7 +2280,7 @@ impl ShapeViolation {
 ///
 /// // A CompileUnit packages a term graph for reduction admission.
 /// // The builder enforces that all required fields are present.
-/// let terms = [Term::Literal { value: 1, level: WittLevel::W8 }];
+/// let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 /// let domains = [VerificationDomain::Enumerative];
 ///
 /// let unit = CompileUnitBuilder::new()
@@ -4309,6 +4315,7 @@ pub const fn mint_freerank(total: u32, pinned: u32) -> FreeRank {
 /// ```
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w8(op: PrimitiveOp, a: u8, b: u8) -> u8 {
     match op {
         PrimitiveOp::Add => a.wrapping_add(b),
@@ -4322,8 +4329,39 @@ pub const fn const_ring_eval_w8(op: PrimitiveOp, a: u8, b: u8) -> u8 {
         PrimitiveOp::Ge => (a >= b) as u8,
         PrimitiveOp::Gt => (a > b) as u8,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                a / b
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                a % b
+            }
+        }
+        PrimitiveOp::Pow => const_pow_w8(a, b),
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w8(base: u8, exp: u8) -> u8 {
+    let mut result: u8 = 1;
+    let mut b: u8 = base;
+    let mut e: u8 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b);
+        }
+        b = b.wrapping_mul(b);
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4340,6 +4378,7 @@ pub const fn const_ring_eval_unary_w8(op: PrimitiveOp, a: u8) -> u8 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w16(op: PrimitiveOp, a: u16, b: u16) -> u16 {
     match op {
         PrimitiveOp::Add => a.wrapping_add(b),
@@ -4353,8 +4392,39 @@ pub const fn const_ring_eval_w16(op: PrimitiveOp, a: u16, b: u16) -> u16 {
         PrimitiveOp::Ge => (a >= b) as u16,
         PrimitiveOp::Gt => (a > b) as u16,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                a / b
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                a % b
+            }
+        }
+        PrimitiveOp::Pow => const_pow_w16(a, b),
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w16(base: u16, exp: u16) -> u16 {
+    let mut result: u16 = 1;
+    let mut b: u16 = base;
+    let mut e: u16 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b);
+        }
+        b = b.wrapping_mul(b);
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4371,6 +4441,7 @@ pub const fn const_ring_eval_unary_w16(op: PrimitiveOp, a: u16) -> u16 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w24(op: PrimitiveOp, a: u32, b: u32) -> u32 {
     const MASK: u32 = (u64::MAX >> (64 - 24)) as u32;
     match op {
@@ -4385,8 +4456,40 @@ pub const fn const_ring_eval_w24(op: PrimitiveOp, a: u32, b: u32) -> u32 {
         PrimitiveOp::Ge => (a >= b) as u32,
         PrimitiveOp::Gt => (a > b) as u32,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w24(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w24(base: u32, exp: u32) -> u32 {
+    const MASK: u32 = (u64::MAX >> (64 - 24)) as u32;
+    let mut result: u32 = 1;
+    let mut b: u32 = (base) & MASK;
+    let mut e: u32 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4404,6 +4507,7 @@ pub const fn const_ring_eval_unary_w24(op: PrimitiveOp, a: u32) -> u32 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w32(op: PrimitiveOp, a: u32, b: u32) -> u32 {
     match op {
         PrimitiveOp::Add => a.wrapping_add(b),
@@ -4417,8 +4521,39 @@ pub const fn const_ring_eval_w32(op: PrimitiveOp, a: u32, b: u32) -> u32 {
         PrimitiveOp::Ge => (a >= b) as u32,
         PrimitiveOp::Gt => (a > b) as u32,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                a / b
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                a % b
+            }
+        }
+        PrimitiveOp::Pow => const_pow_w32(a, b),
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w32(base: u32, exp: u32) -> u32 {
+    let mut result: u32 = 1;
+    let mut b: u32 = base;
+    let mut e: u32 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b);
+        }
+        b = b.wrapping_mul(b);
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4435,6 +4570,7 @@ pub const fn const_ring_eval_unary_w32(op: PrimitiveOp, a: u32) -> u32 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w40(op: PrimitiveOp, a: u64, b: u64) -> u64 {
     const MASK: u64 = u64::MAX >> (64 - 40);
     match op {
@@ -4449,8 +4585,40 @@ pub const fn const_ring_eval_w40(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Ge => (a >= b) as u64,
         PrimitiveOp::Gt => (a > b) as u64,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w40(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w40(base: u64, exp: u64) -> u64 {
+    const MASK: u64 = u64::MAX >> (64 - 40);
+    let mut result: u64 = 1;
+    let mut b: u64 = (base) & MASK;
+    let mut e: u64 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4468,6 +4636,7 @@ pub const fn const_ring_eval_unary_w40(op: PrimitiveOp, a: u64) -> u64 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w48(op: PrimitiveOp, a: u64, b: u64) -> u64 {
     const MASK: u64 = u64::MAX >> (64 - 48);
     match op {
@@ -4482,8 +4651,40 @@ pub const fn const_ring_eval_w48(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Ge => (a >= b) as u64,
         PrimitiveOp::Gt => (a > b) as u64,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w48(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w48(base: u64, exp: u64) -> u64 {
+    const MASK: u64 = u64::MAX >> (64 - 48);
+    let mut result: u64 = 1;
+    let mut b: u64 = (base) & MASK;
+    let mut e: u64 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4501,6 +4702,7 @@ pub const fn const_ring_eval_unary_w48(op: PrimitiveOp, a: u64) -> u64 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w56(op: PrimitiveOp, a: u64, b: u64) -> u64 {
     const MASK: u64 = u64::MAX >> (64 - 56);
     match op {
@@ -4515,8 +4717,40 @@ pub const fn const_ring_eval_w56(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Ge => (a >= b) as u64,
         PrimitiveOp::Gt => (a > b) as u64,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w56(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w56(base: u64, exp: u64) -> u64 {
+    const MASK: u64 = u64::MAX >> (64 - 56);
+    let mut result: u64 = 1;
+    let mut b: u64 = (base) & MASK;
+    let mut e: u64 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4534,6 +4768,7 @@ pub const fn const_ring_eval_unary_w56(op: PrimitiveOp, a: u64) -> u64 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w64(op: PrimitiveOp, a: u64, b: u64) -> u64 {
     match op {
         PrimitiveOp::Add => a.wrapping_add(b),
@@ -4547,8 +4782,39 @@ pub const fn const_ring_eval_w64(op: PrimitiveOp, a: u64, b: u64) -> u64 {
         PrimitiveOp::Ge => (a >= b) as u64,
         PrimitiveOp::Gt => (a > b) as u64,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                a / b
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                a % b
+            }
+        }
+        PrimitiveOp::Pow => const_pow_w64(a, b),
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w64(base: u64, exp: u64) -> u64 {
+    let mut result: u64 = 1;
+    let mut b: u64 = base;
+    let mut e: u64 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b);
+        }
+        b = b.wrapping_mul(b);
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4565,6 +4831,7 @@ pub const fn const_ring_eval_unary_w64(op: PrimitiveOp, a: u64) -> u64 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w72(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 72);
     match op {
@@ -4579,8 +4846,40 @@ pub const fn const_ring_eval_w72(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w72(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w72(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 72);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4598,6 +4897,7 @@ pub const fn const_ring_eval_unary_w72(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w80(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 80);
     match op {
@@ -4612,8 +4912,40 @@ pub const fn const_ring_eval_w80(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w80(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w80(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 80);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4631,6 +4963,7 @@ pub const fn const_ring_eval_unary_w80(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w88(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 88);
     match op {
@@ -4645,8 +4978,40 @@ pub const fn const_ring_eval_w88(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w88(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w88(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 88);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4664,6 +5029,7 @@ pub const fn const_ring_eval_unary_w88(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w96(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 96);
     match op {
@@ -4678,8 +5044,40 @@ pub const fn const_ring_eval_w96(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w96(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w96(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 96);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4697,6 +5095,7 @@ pub const fn const_ring_eval_unary_w96(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w104(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 104);
     match op {
@@ -4711,8 +5110,40 @@ pub const fn const_ring_eval_w104(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w104(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w104(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 104);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4730,6 +5161,7 @@ pub const fn const_ring_eval_unary_w104(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w112(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 112);
     match op {
@@ -4744,8 +5176,40 @@ pub const fn const_ring_eval_w112(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w112(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w112(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 112);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4763,6 +5227,7 @@ pub const fn const_ring_eval_unary_w112(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w120(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     const MASK: u128 = u128::MAX >> (128 - 120);
     match op {
@@ -4777,8 +5242,40 @@ pub const fn const_ring_eval_w120(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                (a / b) & MASK
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                (a % b) & MASK
+            }
+        }
+        PrimitiveOp::Pow => (const_pow_w120(a, b)) & MASK,
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w120(base: u128, exp: u128) -> u128 {
+    const MASK: u128 = u128::MAX >> (128 - 120);
+    let mut result: u128 = 1;
+    let mut b: u128 = (base) & MASK;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = (result.wrapping_mul(b)) & MASK;
+        }
+        b = (b.wrapping_mul(b)) & MASK;
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -4796,6 +5293,7 @@ pub const fn const_ring_eval_unary_w120(op: PrimitiveOp, a: u128) -> u128 {
 
 #[inline]
 #[must_use]
+#[allow(clippy::manual_checked_ops)]
 pub const fn const_ring_eval_w128(op: PrimitiveOp, a: u128, b: u128) -> u128 {
     match op {
         PrimitiveOp::Add => a.wrapping_add(b),
@@ -4809,8 +5307,39 @@ pub const fn const_ring_eval_w128(op: PrimitiveOp, a: u128, b: u128) -> u128 {
         PrimitiveOp::Ge => (a >= b) as u128,
         PrimitiveOp::Gt => (a > b) as u128,
         PrimitiveOp::Concat => 0,
+        PrimitiveOp::Div => {
+            if b == 0 {
+                0
+            } else {
+                a / b
+            }
+        }
+        PrimitiveOp::Mod => {
+            if b == 0 {
+                0
+            } else {
+                a % b
+            }
+        }
+        PrimitiveOp::Pow => const_pow_w128(a, b),
         _ => 0,
     }
+}
+
+#[inline]
+#[must_use]
+pub const fn const_pow_w128(base: u128, exp: u128) -> u128 {
+    let mut result: u128 = 1;
+    let mut b: u128 = base;
+    let mut e: u128 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b);
+        }
+        b = b.wrapping_mul(b);
+        e >>= 1;
+    }
+    result
 }
 
 #[inline]
@@ -6622,7 +7151,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 7;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 8;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate
@@ -6880,6 +7409,10 @@ pub const fn primitive_op_discriminant(op: crate::PrimitiveOp) -> u8 {
         crate::PrimitiveOp::Ge => 12,
         crate::PrimitiveOp::Gt => 13,
         crate::PrimitiveOp::Concat => 14,
+        // ADR-053 substrate amendment: ring-axis arithmetic completion.
+        crate::PrimitiveOp::Div => 15,
+        crate::PrimitiveOp::Mod => 16,
+        crate::PrimitiveOp::Pow => 17,
     }
 }
 
@@ -14777,6 +15310,21 @@ pub const fn const_ring_eval_w160(op: PrimitiveOp, a: Limbs<3>, b: Limbs<3>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<3>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_3(b) {
+                Limbs::<3>::zero()
+            } else {
+                limbs_div_3(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_3(b) {
+                Limbs::<3>::zero()
+            } else {
+                limbs_mod_3(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_3(a, b),
     };
     raw.mask_high_bits(160)
 }
@@ -14824,6 +15372,21 @@ pub const fn const_ring_eval_w192(op: PrimitiveOp, a: Limbs<3>, b: Limbs<3>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<3>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_3(b) {
+                Limbs::<3>::zero()
+            } else {
+                limbs_div_3(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_3(b) {
+                Limbs::<3>::zero()
+            } else {
+                limbs_mod_3(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_3(a, b),
     }
 }
 
@@ -14870,6 +15433,21 @@ pub const fn const_ring_eval_w224(op: PrimitiveOp, a: Limbs<4>, b: Limbs<4>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<4>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_4(b) {
+                Limbs::<4>::zero()
+            } else {
+                limbs_div_4(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_4(b) {
+                Limbs::<4>::zero()
+            } else {
+                limbs_mod_4(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_4(a, b),
     };
     raw.mask_high_bits(224)
 }
@@ -14917,6 +15495,21 @@ pub const fn const_ring_eval_w256(op: PrimitiveOp, a: Limbs<4>, b: Limbs<4>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<4>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_4(b) {
+                Limbs::<4>::zero()
+            } else {
+                limbs_div_4(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_4(b) {
+                Limbs::<4>::zero()
+            } else {
+                limbs_mod_4(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_4(a, b),
     }
 }
 
@@ -14963,6 +15556,21 @@ pub const fn const_ring_eval_w384(op: PrimitiveOp, a: Limbs<6>, b: Limbs<6>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<6>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_6(b) {
+                Limbs::<6>::zero()
+            } else {
+                limbs_div_6(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_6(b) {
+                Limbs::<6>::zero()
+            } else {
+                limbs_mod_6(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_6(a, b),
     }
 }
 
@@ -15009,6 +15617,21 @@ pub const fn const_ring_eval_w448(op: PrimitiveOp, a: Limbs<7>, b: Limbs<7>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<7>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_7(b) {
+                Limbs::<7>::zero()
+            } else {
+                limbs_div_7(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_7(b) {
+                Limbs::<7>::zero()
+            } else {
+                limbs_mod_7(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_7(a, b),
     }
 }
 
@@ -15055,6 +15678,21 @@ pub const fn const_ring_eval_w512(op: PrimitiveOp, a: Limbs<8>, b: Limbs<8>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<8>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_8(b) {
+                Limbs::<8>::zero()
+            } else {
+                limbs_div_8(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_8(b) {
+                Limbs::<8>::zero()
+            } else {
+                limbs_mod_8(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_8(a, b),
     }
 }
 
@@ -15101,6 +15739,21 @@ pub const fn const_ring_eval_w520(op: PrimitiveOp, a: Limbs<9>, b: Limbs<9>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<9>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_9(b) {
+                Limbs::<9>::zero()
+            } else {
+                limbs_div_9(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_9(b) {
+                Limbs::<9>::zero()
+            } else {
+                limbs_mod_9(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_9(a, b),
     };
     raw.mask_high_bits(520)
 }
@@ -15148,6 +15801,21 @@ pub const fn const_ring_eval_w528(op: PrimitiveOp, a: Limbs<9>, b: Limbs<9>) -> 
             }
         }
         PrimitiveOp::Concat => Limbs::<9>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_9(b) {
+                Limbs::<9>::zero()
+            } else {
+                limbs_div_9(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_9(b) {
+                Limbs::<9>::zero()
+            } else {
+                limbs_mod_9(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_9(a, b),
     };
     raw.mask_high_bits(528)
 }
@@ -15195,6 +15863,21 @@ pub const fn const_ring_eval_w1024(op: PrimitiveOp, a: Limbs<16>, b: Limbs<16>) 
             }
         }
         PrimitiveOp::Concat => Limbs::<16>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_16(b) {
+                Limbs::<16>::zero()
+            } else {
+                limbs_div_16(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_16(b) {
+                Limbs::<16>::zero()
+            } else {
+                limbs_mod_16(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_16(a, b),
     }
 }
 
@@ -15241,6 +15924,21 @@ pub const fn const_ring_eval_w2048(op: PrimitiveOp, a: Limbs<32>, b: Limbs<32>) 
             }
         }
         PrimitiveOp::Concat => Limbs::<32>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_32(b) {
+                Limbs::<32>::zero()
+            } else {
+                limbs_div_32(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_32(b) {
+                Limbs::<32>::zero()
+            } else {
+                limbs_mod_32(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_32(a, b),
     }
 }
 
@@ -15287,6 +15985,21 @@ pub const fn const_ring_eval_w4096(op: PrimitiveOp, a: Limbs<64>, b: Limbs<64>) 
             }
         }
         PrimitiveOp::Concat => Limbs::<64>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_64(b) {
+                Limbs::<64>::zero()
+            } else {
+                limbs_div_64(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_64(b) {
+                Limbs::<64>::zero()
+            } else {
+                limbs_mod_64(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_64(a, b),
     }
 }
 
@@ -15333,6 +16046,21 @@ pub const fn const_ring_eval_w8192(op: PrimitiveOp, a: Limbs<128>, b: Limbs<128>
             }
         }
         PrimitiveOp::Concat => Limbs::<128>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_128(b) {
+                Limbs::<128>::zero()
+            } else {
+                limbs_div_128(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_128(b) {
+                Limbs::<128>::zero()
+            } else {
+                limbs_mod_128(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_128(a, b),
     }
 }
 
@@ -15379,6 +16107,21 @@ pub const fn const_ring_eval_w12288(op: PrimitiveOp, a: Limbs<192>, b: Limbs<192
             }
         }
         PrimitiveOp::Concat => Limbs::<192>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_192(b) {
+                Limbs::<192>::zero()
+            } else {
+                limbs_div_192(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_192(b) {
+                Limbs::<192>::zero()
+            } else {
+                limbs_mod_192(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_192(a, b),
     }
 }
 
@@ -15425,6 +16168,21 @@ pub const fn const_ring_eval_w16384(op: PrimitiveOp, a: Limbs<256>, b: Limbs<256
             }
         }
         PrimitiveOp::Concat => Limbs::<256>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_256(b) {
+                Limbs::<256>::zero()
+            } else {
+                limbs_div_256(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_256(b) {
+                Limbs::<256>::zero()
+            } else {
+                limbs_mod_256(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_256(a, b),
     }
 }
 
@@ -15471,6 +16229,21 @@ pub const fn const_ring_eval_w32768(op: PrimitiveOp, a: Limbs<512>, b: Limbs<512
             }
         }
         PrimitiveOp::Concat => Limbs::<512>::zero(),
+        PrimitiveOp::Div => {
+            if limbs_is_zero_512(b) {
+                Limbs::<512>::zero()
+            } else {
+                limbs_div_512(a, b)
+            }
+        }
+        PrimitiveOp::Mod => {
+            if limbs_is_zero_512(b) {
+                Limbs::<512>::zero()
+            } else {
+                limbs_mod_512(a, b)
+            }
+        }
+        PrimitiveOp::Pow => limbs_pow_512(a, b),
     }
 }
 
@@ -16113,6 +16886,1490 @@ const fn limbs_le_512(a: Limbs<512>, b: Limbs<512>) -> bool {
         }
     }
     true
+}
+
+/// ADR-053: zero-check, binary-long-division, and square-and-multiply
+/// helpers used by the const-fn `Div`/`Mod`/`Pow` arms of `const_ring_eval_w{n}`.
+#[inline]
+#[must_use]
+const fn limbs_is_zero_3(a: Limbs<3>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 3 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_3(a: Limbs<3>) -> Limbs<3> {
+    let aw = a.words();
+    let mut out = [0u64; 3];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 3 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<3>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_3(a: Limbs<3>) -> Limbs<3> {
+    let aw = a.words();
+    let mut out = [0u64; 3];
+    let mut i = 0usize;
+    while i < 3 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<3>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_3(a: Limbs<3>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 3 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_3(a: Limbs<3>, b: Limbs<3>) -> (Limbs<3>, Limbs<3>) {
+    let mut q = Limbs::<3>::zero();
+    let mut r = Limbs::<3>::zero();
+    let total_bits = 3 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_3(r);
+        if limbs_bit_msb_3(a, i) == 1 {
+            r = limbs_set_bit0_3(r);
+        }
+        if limbs_le_3(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_3(q);
+            q = limbs_set_bit0_3(q);
+        } else {
+            q = limbs_shl1_3(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_3(a: Limbs<3>, b: Limbs<3>) -> Limbs<3> {
+    let (q, _) = limbs_divmod_3(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_3(a: Limbs<3>, b: Limbs<3>) -> Limbs<3> {
+    let (_, r) = limbs_divmod_3(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_3(base: Limbs<3>, exp: Limbs<3>) -> Limbs<3> {
+    let mut result = limbs_one_3();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 3 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_4(a: Limbs<4>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 4 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_4(a: Limbs<4>) -> Limbs<4> {
+    let aw = a.words();
+    let mut out = [0u64; 4];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 4 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<4>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_4(a: Limbs<4>) -> Limbs<4> {
+    let aw = a.words();
+    let mut out = [0u64; 4];
+    let mut i = 0usize;
+    while i < 4 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<4>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_4(a: Limbs<4>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 4 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_4(a: Limbs<4>, b: Limbs<4>) -> (Limbs<4>, Limbs<4>) {
+    let mut q = Limbs::<4>::zero();
+    let mut r = Limbs::<4>::zero();
+    let total_bits = 4 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_4(r);
+        if limbs_bit_msb_4(a, i) == 1 {
+            r = limbs_set_bit0_4(r);
+        }
+        if limbs_le_4(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_4(q);
+            q = limbs_set_bit0_4(q);
+        } else {
+            q = limbs_shl1_4(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_4(a: Limbs<4>, b: Limbs<4>) -> Limbs<4> {
+    let (q, _) = limbs_divmod_4(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_4(a: Limbs<4>, b: Limbs<4>) -> Limbs<4> {
+    let (_, r) = limbs_divmod_4(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_4(base: Limbs<4>, exp: Limbs<4>) -> Limbs<4> {
+    let mut result = limbs_one_4();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 4 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_6(a: Limbs<6>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 6 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_6(a: Limbs<6>) -> Limbs<6> {
+    let aw = a.words();
+    let mut out = [0u64; 6];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 6 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<6>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_6(a: Limbs<6>) -> Limbs<6> {
+    let aw = a.words();
+    let mut out = [0u64; 6];
+    let mut i = 0usize;
+    while i < 6 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<6>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_6(a: Limbs<6>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 6 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_6(a: Limbs<6>, b: Limbs<6>) -> (Limbs<6>, Limbs<6>) {
+    let mut q = Limbs::<6>::zero();
+    let mut r = Limbs::<6>::zero();
+    let total_bits = 6 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_6(r);
+        if limbs_bit_msb_6(a, i) == 1 {
+            r = limbs_set_bit0_6(r);
+        }
+        if limbs_le_6(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_6(q);
+            q = limbs_set_bit0_6(q);
+        } else {
+            q = limbs_shl1_6(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_6(a: Limbs<6>, b: Limbs<6>) -> Limbs<6> {
+    let (q, _) = limbs_divmod_6(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_6(a: Limbs<6>, b: Limbs<6>) -> Limbs<6> {
+    let (_, r) = limbs_divmod_6(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_6(base: Limbs<6>, exp: Limbs<6>) -> Limbs<6> {
+    let mut result = limbs_one_6();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 6 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_7(a: Limbs<7>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 7 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_7(a: Limbs<7>) -> Limbs<7> {
+    let aw = a.words();
+    let mut out = [0u64; 7];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 7 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<7>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_7(a: Limbs<7>) -> Limbs<7> {
+    let aw = a.words();
+    let mut out = [0u64; 7];
+    let mut i = 0usize;
+    while i < 7 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<7>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_7(a: Limbs<7>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 7 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_7(a: Limbs<7>, b: Limbs<7>) -> (Limbs<7>, Limbs<7>) {
+    let mut q = Limbs::<7>::zero();
+    let mut r = Limbs::<7>::zero();
+    let total_bits = 7 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_7(r);
+        if limbs_bit_msb_7(a, i) == 1 {
+            r = limbs_set_bit0_7(r);
+        }
+        if limbs_le_7(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_7(q);
+            q = limbs_set_bit0_7(q);
+        } else {
+            q = limbs_shl1_7(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_7(a: Limbs<7>, b: Limbs<7>) -> Limbs<7> {
+    let (q, _) = limbs_divmod_7(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_7(a: Limbs<7>, b: Limbs<7>) -> Limbs<7> {
+    let (_, r) = limbs_divmod_7(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_7(base: Limbs<7>, exp: Limbs<7>) -> Limbs<7> {
+    let mut result = limbs_one_7();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 7 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_8(a: Limbs<8>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 8 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_8(a: Limbs<8>) -> Limbs<8> {
+    let aw = a.words();
+    let mut out = [0u64; 8];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 8 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<8>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_8(a: Limbs<8>) -> Limbs<8> {
+    let aw = a.words();
+    let mut out = [0u64; 8];
+    let mut i = 0usize;
+    while i < 8 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<8>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_8(a: Limbs<8>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 8 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_8(a: Limbs<8>, b: Limbs<8>) -> (Limbs<8>, Limbs<8>) {
+    let mut q = Limbs::<8>::zero();
+    let mut r = Limbs::<8>::zero();
+    let total_bits = 8 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_8(r);
+        if limbs_bit_msb_8(a, i) == 1 {
+            r = limbs_set_bit0_8(r);
+        }
+        if limbs_le_8(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_8(q);
+            q = limbs_set_bit0_8(q);
+        } else {
+            q = limbs_shl1_8(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_8(a: Limbs<8>, b: Limbs<8>) -> Limbs<8> {
+    let (q, _) = limbs_divmod_8(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_8(a: Limbs<8>, b: Limbs<8>) -> Limbs<8> {
+    let (_, r) = limbs_divmod_8(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_8(base: Limbs<8>, exp: Limbs<8>) -> Limbs<8> {
+    let mut result = limbs_one_8();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 8 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_9(a: Limbs<9>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 9 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_9(a: Limbs<9>) -> Limbs<9> {
+    let aw = a.words();
+    let mut out = [0u64; 9];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 9 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<9>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_9(a: Limbs<9>) -> Limbs<9> {
+    let aw = a.words();
+    let mut out = [0u64; 9];
+    let mut i = 0usize;
+    while i < 9 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<9>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_9(a: Limbs<9>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 9 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_9(a: Limbs<9>, b: Limbs<9>) -> (Limbs<9>, Limbs<9>) {
+    let mut q = Limbs::<9>::zero();
+    let mut r = Limbs::<9>::zero();
+    let total_bits = 9 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_9(r);
+        if limbs_bit_msb_9(a, i) == 1 {
+            r = limbs_set_bit0_9(r);
+        }
+        if limbs_le_9(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_9(q);
+            q = limbs_set_bit0_9(q);
+        } else {
+            q = limbs_shl1_9(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_9(a: Limbs<9>, b: Limbs<9>) -> Limbs<9> {
+    let (q, _) = limbs_divmod_9(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_9(a: Limbs<9>, b: Limbs<9>) -> Limbs<9> {
+    let (_, r) = limbs_divmod_9(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_9(base: Limbs<9>, exp: Limbs<9>) -> Limbs<9> {
+    let mut result = limbs_one_9();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 9 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_16(a: Limbs<16>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 16 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_16(a: Limbs<16>) -> Limbs<16> {
+    let aw = a.words();
+    let mut out = [0u64; 16];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 16 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<16>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_16(a: Limbs<16>) -> Limbs<16> {
+    let aw = a.words();
+    let mut out = [0u64; 16];
+    let mut i = 0usize;
+    while i < 16 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<16>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_16(a: Limbs<16>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 16 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_16(a: Limbs<16>, b: Limbs<16>) -> (Limbs<16>, Limbs<16>) {
+    let mut q = Limbs::<16>::zero();
+    let mut r = Limbs::<16>::zero();
+    let total_bits = 16 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_16(r);
+        if limbs_bit_msb_16(a, i) == 1 {
+            r = limbs_set_bit0_16(r);
+        }
+        if limbs_le_16(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_16(q);
+            q = limbs_set_bit0_16(q);
+        } else {
+            q = limbs_shl1_16(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_16(a: Limbs<16>, b: Limbs<16>) -> Limbs<16> {
+    let (q, _) = limbs_divmod_16(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_16(a: Limbs<16>, b: Limbs<16>) -> Limbs<16> {
+    let (_, r) = limbs_divmod_16(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_16(base: Limbs<16>, exp: Limbs<16>) -> Limbs<16> {
+    let mut result = limbs_one_16();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 16 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_32(a: Limbs<32>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 32 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_32(a: Limbs<32>) -> Limbs<32> {
+    let aw = a.words();
+    let mut out = [0u64; 32];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 32 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<32>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_32(a: Limbs<32>) -> Limbs<32> {
+    let aw = a.words();
+    let mut out = [0u64; 32];
+    let mut i = 0usize;
+    while i < 32 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<32>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_32(a: Limbs<32>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 32 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_32(a: Limbs<32>, b: Limbs<32>) -> (Limbs<32>, Limbs<32>) {
+    let mut q = Limbs::<32>::zero();
+    let mut r = Limbs::<32>::zero();
+    let total_bits = 32 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_32(r);
+        if limbs_bit_msb_32(a, i) == 1 {
+            r = limbs_set_bit0_32(r);
+        }
+        if limbs_le_32(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_32(q);
+            q = limbs_set_bit0_32(q);
+        } else {
+            q = limbs_shl1_32(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_32(a: Limbs<32>, b: Limbs<32>) -> Limbs<32> {
+    let (q, _) = limbs_divmod_32(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_32(a: Limbs<32>, b: Limbs<32>) -> Limbs<32> {
+    let (_, r) = limbs_divmod_32(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_32(base: Limbs<32>, exp: Limbs<32>) -> Limbs<32> {
+    let mut result = limbs_one_32();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 32 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_64(a: Limbs<64>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 64 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_64(a: Limbs<64>) -> Limbs<64> {
+    let aw = a.words();
+    let mut out = [0u64; 64];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 64 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<64>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_64(a: Limbs<64>) -> Limbs<64> {
+    let aw = a.words();
+    let mut out = [0u64; 64];
+    let mut i = 0usize;
+    while i < 64 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<64>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_64(a: Limbs<64>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 64 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_64(a: Limbs<64>, b: Limbs<64>) -> (Limbs<64>, Limbs<64>) {
+    let mut q = Limbs::<64>::zero();
+    let mut r = Limbs::<64>::zero();
+    let total_bits = 64 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_64(r);
+        if limbs_bit_msb_64(a, i) == 1 {
+            r = limbs_set_bit0_64(r);
+        }
+        if limbs_le_64(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_64(q);
+            q = limbs_set_bit0_64(q);
+        } else {
+            q = limbs_shl1_64(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_64(a: Limbs<64>, b: Limbs<64>) -> Limbs<64> {
+    let (q, _) = limbs_divmod_64(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_64(a: Limbs<64>, b: Limbs<64>) -> Limbs<64> {
+    let (_, r) = limbs_divmod_64(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_64(base: Limbs<64>, exp: Limbs<64>) -> Limbs<64> {
+    let mut result = limbs_one_64();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 64 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_128(a: Limbs<128>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 128 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_128(a: Limbs<128>) -> Limbs<128> {
+    let aw = a.words();
+    let mut out = [0u64; 128];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 128 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<128>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_128(a: Limbs<128>) -> Limbs<128> {
+    let aw = a.words();
+    let mut out = [0u64; 128];
+    let mut i = 0usize;
+    while i < 128 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<128>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_128(a: Limbs<128>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 128 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_128(a: Limbs<128>, b: Limbs<128>) -> (Limbs<128>, Limbs<128>) {
+    let mut q = Limbs::<128>::zero();
+    let mut r = Limbs::<128>::zero();
+    let total_bits = 128 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_128(r);
+        if limbs_bit_msb_128(a, i) == 1 {
+            r = limbs_set_bit0_128(r);
+        }
+        if limbs_le_128(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_128(q);
+            q = limbs_set_bit0_128(q);
+        } else {
+            q = limbs_shl1_128(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_128(a: Limbs<128>, b: Limbs<128>) -> Limbs<128> {
+    let (q, _) = limbs_divmod_128(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_128(a: Limbs<128>, b: Limbs<128>) -> Limbs<128> {
+    let (_, r) = limbs_divmod_128(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_128(base: Limbs<128>, exp: Limbs<128>) -> Limbs<128> {
+    let mut result = limbs_one_128();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 128 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_192(a: Limbs<192>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 192 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_192(a: Limbs<192>) -> Limbs<192> {
+    let aw = a.words();
+    let mut out = [0u64; 192];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 192 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<192>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_192(a: Limbs<192>) -> Limbs<192> {
+    let aw = a.words();
+    let mut out = [0u64; 192];
+    let mut i = 0usize;
+    while i < 192 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<192>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_192(a: Limbs<192>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 192 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_192(a: Limbs<192>, b: Limbs<192>) -> (Limbs<192>, Limbs<192>) {
+    let mut q = Limbs::<192>::zero();
+    let mut r = Limbs::<192>::zero();
+    let total_bits = 192 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_192(r);
+        if limbs_bit_msb_192(a, i) == 1 {
+            r = limbs_set_bit0_192(r);
+        }
+        if limbs_le_192(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_192(q);
+            q = limbs_set_bit0_192(q);
+        } else {
+            q = limbs_shl1_192(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_192(a: Limbs<192>, b: Limbs<192>) -> Limbs<192> {
+    let (q, _) = limbs_divmod_192(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_192(a: Limbs<192>, b: Limbs<192>) -> Limbs<192> {
+    let (_, r) = limbs_divmod_192(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_192(base: Limbs<192>, exp: Limbs<192>) -> Limbs<192> {
+    let mut result = limbs_one_192();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 192 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_256(a: Limbs<256>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 256 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_256(a: Limbs<256>) -> Limbs<256> {
+    let aw = a.words();
+    let mut out = [0u64; 256];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 256 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<256>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_256(a: Limbs<256>) -> Limbs<256> {
+    let aw = a.words();
+    let mut out = [0u64; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<256>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_256(a: Limbs<256>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 256 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_256(a: Limbs<256>, b: Limbs<256>) -> (Limbs<256>, Limbs<256>) {
+    let mut q = Limbs::<256>::zero();
+    let mut r = Limbs::<256>::zero();
+    let total_bits = 256 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_256(r);
+        if limbs_bit_msb_256(a, i) == 1 {
+            r = limbs_set_bit0_256(r);
+        }
+        if limbs_le_256(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_256(q);
+            q = limbs_set_bit0_256(q);
+        } else {
+            q = limbs_shl1_256(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_256(a: Limbs<256>, b: Limbs<256>) -> Limbs<256> {
+    let (q, _) = limbs_divmod_256(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_256(a: Limbs<256>, b: Limbs<256>) -> Limbs<256> {
+    let (_, r) = limbs_divmod_256(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_256(base: Limbs<256>, exp: Limbs<256>) -> Limbs<256> {
+    let mut result = limbs_one_256();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 256 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
+}
+
+#[inline]
+#[must_use]
+const fn limbs_is_zero_512(a: Limbs<512>) -> bool {
+    let aw = a.words();
+    let mut i = 0usize;
+    while i < 512 {
+        if aw[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[inline]
+#[must_use]
+const fn limbs_shl1_512(a: Limbs<512>) -> Limbs<512> {
+    let aw = a.words();
+    let mut out = [0u64; 512];
+    let mut carry: u64 = 0;
+    let mut i = 0usize;
+    while i < 512 {
+        let v = aw[i];
+        out[i] = (v << 1) | carry;
+        carry = v >> 63;
+        i += 1;
+    }
+    Limbs::<512>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_set_bit0_512(a: Limbs<512>) -> Limbs<512> {
+    let aw = a.words();
+    let mut out = [0u64; 512];
+    let mut i = 0usize;
+    while i < 512 {
+        out[i] = aw[i];
+        i += 1;
+    }
+    out[0] |= 1u64;
+    Limbs::<512>::from_words(out)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_bit_msb_512(a: Limbs<512>, msb_index: usize) -> u64 {
+    let aw = a.words();
+    let total_bits = 512 * 64;
+    let lsb_index = total_bits - 1 - msb_index;
+    let word = lsb_index / 64;
+    let bit = lsb_index % 64;
+    (aw[word] >> bit) & 1u64
+}
+
+#[inline]
+#[must_use]
+const fn limbs_divmod_512(a: Limbs<512>, b: Limbs<512>) -> (Limbs<512>, Limbs<512>) {
+    let mut q = Limbs::<512>::zero();
+    let mut r = Limbs::<512>::zero();
+    let total_bits = 512 * 64;
+    let mut i = 0usize;
+    while i < total_bits {
+        r = limbs_shl1_512(r);
+        if limbs_bit_msb_512(a, i) == 1 {
+            r = limbs_set_bit0_512(r);
+        }
+        if limbs_le_512(b, r) {
+            r = r.wrapping_sub(b);
+            q = limbs_shl1_512(q);
+            q = limbs_set_bit0_512(q);
+        } else {
+            q = limbs_shl1_512(q);
+        }
+        i += 1;
+    }
+    (q, r)
+}
+
+#[inline]
+#[must_use]
+const fn limbs_div_512(a: Limbs<512>, b: Limbs<512>) -> Limbs<512> {
+    let (q, _) = limbs_divmod_512(a, b);
+    q
+}
+
+#[inline]
+#[must_use]
+const fn limbs_mod_512(a: Limbs<512>, b: Limbs<512>) -> Limbs<512> {
+    let (_, r) = limbs_divmod_512(a, b);
+    r
+}
+
+#[inline]
+#[must_use]
+const fn limbs_pow_512(base: Limbs<512>, exp: Limbs<512>) -> Limbs<512> {
+    let mut result = limbs_one_512();
+    let mut b = base;
+    let ew = exp.words();
+    let mut word = 0usize;
+    while word < 512 {
+        let mut bit = 0u32;
+        while bit < 64 {
+            if ((ew[word] >> bit) & 1u64) == 1u64 {
+                result = result.wrapping_mul(b);
+            }
+            b = b.wrapping_mul(b);
+            bit += 1;
+        }
+        word += 1;
+    }
+    result
 }
 
 /// Sealed marker trait for fragment classifiers (Is2SatShape, IsHornShape,
@@ -16915,7 +19172,7 @@ impl Derivation {
     /// #     fn initial() -> Self { Self }
     /// #     fn fold_byte(self, _: u8) -> Self { self }
     /// #     fn finalize(self) -> [u8; 32] { [0; 32] } }
-    /// static TERMS: &[Term] = &[Term::Literal { value: 7, level: WittLevel::W8 }];
+    /// static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
     /// static DOMS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
     /// let unit = CompileUnitBuilder::new()
     ///     .root_term(TERMS).witt_level_ceiling(WittLevel::W32)

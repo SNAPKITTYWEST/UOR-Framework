@@ -3939,6 +3939,111 @@ pub mod term_r_m5_for_all {
     pub const VARIABLE_NAME: &str = "x ∈ R_n";
 }
 
+pub mod term_dv_1_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "div(a, 1)";
+}
+
+pub mod term_dv_1_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "a";
+}
+
+pub mod term_dv_1_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a ∈ R_n";
+}
+
+pub mod term_dv_2_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "div(0, b)";
+}
+
+pub mod term_dv_2_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "0";
+}
+
+pub mod term_dv_2_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "b ∈ R_n, b ≠ 0";
+}
+
+pub mod term_dv_3_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "div(mul(a, b), b)";
+}
+
+pub mod term_dv_3_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "a";
+}
+
+pub mod term_dv_3_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a, b ∈ R_n, b ≠ 0, mul(a, b) does not overflow";
+}
+
+pub mod term_dv_4_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "a";
+}
+
+pub mod term_dv_4_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "add(mul(div(a, b), b), mod(a, b))";
+}
+
+pub mod term_dv_4_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a, b ∈ R_n, b ≠ 0";
+}
+
+pub mod term_pw_1_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "pow(a, 0)";
+}
+
+pub mod term_pw_1_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "1";
+}
+
+pub mod term_pw_1_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a ∈ R_n";
+}
+
+pub mod term_pw_2_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "pow(a, 1)";
+}
+
+pub mod term_pw_2_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "a";
+}
+
+pub mod term_pw_2_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a ∈ R_n";
+}
+
+pub mod term_pw_3_lhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "pow(a, add(b, c))";
+}
+
+pub mod term_pw_3_rhs {
+    /// `literalValue`
+    pub const LITERAL_VALUE: &str = "mul(pow(a, b), pow(a, c))";
+}
+
+pub mod term_pw_3_for_all {
+    /// `variableName`
+    pub const VARIABLE_NAME: &str = "a, b, c ∈ R_n";
+}
+
 pub mod term_b_1_lhs {
     /// `literalValue`
     pub const LITERAL_VALUE: &str = "xor(x, xor(y, z))";

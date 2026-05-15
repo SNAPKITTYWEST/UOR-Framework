@@ -15,10 +15,7 @@ use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
 
-static ROOT_TERMS: &[Term] = &[Term::Literal {
-    value: 7,
-    level: WittLevel::W8,
-}];
+static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {

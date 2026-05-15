@@ -3349,7 +3349,7 @@ pub const UNFOLD_MAX_ITERATIONS: usize =
 /// fixed-capacity byte buffer with an active-prefix length. The
 /// catamorphism produces a `TermValue` per variant, propagated up the
 /// term tree by the per-variant fold rules.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TermValue {
     /// Fixed-capacity byte buffer (zero-padded beyond `len`).
     bytes: [u8; TERM_VALUE_MAX_BYTES],
@@ -3369,7 +3369,7 @@ impl TermValue {
 
     /// Construct a `TermValue` from a slice; copies up to `TERM_VALUE_MAX_BYTES` bytes.
     #[must_use]
-    pub fn from_slice(bytes: &[u8]) -> Self {
+    pub const fn from_slice(bytes: &[u8]) -> Self {
         let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
         let copy_len = if bytes.len() > TERM_VALUE_MAX_BYTES {
             TERM_VALUE_MAX_BYTES
@@ -3387,11 +3387,86 @@ impl TermValue {
         }
     }
 
+    /// ADR-051: construct a `TermValue` from a u64 value at a declared byte width.
+    /// The high (8 - width) bytes of the u64 are discarded; the low `width` bytes are
+    /// written into the value buffer in big-endian order.
+    #[must_use]
+    pub const fn from_u64_be(value: u64, width: usize) -> Self {
+        let w = if width > 8 { 8 } else { width };
+        let be = value.to_be_bytes();
+        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+        let mut i = 0;
+        while i < w {
+            buf[i] = be[8 - w + i];
+            i += 1;
+        }
+        Self {
+            bytes: buf,
+            len: w as u16,
+        }
+    }
+
+    /// ADR-051 helper: const-constructor from a prepared big-endian byte buffer.
+    /// `len` MUST be `<= TERM_VALUE_MAX_BYTES`; the function copies the first `len`
+    /// bytes of `bytes` and records `len` as the active prefix.
+    #[must_use]
+    pub const fn from_slice_const(bytes: &[u8; TERM_VALUE_MAX_BYTES], len: usize) -> Self {
+        let l = if len > TERM_VALUE_MAX_BYTES {
+            TERM_VALUE_MAX_BYTES
+        } else {
+            len
+        };
+        Self {
+            bytes: *bytes,
+            len: l as u16,
+        }
+    }
+
     /// Returns the active byte prefix.
     #[inline]
     #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes[..self.len as usize]
+    pub const fn bytes(&self) -> &[u8] {
+        let l = self.len as usize;
+        let (head, _) = self.bytes.split_at(l);
+        head
+    }
+}
+
+/// ADR-051: construct a `Term::Literal` from a u64 value at a declared Witt level.
+/// Packs `value` as a big-endian byte sequence whose length equals the level's
+/// byte width (`level.witt_length() / 8`). For widths > 8 bytes, the high bytes
+/// are zero-padded.
+#[must_use]
+pub const fn literal_u64(value: u64, level: crate::WittLevel) -> crate::enforcement::Term {
+    let mut width = (level.witt_length() / 8) as usize;
+    if width == 0 {
+        width = 1;
+    }
+    let be = value.to_be_bytes();
+    let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+    // Pack the u64's big-endian bytes into the low `min(width, 8)` bytes
+    // of the result, right-aligned. Widths > 8 zero-pad the high portion.
+    let take = if width > 8 { 8 } else { width };
+    let mut i = 0;
+    while i < take {
+        buf[width - take + i] = be[8 - take + i];
+        i += 1;
+    }
+    crate::enforcement::Term::Literal {
+        value: TermValue::from_slice_const(&buf, width),
+        level,
+    }
+}
+
+/// ADR-051: construct a `Term::Literal` from raw bytes at a declared Witt level.
+/// `bytes` MUST have exactly `level.witt_length() / 8` bytes; mismatched lengths
+/// are silently truncated/padded by `TermValue::from_slice_const`. Use this for
+/// wide-Witt literals (W128+) that don't fit in a u64.
+#[must_use]
+pub const fn literal_bytes(bytes: &[u8], level: crate::WittLevel) -> crate::enforcement::Term {
+    crate::enforcement::Term::Literal {
+        value: TermValue::from_slice(bytes),
+        level,
     }
 }
 
@@ -3501,18 +3576,12 @@ where
         });
     }
     match arena[idx] {
-        crate::enforcement::Term::Literal { value, level } => {
-            let width = (level.witt_length() / 8) as usize;
-            let width = if width == 0 {
-                1
-            } else if width > 8 {
-                8
-            } else {
-                width
-            };
-            let be = value.to_be_bytes();
-            // Take the trailing `width` bytes (big-endian truncation).
-            Ok(TermValue::from_slice(&be[8 - width..]))
+        crate::enforcement::Term::Literal { value, level: _ } => {
+            // ADR-051: the literal's value carrier is a `TermValue` whose
+            // byte length matches `level.witt_length() / 8`. The fold-rule
+            // emits the carrier bytes directly — no width-aware encoding
+            // (which was the pre-ADR-051 truncation logic).
+            Ok(TermValue::from_slice(value.bytes()))
         }
         crate::enforcement::Term::Variable { name_index } => {
             // ADR-022 D3 G2: name_index = 0 is the route input slot.
@@ -4415,7 +4484,11 @@ where
         | crate::PrimitiveOp::Lt
         | crate::PrimitiveOp::Ge
         | crate::PrimitiveOp::Gt
-        | crate::PrimitiveOp::Concat => 2usize,
+        | crate::PrimitiveOp::Concat
+        // ADR-053 substrate amendment: ring-axis arithmetic completion.
+        | crate::PrimitiveOp::Div
+        | crate::PrimitiveOp::Mod
+        | crate::PrimitiveOp::Pow => 2usize,
     };
     if args_len != arity {
         return Err(PipelineFailure::ShapeViolation {
@@ -4534,19 +4607,69 @@ where
                 };
                 return Ok(TermValue::from_slice(&[result_byte]));
             }
+            // ADR-053 substrate amendment: Div/Mod reject b = 0 with
+            // a ShapeViolation. Per ADR-050, division semantics are
+            // Euclidean (q = floor(a / b), r = a − q·b) over the ring
+            // Z/(2^n)Z where n is max(8·byte-len(a), 8·byte-len(b)).
+            crate::PrimitiveOp::Div if bytes_all_zero(rhs.bytes()) => {
+                return Err(PipelineFailure::ShapeViolation {
+                    report: crate::enforcement::ShapeViolation {
+                        shape_iri: "https://uor.foundation/op/Div",
+                        constraint_iri: "https://uor.foundation/op/Div/nonZeroDivisor",
+                        property_iri: "https://uor.foundation/op/arity",
+                        expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+                        min_count: 1,
+                        max_count: 1,
+                        kind: crate::ViolationKind::ValueCheck,
+                    },
+                });
+            }
+            crate::PrimitiveOp::Mod if bytes_all_zero(rhs.bytes()) => {
+                return Err(PipelineFailure::ShapeViolation {
+                    report: crate::enforcement::ShapeViolation {
+                        shape_iri: "https://uor.foundation/op/Mod",
+                        constraint_iri: "https://uor.foundation/op/Mod/nonZeroDivisor",
+                        property_iri: "https://uor.foundation/op/arity",
+                        expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+                        min_count: 1,
+                        max_count: 1,
+                        kind: crate::ViolationKind::ValueCheck,
+                    },
+                });
+            }
             _ => {}
+        }
+        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);
+        // ADR-050 width-parametric dispatch: widths > 8 bytes route
+        // through the byte-level kernel `byte_arith_be` so wide-Witt
+        // operands (Limbs<N>-backed levels W160..W32768) compute
+        // correctly under Z/(2^(8·width))Z without truncating to u64.
+        if width > 8 {
+            return byte_arith_be(operator, lhs.bytes(), rhs.bytes(), width);
         }
         let a = bytes_to_u64_be(lhs.bytes());
         let b = bytes_to_u64_be(rhs.bytes());
-        let width = lhs.bytes().len().max(rhs.bytes().len()).max(1);
+        // ADR-050 width-parametric mask: arithmetic results are reduced
+        // mod 2^(8·width) before truncation. For the u64 hot path this
+        // is `(1 << (width·8)) − 1` for width < 8 and u64::MAX for width = 8.
+        let mask: u64 = if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (width * 8)).wrapping_sub(1)
+        };
         let r =
             match operator {
-                crate::PrimitiveOp::Add => a.wrapping_add(b),
-                crate::PrimitiveOp::Sub => a.wrapping_sub(b),
-                crate::PrimitiveOp::Mul => a.wrapping_mul(b),
-                crate::PrimitiveOp::Xor => a ^ b,
-                crate::PrimitiveOp::And => a & b,
-                crate::PrimitiveOp::Or => a | b,
+                crate::PrimitiveOp::Add => a.wrapping_add(b) & mask,
+                crate::PrimitiveOp::Sub => a.wrapping_sub(b) & mask,
+                crate::PrimitiveOp::Mul => a.wrapping_mul(b) & mask,
+                crate::PrimitiveOp::Xor => (a ^ b) & mask,
+                crate::PrimitiveOp::And => (a & b) & mask,
+                crate::PrimitiveOp::Or => (a | b) & mask,
+                // ADR-053: Euclidean division/remainder over Z/(2^(8·width))Z.
+                crate::PrimitiveOp::Div => (a & mask) / (b & mask),
+                crate::PrimitiveOp::Mod => (a & mask) % (b & mask),
+                // ADR-053: modular exponentiation by repeated squaring.
+                crate::PrimitiveOp::Pow => u64_modpow(a & mask, b & mask, mask),
                 _ => return Err(PipelineFailure::ShapeViolation {
                     report: crate::enforcement::ShapeViolation {
                         shape_iri: "https://uor.foundation/pipeline/PrimitiveOpArityShape",
@@ -4560,9 +4683,274 @@ where
                     },
                 }),
             };
-        let width = if width > 8 { 8 } else { width };
         let arr = r.to_be_bytes();
         Ok(TermValue::from_slice(&arr[8 - width..]))
+    }
+}
+
+/// ADR-050: byte-level fold-rule dispatch for binary ring-axis primitives over
+/// widths > 8 bytes. Matches the const-fn `const_ring_eval_w{n}` helpers'
+/// semantics but operates on the runtime catamorphism's `TermValue` byte slices
+/// rather than on typed `Limbs<N>` values.
+#[allow(clippy::too_many_lines)]
+fn byte_arith_be(
+    operator: crate::PrimitiveOp,
+    lhs: &[u8],
+    rhs: &[u8],
+    width: usize,
+) -> Result<TermValue, PipelineFailure> {
+    // Pad both operands to `width` bytes (leading zeros, big-endian).
+    let mut a = [0u8; TERM_VALUE_MAX_BYTES];
+    let mut b = [0u8; TERM_VALUE_MAX_BYTES];
+    let w = if width > TERM_VALUE_MAX_BYTES {
+        TERM_VALUE_MAX_BYTES
+    } else {
+        width
+    };
+    {
+        let la = lhs.len().min(w);
+        let dst_off = w - la;
+        let src_off = lhs.len() - la;
+        let mut i = 0;
+        while i < la {
+            a[dst_off + i] = lhs[src_off + i];
+            i += 1;
+        }
+    }
+    {
+        let lb = rhs.len().min(w);
+        let dst_off = w - lb;
+        let src_off = rhs.len() - lb;
+        let mut i = 0;
+        while i < lb {
+            b[dst_off + i] = rhs[src_off + i];
+            i += 1;
+        }
+    }
+    let mut out = [0u8; TERM_VALUE_MAX_BYTES];
+    match operator {
+        crate::PrimitiveOp::And => {
+            let mut i = 0;
+            while i < w {
+                out[i] = a[i] & b[i];
+                i += 1;
+            }
+        }
+        crate::PrimitiveOp::Or => {
+            let mut i = 0;
+            while i < w {
+                out[i] = a[i] | b[i];
+                i += 1;
+            }
+        }
+        crate::PrimitiveOp::Xor => {
+            let mut i = 0;
+            while i < w {
+                out[i] = a[i] ^ b[i];
+                i += 1;
+            }
+        }
+        crate::PrimitiveOp::Add => {
+            let mut carry: u16 = 0;
+            let mut i = w;
+            while i > 0 {
+                i -= 1;
+                let s = a[i] as u16 + b[i] as u16 + carry;
+                out[i] = (s & 0xFF) as u8;
+                carry = s >> 8;
+            }
+        }
+        crate::PrimitiveOp::Sub => {
+            let mut borrow: i16 = 0;
+            let mut i = w;
+            while i > 0 {
+                i -= 1;
+                let d = a[i] as i16 - b[i] as i16 - borrow;
+                if d < 0 {
+                    out[i] = (d + 256) as u8;
+                    borrow = 1;
+                } else {
+                    out[i] = d as u8;
+                    borrow = 0;
+                }
+            }
+        }
+        crate::PrimitiveOp::Mul => {
+            // Schoolbook multiplication mod 2^(8·w). `a` and `b` are
+            // big-endian w-byte operands; output is the low w bytes of
+            // the 2w-byte product, written back big-endian.
+            //
+            // Algorithm: walk `i` from LSB to MSB (a[w-1] = LSB), and
+            // for each `i` walk `j` similarly. The byte product
+            // a[w-1-i] * b[w-1-j] contributes to output position
+            // (w-1)-(i+j) when (i+j) < w; otherwise it overflows the
+            // ring modulus and is discarded.
+            let mut tmp = [0u32; TERM_VALUE_MAX_BYTES];
+            let mut i: usize = 0;
+            while i < w {
+                let mut j: usize = 0;
+                while j < w - i {
+                    let dst = w - 1 - (i + j);
+                    tmp[dst] += a[w - 1 - i] as u32 * b[w - 1 - j] as u32;
+                    j += 1;
+                }
+                i += 1;
+            }
+            // Carry-propagate within the low w bytes (high bytes are
+            // discarded — the ring modulus reduces them away).
+            let mut carry: u32 = 0;
+            let mut k = w;
+            while k > 0 {
+                k -= 1;
+                let v = tmp[k] + carry;
+                out[k] = (v & 0xFF) as u8;
+                carry = v >> 8;
+            }
+        }
+        crate::PrimitiveOp::Div | crate::PrimitiveOp::Mod => {
+            // Binary long division MSB→LSB over the byte slice.
+            let mut q = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut r = [0u8; TERM_VALUE_MAX_BYTES];
+            let total_bits = w * 8;
+            let mut i = 0;
+            while i < total_bits {
+                bytes_shl1(&mut r, w);
+                let bit_word = i / 8;
+                let bit_idx = 7 - (i % 8);
+                let cur_bit = (a[bit_word] >> bit_idx) & 1;
+                if cur_bit == 1 {
+                    r[w - 1] |= 1;
+                }
+                if bytes_le_be(&b[..w], &r[..w]) {
+                    bytes_sub_in_place(&mut r, &b, w);
+                    bytes_shl1(&mut q, w);
+                    q[w - 1] |= 1;
+                } else {
+                    bytes_shl1(&mut q, w);
+                }
+                i += 1;
+            }
+            let src = match operator {
+                crate::PrimitiveOp::Div => &q,
+                _ => &r,
+            };
+            let mut k = 0;
+            while k < w {
+                out[k] = src[k];
+                k += 1;
+            }
+        }
+        crate::PrimitiveOp::Pow => {
+            // Square-and-multiply over byte-slice operands. Exponent
+            // bits walked LSB→MSB; each iteration squares the running
+            // base and conditionally multiplies into the accumulator.
+            let mut result = [0u8; TERM_VALUE_MAX_BYTES];
+            result[w - 1] = 1;
+            let mut base = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut k = 0;
+            while k < w {
+                base[k] = a[k];
+                k += 1;
+            }
+            let mut byte = w;
+            while byte > 0 {
+                byte -= 1;
+                let mut bit = 0u32;
+                while bit < 8 {
+                    if ((b[byte] >> bit) & 1) == 1 {
+                        let prod =
+                            byte_arith_be(crate::PrimitiveOp::Mul, &result[..w], &base[..w], w)?;
+                        let pb = prod.bytes();
+                        let dst_off = w - pb.len().min(w);
+                        let mut j = 0;
+                        while j < w {
+                            result[j] = 0;
+                            j += 1;
+                        }
+                        let mut j2 = 0;
+                        while j2 < pb.len().min(w) {
+                            result[dst_off + j2] = pb[j2];
+                            j2 += 1;
+                        }
+                    }
+                    let sq = byte_arith_be(crate::PrimitiveOp::Mul, &base[..w], &base[..w], w)?;
+                    let sb = sq.bytes();
+                    let dst_off = w - sb.len().min(w);
+                    let mut j = 0;
+                    while j < w {
+                        base[j] = 0;
+                        j += 1;
+                    }
+                    let mut j2 = 0;
+                    while j2 < sb.len().min(w) {
+                        base[dst_off + j2] = sb[j2];
+                        j2 += 1;
+                    }
+                    bit += 1;
+                }
+            }
+            let mut k = 0;
+            while k < w {
+                out[k] = result[k];
+                k += 1;
+            }
+        }
+        _ => {
+            return Err(PipelineFailure::ShapeViolation {
+                report: crate::enforcement::ShapeViolation {
+                    shape_iri: "https://uor.foundation/pipeline/PrimitiveOpArityShape",
+                    constraint_iri:
+                        "https://uor.foundation/pipeline/PrimitiveOpArityShape/unary-as-binary",
+                    property_iri: "https://uor.foundation/pipeline/operatorArity",
+                    expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+                    min_count: 1,
+                    max_count: 1,
+                    kind: crate::ViolationKind::CardinalityViolation,
+                },
+            })
+        }
+    }
+    Ok(TermValue::from_slice(&out[..w]))
+}
+
+fn bytes_shl1(buf: &mut [u8], w: usize) {
+    let mut carry: u8 = 0;
+    let mut i = w;
+    while i > 0 {
+        i -= 1;
+        let v = buf[i];
+        buf[i] = (v << 1) | carry;
+        carry = v >> 7;
+    }
+}
+
+fn bytes_le_be(a: &[u8], b: &[u8]) -> bool {
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] < b[i] {
+            return true;
+        }
+        if a[i] > b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+fn bytes_sub_in_place(dst: &mut [u8], rhs: &[u8], w: usize) {
+    let mut borrow: i16 = 0;
+    let mut i = w;
+    while i > 0 {
+        i -= 1;
+        let d = dst[i] as i16 - rhs[i] as i16 - borrow;
+        if d < 0 {
+            dst[i] = (d + 256) as u8;
+            borrow = 1;
+        } else {
+            dst[i] = d as u8;
+            borrow = 0;
+        }
     }
 }
 
@@ -4603,6 +4991,31 @@ fn bytes_to_u64_be(bytes: &[u8]) -> u64 {
         i += 1;
     }
     acc
+}
+
+fn bytes_all_zero(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+fn u64_modpow(base: u64, exp: u64, mask: u64) -> u64 {
+    let mut result: u64 = 1u64 & mask;
+    let mut b: u64 = base & mask;
+    let mut e: u64 = exp;
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result.wrapping_mul(b) & mask;
+        }
+        b = b.wrapping_mul(b) & mask;
+        e >>= 1;
+    }
+    result
 }
 
 /// Foundation-sanctioned identity route: `ConstrainedTypeInput` is the
@@ -6886,7 +7299,7 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 /// #     fn fold_byte(self, _: u8) -> Self { self }
 /// #     fn finalize(self) -> [u8; 32] { [0; 32] }
 /// # }
-/// static TERMS: &[Term] = &[Term::Literal { value: 1, level: WittLevel::W8 }];
+/// static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 /// static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 /// let unit = CompileUnitBuilder::new()
 ///     .root_term(TERMS)
