@@ -4854,6 +4854,19 @@ pub fn axis(input: TokenStream) -> TokenStream {
         macro_rules! #companion_macro_ident {
             // Non-generic form: simple struct ident.
             ($struct_ident:ident) => {
+                // ADR-055: SubstrateTermBody supertrait — the default empty
+                // body_arena signals the primitive-fast-path interpretation
+                // (the kernel-function dispatch path is the byte-output-
+                // equivalent realization). Application authors who want
+                // recursive fold-fusion through their axis kernel provide
+                // an explicit `body` clause via the `axis!` macro's
+                // forthcoming body-clause grammar.
+                impl ::uor_foundation::pipeline::__sdk_seal::Sealed for $struct_ident {}
+                impl ::uor_foundation::pipeline::SubstrateTermBody for $struct_ident {
+                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
+                        &[]
+                    }
+                }
                 impl ::uor_foundation::pipeline::AxisExtension for $struct_ident {
                     const AXIS_ADDRESS: &'static str =
                         <$struct_ident as #trait_name>::AXIS_ADDRESS;
@@ -4899,6 +4912,16 @@ pub fn axis(input: TokenStream) -> TokenStream {
             // it would appear after `impl<...>`. The optional `where [...]`
             // group carries any predicates.
             (@generic $struct_ty:ty, [$($generic_params:tt)*] $(, where [$($where_clauses:tt)*])?) => {
+                impl<$($generic_params)*> ::uor_foundation::pipeline::__sdk_seal::Sealed for $struct_ty
+                $(where $($where_clauses)*)?
+                {}
+                impl<$($generic_params)*> ::uor_foundation::pipeline::SubstrateTermBody for $struct_ty
+                $(where $($where_clauses)*)?
+                {
+                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
+                        &[]
+                    }
+                }
                 impl<$($generic_params)*> ::uor_foundation::pipeline::AxisExtension for $struct_ty
                 $(where $($where_clauses)*)?
                 {

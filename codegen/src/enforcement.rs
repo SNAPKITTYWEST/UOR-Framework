@@ -5440,7 +5440,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 8;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 9;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");
@@ -5587,6 +5587,16 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    pub const KERNEL_HASH: u32 = 0;");
     f.line("}");
     f.blank();
+    // ADR-055: HashAxis is a primitive-fast-path axis. Its body is
+    // byte-output-equivalent to `fold_bytes` ∘ `finalize` on the wrapped
+    // Hasher; the empty arena signals the catamorphism to evaluate via
+    // `dispatch_kernel` rather than recursively folding a body.
+    f.line("impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}");
+    f.line("impl<H: Hasher> crate::pipeline::SubstrateTermBody for HashAxis<H> {");
+    f.line("    fn body_arena() -> &'static [Term] {");
+    f.line("        &[]");
+    f.line("    }");
+    f.line("}");
     f.line("impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {");
     f.line("    const AXIS_ADDRESS: &'static str = \"https://uor.foundation/axis/HashAxis\";");
     f.line("    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;");

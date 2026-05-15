@@ -7151,7 +7151,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 8;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 9;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate
@@ -7267,6 +7267,12 @@ impl<H: Hasher> HashAxis<H> {
     pub const KERNEL_HASH: u32 = 0;
 }
 
+impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}
+impl<H: Hasher> crate::pipeline::SubstrateTermBody for HashAxis<H> {
+    fn body_arena() -> &'static [Term] {
+        &[]
+    }
+}
 impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {
     const AXIS_ADDRESS: &'static str = "https://uor.foundation/axis/HashAxis";
     const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;

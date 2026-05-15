@@ -526,6 +526,18 @@ behavior = "behavior_catamorphism_evaluator"
 symbols = ["AxisExtension", "AxisTuple", "HashAxis", "MAX_AXIS_TUPLE_ARITY", "AXIS_OUTPUT_BYTES_CEILING"]
 behavior = "behavior_catamorphism_evaluator"
 
+# ─── Mapping: ADR-055 universal substrate-Term verb body discipline ────
+# ADR-055 commits `SubstrateTermBody` as a supertrait on `AxisExtension`.
+# Every axis impl carries a substrate-Term decomposition (or the empty-
+# arena primitive-fast-path) the catamorphism walks structurally per the
+# amended `Term::AxisInvocation` fold-rule. The behavior file pins:
+# the public trait path, the AxisExtension supertrait bound, HashAxis's
+# primitive-fast-path body_arena, AxisTuple's body_arena_at dispatcher,
+# and the catamorphism's primitive-fast-path branch.
+[coverage.adr055_substrate_term_body]
+symbols = ["SubstrateTermBody"]
+behavior = "behavior_adr_055_substrate_term_body"
+
 # ─── Mapping: ADR-033 G20 field-access projection ──────────────────────
 # ADR-033 admits closure-body field access on `partition_product`-shaped
 # inputs (`<expr>.<index>` and `<expr>.<field_name>`). Lowered to

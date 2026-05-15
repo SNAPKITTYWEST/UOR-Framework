@@ -603,16 +603,37 @@ pub const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize =
 pub const K_INVARIANTS_OUTPUT_BYTES_MAX: usize =
     <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX;
 
+/// ADR-055: substrate-Term verb body discipline. Every axis impl carries a
+/// substrate-Term decomposition the catamorphism can fuse through. Sealed —
+/// the `axis!` SDK macro per ADR-030 + ADR-052 emits the impl.
+/// The catamorphism's `Term::AxisInvocation` fold-rule reads this slice and
+/// recursively folds the body with the evaluated kernel inputs in scope (per
+/// ADR-029, amended by ADR-055). The `body_arena()` slice is a static const,
+/// not wire-format state, so the on-wire shape of `Term::AxisInvocation` is
+/// preserved.
+pub trait SubstrateTermBody: __sdk_seal::Sealed {
+    /// The Term arena the kernel decomposes to. Empty slice signals a
+    /// primitive-fast-path axis whose body the implementation may evaluate
+    /// through `dispatch_kernel` directly per ADR-055's optional fast-path.
+    fn body_arena() -> &'static [crate::enforcement::Term];
+}
+
 /// ADR-030: a substrate-extension axis. Each `axis!`-declared
 /// trait extends this trait via the SDK macro's blanket impl,
 /// which emits per-method `KERNEL_*` const ids and the
 /// `dispatch_kernel` router into a fixed-capacity byte buffer.
+/// Per ADR-055, every `AxisExtension` impl also satisfies the
+/// [`SubstrateTermBody`] supertrait — its kernel decomposes to a
+/// substrate-Term slice the catamorphism walks structurally. This makes
+/// the Fold-Fusion Principle (ADR-054) universal across every axis impl,
+/// not just the standard library's canonical impls.
 /// The catamorphism's `Term::AxisInvocation` fold-rule reads the
-/// axis position from the application's `AxisTuple` impl and
-/// calls `dispatch_kernel` with the kernel id and the evaluated
-/// input bytes; the returned `TermValue` is the axis's
-/// contribution to the route's evaluation.
-pub trait AxisExtension {
+/// axis position from the application's `AxisTuple` impl, walks the
+/// axis's `SubstrateTermBody::body_arena()` recursively with the
+/// evaluated kernel input bound in scope, and emits the resulting
+/// `TermValue`. The legacy `dispatch_kernel` fast-path remains as an
+/// optimization for axes whose body is empty (primitive fast-path).
+pub trait AxisExtension: SubstrateTermBody {
     /// ADR-017 content address of this axis trait. The SDK macro
     /// derives this from the trait name and method signatures.
     const AXIS_ADDRESS: &'static str;
@@ -654,6 +675,13 @@ pub trait AxisTuple {
         input: &[u8],
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    /// ADR-055: return the substrate-Term body arena for the axis at
+    /// `axis_index`. An empty slice means the axis is a primitive-fast-path
+    /// axis whose body is byte-output-equivalent to its `dispatch_kernel`.
+    /// Non-empty slices carry the recursive-fold decomposition the
+    /// catamorphism walks per ADR-055's amended `Term::AxisInvocation`
+    /// fold-rule.
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term];
 }
 
 /// ADR-030 blanket: every [`crate::enforcement::Hasher`] is
@@ -691,6 +719,13 @@ impl<H: crate::enforcement::Hasher> AxisTuple for H {
         }
         Ok(n)
     }
+    // ADR-055: the Hasher blanket axis is a primitive-fast-path axis. Its
+    // body is byte-output-equivalent to `fold_bytes` ∘ `finalize`; the
+    // empty arena signals to the catamorphism that dispatch_kernel is the
+    // canonical evaluation strategy here.
+    fn body_arena_at(_axis_index: u32) -> &'static [crate::enforcement::Term] {
+        &[]
+    }
 }
 
 /// ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.
@@ -714,6 +749,12 @@ impl<A0: AxisExtension> AxisTuple for (A0,) {
                 max_count: 1,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -748,6 +789,13 @@ impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {
                 max_count: 2,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -787,6 +835,14 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension> AxisTuple for (A0,
                 max_count: 3,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -833,6 +889,15 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension>
                 max_count: 4,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            3 => <A3 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -889,6 +954,16 @@ impl<
                 max_count: 5,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            3 => <A3 as SubstrateTermBody>::body_arena(),
+            4 => <A4 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -951,6 +1026,17 @@ impl<
                 max_count: 6,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            3 => <A3 as SubstrateTermBody>::body_arena(),
+            4 => <A4 as SubstrateTermBody>::body_arena(),
+            5 => <A5 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -1019,6 +1105,18 @@ impl<
                 max_count: 7,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            3 => <A3 as SubstrateTermBody>::body_arena(),
+            4 => <A4 as SubstrateTermBody>::body_arena(),
+            5 => <A5 as SubstrateTermBody>::body_arena(),
+            6 => <A6 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -1093,6 +1191,19 @@ impl<
                 max_count: 8,
                 kind: crate::ViolationKind::ValueCheck,
             }),
+        }
+    }
+    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+        match axis_index {
+            0 => <A0 as SubstrateTermBody>::body_arena(),
+            1 => <A1 as SubstrateTermBody>::body_arena(),
+            2 => <A2 as SubstrateTermBody>::body_arena(),
+            3 => <A3 as SubstrateTermBody>::body_arena(),
+            4 => <A4 as SubstrateTermBody>::body_arena(),
+            5 => <A5 as SubstrateTermBody>::body_arena(),
+            6 => <A6 as SubstrateTermBody>::body_arena(),
+            7 => <A7 as SubstrateTermBody>::body_arena(),
+            _ => &[],
         }
     }
 }
@@ -3948,17 +4059,18 @@ where
             kernel_id,
             input_index,
         } => {
-            // ADR-030: dispatch to the application's selected axis at
-            // `axis_index`, with `kernel_id` selecting the per-axis kernel.
-            // The catamorphism evaluates the input subtree to bytes and
-            // hands them to the AxisTuple's dispatch router; the dispatcher
-            // writes the kernel's output into a stack-resident buffer.
+            // ADR-055: read the axis's SubstrateTermBody::body_arena() via
+            // `AxisTuple::body_arena_at`. When non-empty, recursively fold
+            // the body with the evaluated kernel input bound as input_bytes;
+            // when empty (primitive-fast-path interpretation), dispatch the
+            // kernel function directly per the optional fast-path per ADR-055.
             //
             // The foundation-built blanket `impl<H: Hasher> AxisTuple for H`
-            // routes the canonical hash dispatch (axis 0, kernel 0)
-            // through the legacy Hasher API; user-declared axes via the
+            // routes the canonical hash dispatch (axis 0, kernel 0) through
+            // the legacy Hasher API (empty body); user-declared axes via the
             // `axis!` SDK macro extend the dispatch surface to additional
-            // (axis_index, kernel_id) combinations.
+            // (axis_index, kernel_id) combinations and may provide substrate-
+            // Term bodies the catamorphism walks structurally.
             let v = evaluate_term_at::<A, R>(
                 arena,
                 input_index as usize,
@@ -3969,22 +4081,41 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];
-            let written = match <A as crate::pipeline::AxisTuple>::dispatch(
-                axis_index,
-                kernel_id,
-                v.bytes(),
-                &mut out,
-            ) {
-                Ok(n) => n,
-                Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
-            };
-            let width = if written > TERM_VALUE_MAX_BYTES {
-                TERM_VALUE_MAX_BYTES
+            let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);
+            if body.is_empty() {
+                // Primitive fast-path: dispatch the kernel function directly.
+                let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+                let written = match <A as crate::pipeline::AxisTuple>::dispatch(
+                    axis_index,
+                    kernel_id,
+                    v.bytes(),
+                    &mut out,
+                ) {
+                    Ok(n) => n,
+                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
+                };
+                let width = if written > TERM_VALUE_MAX_BYTES {
+                    TERM_VALUE_MAX_BYTES
+                } else {
+                    written
+                };
+                Ok(TermValue::from_slice(&out[..width]))
             } else {
-                written
-            };
-            Ok(TermValue::from_slice(&out[..width]))
+                // ADR-055 recursive-fold path: walk the axis's substrate-Term
+                // body with the evaluated kernel input bound in scope. The
+                // body's root term is by convention the last entry in the arena.
+                let root = body.len() - 1;
+                evaluate_term_at::<A, R>(
+                    body,
+                    root,
+                    v.bytes(),
+                    recurse_value,
+                    recurse_idx_value,
+                    unfold_value,
+                    first_admit_idx_value,
+                    resolvers,
+                )
+            }
         }
         crate::enforcement::Term::ProjectField {
             source_index,

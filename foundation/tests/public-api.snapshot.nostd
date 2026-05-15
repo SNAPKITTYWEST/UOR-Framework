@@ -445,5 +445,6 @@ foundation/src/pipeline.rs: trait PartitionProductFields
 foundation/src/pipeline.rs: trait PostnikovResolver
 foundation/src/pipeline.rs: trait PrismModel
 foundation/src/pipeline.rs: trait ResolverTuple
+foundation/src/pipeline.rs: trait SubstrateTermBody
 foundation/src/pipeline.rs: trait TypedCommitment
 foundation/src/pipeline.rs: trait WitnessTupleSource

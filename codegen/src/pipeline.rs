@@ -2209,17 +2209,47 @@ fn emit_axis_extension(f: &mut RustFile) {
         ));
         f.blank();
     }
+    // ADR-055: Universal substrate-Term verb body discipline. Every
+    // `AxisExtension` impl carries a `SubstrateTermBody::body_arena()`
+    // describing the kernel's substrate-Term decomposition so the
+    // catamorphism's structural reach extends through the axis surface
+    // to the leaf level. The trait is sealed via `__sdk_seal::Sealed`;
+    // emission is via the `axis!` SDK macro per ADR-030 + ADR-052.
+    f.doc_comment("ADR-055: substrate-Term verb body discipline. Every axis impl carries a");
+    f.doc_comment("substrate-Term decomposition the catamorphism can fuse through. Sealed —");
+    f.doc_comment("the `axis!` SDK macro per ADR-030 + ADR-052 emits the impl.");
+    f.doc_comment("");
+    f.doc_comment("The catamorphism's `Term::AxisInvocation` fold-rule reads this slice and");
+    f.doc_comment("recursively folds the body with the evaluated kernel inputs in scope (per");
+    f.doc_comment("ADR-029, amended by ADR-055). The `body_arena()` slice is a static const,");
+    f.doc_comment("not wire-format state, so the on-wire shape of `Term::AxisInvocation` is");
+    f.doc_comment("preserved.");
+    f.line("pub trait SubstrateTermBody: __sdk_seal::Sealed {");
+    f.indented_doc_comment("The Term arena the kernel decomposes to. Empty slice signals a");
+    f.indented_doc_comment("primitive-fast-path axis whose body the implementation may evaluate");
+    f.indented_doc_comment("through `dispatch_kernel` directly per ADR-055's optional fast-path.");
+    f.line("    fn body_arena() -> &'static [crate::enforcement::Term];");
+    f.line("}");
+    f.blank();
+
     f.doc_comment("ADR-030: a substrate-extension axis. Each `axis!`-declared");
     f.doc_comment("trait extends this trait via the SDK macro's blanket impl,");
     f.doc_comment("which emits per-method `KERNEL_*` const ids and the");
     f.doc_comment("`dispatch_kernel` router into a fixed-capacity byte buffer.");
     f.doc_comment("");
+    f.doc_comment("Per ADR-055, every `AxisExtension` impl also satisfies the");
+    f.doc_comment("[`SubstrateTermBody`] supertrait — its kernel decomposes to a");
+    f.doc_comment("substrate-Term slice the catamorphism walks structurally. This makes");
+    f.doc_comment("the Fold-Fusion Principle (ADR-054) universal across every axis impl,");
+    f.doc_comment("not just the standard library's canonical impls.");
+    f.doc_comment("");
     f.doc_comment("The catamorphism's `Term::AxisInvocation` fold-rule reads the");
-    f.doc_comment("axis position from the application's `AxisTuple` impl and");
-    f.doc_comment("calls `dispatch_kernel` with the kernel id and the evaluated");
-    f.doc_comment("input bytes; the returned `TermValue` is the axis's");
-    f.doc_comment("contribution to the route's evaluation.");
-    f.line("pub trait AxisExtension {");
+    f.doc_comment("axis position from the application's `AxisTuple` impl, walks the");
+    f.doc_comment("axis's `SubstrateTermBody::body_arena()` recursively with the");
+    f.doc_comment("evaluated kernel input bound in scope, and emits the resulting");
+    f.doc_comment("`TermValue`. The legacy `dispatch_kernel` fast-path remains as an");
+    f.doc_comment("optimization for axes whose body is empty (primitive fast-path).");
+    f.line("pub trait AxisExtension: SubstrateTermBody {");
     f.indented_doc_comment("ADR-017 content address of this axis trait. The SDK macro");
     f.indented_doc_comment("derives this from the trait name and method signatures.");
     f.line("    const AXIS_ADDRESS: &'static str;");
@@ -2266,6 +2296,13 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        input: &[u8],");
     f.line("        out: &mut [u8],");
     f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation>;");
+    f.indented_doc_comment("ADR-055: return the substrate-Term body arena for the axis at");
+    f.indented_doc_comment("`axis_index`. An empty slice means the axis is a primitive-fast-path");
+    f.indented_doc_comment("axis whose body is byte-output-equivalent to its `dispatch_kernel`.");
+    f.indented_doc_comment("Non-empty slices carry the recursive-fold decomposition the");
+    f.indented_doc_comment("catamorphism walks per ADR-055's amended `Term::AxisInvocation`");
+    f.indented_doc_comment("fold-rule.");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term];");
     f.line("}");
     f.blank();
     // ADR-030 blanket: every `Hasher` is an `AxisTuple` of arity 1
@@ -2309,6 +2346,13 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        }");
     f.line("        Ok(n)");
     f.line("    }");
+    f.line("    // ADR-055: the Hasher blanket axis is a primitive-fast-path axis. Its");
+    f.line("    // body is byte-output-equivalent to `fold_bytes` ∘ `finalize`; the");
+    f.line("    // empty arena signals to the catamorphism that dispatch_kernel is the");
+    f.line("    // canonical evaluation strategy here.");
+    f.line("    fn body_arena_at(_axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("        &[]");
+    f.line("    }");
     f.line("}");
     f.blank();
     // 1-tuple impl — the most common case (a single hash axis).
@@ -2333,6 +2377,12 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("                max_count: 1,");
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            }),");
+    f.line("        }");
+    f.line("    }");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("        match axis_index {");
+    f.line("            0 => <A0 as SubstrateTermBody>::body_arena(),");
+    f.line("            _ => &[],");
     f.line("        }");
     f.line("    }");
     f.line("}");
@@ -2364,6 +2414,13 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("                max_count: 2,");
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            }),");
+    f.line("        }");
+    f.line("    }");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("        match axis_index {");
+    f.line("            0 => <A0 as SubstrateTermBody>::body_arena(),");
+    f.line("            1 => <A1 as SubstrateTermBody>::body_arena(),");
+    f.line("            _ => &[],");
     f.line("        }");
     f.line("    }");
     f.line("}");
@@ -2418,6 +2475,16 @@ fn emit_axis_extension(f: &mut RustFile) {
         f.line(&format!("                max_count: {arity},"));
         f.line("                kind: crate::ViolationKind::ValueCheck,");
         f.line("            }),");
+        f.line("        }");
+        f.line("    }");
+        f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+        f.line("        match axis_index {");
+        for i in 0..arity {
+            f.line(&format!(
+                "            {i} => <A{i} as SubstrateTermBody>::body_arena(),"
+            ));
+        }
+        f.line("            _ => &[],");
         f.line("        }");
         f.line("    }");
         f.line("}");
@@ -4902,27 +4969,36 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::AxisInvocation { axis_index, kernel_id, input_index } => {");
-    f.line("            // ADR-030: dispatch to the application's selected axis at");
-    f.line("            // `axis_index`, with `kernel_id` selecting the per-axis kernel.");
-    f.line("            // The catamorphism evaluates the input subtree to bytes and");
-    f.line("            // hands them to the AxisTuple's dispatch router; the dispatcher");
-    f.line("            // writes the kernel's output into a stack-resident buffer.");
+    f.line("            // ADR-055: read the axis's SubstrateTermBody::body_arena() via");
+    f.line("            // `AxisTuple::body_arena_at`. When non-empty, recursively fold");
+    f.line("            // the body with the evaluated kernel input bound as input_bytes;");
+    f.line("            // when empty (primitive-fast-path interpretation), dispatch the");
+    f.line("            // kernel function directly per the optional fast-path per ADR-055.");
     f.line("            //");
     f.line("            // The foundation-built blanket `impl<H: Hasher> AxisTuple for H`");
-    f.line("            // routes the canonical hash dispatch (axis 0, kernel 0)");
-    f.line("            // through the legacy Hasher API; user-declared axes via the");
+    f.line("            // routes the canonical hash dispatch (axis 0, kernel 0) through");
+    f.line("            // the legacy Hasher API (empty body); user-declared axes via the");
     f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
-    f.line("            // (axis_index, kernel_id) combinations.");
+    f.line("            // (axis_index, kernel_id) combinations and may provide substrate-");
+    f.line("            // Term bodies the catamorphism walks structurally.");
     f.line("            let v = evaluate_term_at::<A, R>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
-    f.line("            let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
-    f.line("            let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
-    f.line("                Ok(n) => n,");
-    f.line(
-        "                Err(report) => return Err(PipelineFailure::ShapeViolation { report }),",
-    );
-    f.line("            };");
-    f.line("            let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");
-    f.line("            Ok(TermValue::from_slice(&out[..width]))");
+    f.line("            let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);");
+    f.line("            if body.is_empty() {");
+    f.line("                // Primitive fast-path: dispatch the kernel function directly.");
+    f.line("                let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
+    f.line("                let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
+    f.line("                    Ok(n) => n,");
+    f.line("                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),");
+    f.line("                };");
+    f.line("                let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");
+    f.line("                Ok(TermValue::from_slice(&out[..width]))");
+    f.line("            } else {");
+    f.line("                // ADR-055 recursive-fold path: walk the axis's substrate-Term");
+    f.line("                // body with the evaluated kernel input bound in scope. The");
+    f.line("                // body's root term is by convention the last entry in the arena.");
+    f.line("                let root = body.len() - 1;");
+    f.line("                evaluate_term_at::<A, R>(body, root, v.bytes(), recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
+    f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
     f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
