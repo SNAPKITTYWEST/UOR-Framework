@@ -2717,3 +2717,168 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
     assert_eq!(n, 3);
     assert_eq!(&out[..3], &[0xa1, 0xb2, 0xc3]);
 }
+
+// ── ADR-053 closure-body call forms for Div / Mod / Pow ───────────────
+//
+// ADR-053 added Div/Mod/Pow to the PrimitiveOp catalog; ADR-054 cites
+// these in canonical body composition examples (rotr decomposition,
+// pad-and-finalize). The closure-body grammar must admit them so verb
+// authors can write substrate-Term decompositions ergonomically.
+//
+// `mod` is a Rust keyword; closure-body authors invoke it as the raw
+// identifier `r#mod(a, b)`. The SDK's emit_term_for_call calls
+// `Ident::unraw()` so "mod" matches whether the source uses the raw
+// or unraw form.
+
+prism_model! {
+    pub struct DivModel;
+    pub struct DivRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for DivModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = DivRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            div(100, 7)
+        }
+    }
+}
+
+prism_model! {
+    pub struct ModModel;
+    pub struct ModRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ModModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = ModRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            r#mod(100, 7)
+        }
+    }
+}
+
+prism_model! {
+    pub struct PowModel;
+    pub struct PowRoute;
+    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for PowModel {
+        type Input = ConstrainedTypeInput;
+        type Output = ConstrainedTypeInput;
+        type Route = PowRoute;
+        fn route(input: Self::Input) -> Self::Output {
+            pow(3, 5)
+        }
+    }
+}
+
+#[test]
+fn prism_model_macro_admits_div_call_form() {
+    let arena = <DivRoute as FoundationClosed>::arena_slice();
+    assert_eq!(arena.len(), 3);
+    match arena[2] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Div));
+            assert_eq!(args.start, 0);
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application(Div, …), got {other:?}"),
+    }
+}
+
+#[test]
+fn prism_model_macro_admits_raw_mod_call_form() {
+    let arena = <ModRoute as FoundationClosed>::arena_slice();
+    assert_eq!(arena.len(), 3);
+    match arena[2] {
+        Term::Application { operator, .. } => {
+            assert!(matches!(operator, PrimitiveOp::Mod));
+        }
+        other => panic!("expected Application(Mod, …), got {other:?}"),
+    }
+}
+
+#[test]
+fn prism_model_macro_admits_pow_call_form() {
+    let arena = <PowRoute as FoundationClosed>::arena_slice();
+    assert_eq!(arena.len(), 3);
+    match arena[2] {
+        Term::Application { operator, .. } => {
+            assert!(matches!(operator, PrimitiveOp::Pow));
+        }
+        other => panic!("expected Application(Pow, …), got {other:?}"),
+    }
+}
+
+// ── ADR-055 body clause grammar ────────────────────────────────────────
+//
+// The axis! macro accepts an optional `body = |input| { … };` clause
+// after the trait declaration. The clause is lowered to a Term arena
+// via the same closure-body grammar `prism_model!` uses (per ADR-022 D3
+// + ADR-026 + ADR-033 + ADR-034 + ADR-035 + ADR-053). The macro emits
+// a const `BODY_ARENA_<AXIS>` carrying the arena, and the companion-
+// macro emission's `SubstrateTermBody::body_arena()` returns that const
+// instead of `&[]`.
+//
+// Wiki ADR-055 shows the clause inside the trait (`fn body = …;`); that
+// placement is not Rust-valid trait-item syntax, so the SDK exposes it
+// as a `body = |input| { … };` clause after the trait declaration.
+
+axis! {
+    pub trait BodyClauseProbeAxis: ::uor_foundation::pipeline::AxisExtension {
+        const AXIS_ADDRESS: &'static str = "https://uor.foundation/test/BodyClauseProbeAxis";
+        const MAX_OUTPUT_BYTES: usize = 16;
+        fn probe(
+            input: &[u8],
+            out: &mut [u8],
+        ) -> Result<usize, uor_foundation::enforcement::ShapeViolation>;
+    }
+    body = |input| {
+        add(input, 1)
+    };
+}
+
+pub struct BodyClauseProbeImpl;
+
+impl BodyClauseProbeAxis for BodyClauseProbeImpl {
+    fn probe(
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        let n = input.len().min(out.len()).min(16);
+        out[..n].copy_from_slice(&input[..n]);
+        Ok(n)
+    }
+}
+
+axis_extension_impl_for_body_clause_probe_axis!(BodyClauseProbeImpl);
+
+#[test]
+fn axis_macro_body_clause_emits_non_empty_substrate_term_body() {
+    // ADR-055: the body clause's closure body lowers to a Term arena.
+    // For `add(input, 1)` the arena has three entries: Variable(0),
+    // Literal(1), Application(Add, args=0..2).
+    use uor_foundation::pipeline::SubstrateTermBody;
+    let arena = <BodyClauseProbeImpl as SubstrateTermBody>::body_arena();
+    assert!(
+        !arena.is_empty(),
+        "ADR-055 body clause must yield a non-empty body_arena"
+    );
+    // The catamorphism's Term::AxisInvocation fold-rule walks this
+    // arena when the axis carries a non-empty body, threading the
+    // kernel's input bytes as the route input.
+    match arena[arena.len() - 1] {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Add));
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application(Add, …) as root, got {other:?}"),
+    }
+}
+
+#[test]
+fn axis_macro_body_clause_const_is_emitted_with_canonical_name() {
+    // ADR-055: the body arena is emitted as a const named
+    // `BODY_ARENA_<UPPER_SNAKE_TRAIT_NAME>`. This is a compile-time
+    // check via reflection: BODY_ARENA_BODY_CLAUSE_PROBE_AXIS must
+    // exist as a slice of Terms.
+    let _const_check: &[uor_foundation::enforcement::Term] = BODY_ARENA_BODY_CLAUSE_PROBE_AXIS;
+    assert!(!_const_check.is_empty());
+}

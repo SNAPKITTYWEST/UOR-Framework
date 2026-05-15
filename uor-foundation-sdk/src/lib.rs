@@ -47,6 +47,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, Ident, Result, Token};
 
@@ -2621,10 +2622,16 @@ fn emit_term_for_call(
     // `inline_verb_fragment` const-fn helper. Rust's name resolution
     // surfaces "cannot find value" at the verb-call span if the
     // referenced const isn't in scope.
-    let verb_resolution = match func_ident.to_string().as_str() {
+    // ADR-053: `mod` is a Rust keyword so closure-body authors write
+    // `r#mod(a, b)`; `syn::Ident::to_string()` on a raw ident includes
+    // the `r#` prefix, so we normalize before matching.
+    let unraw_name = func_ident.unraw().to_string();
+    let verb_resolution = match unraw_name.as_str() {
         // Exclude all reserved + PrimitiveOp identifiers from verb
         // resolution; these have dedicated handling below.
         "add" | "sub" | "mul" | "xor" | "and" | "or" | "neg" | "bnot" | "succ" | "pred"
+        // ADR-053: Div/Mod/Pow ring-axis completion + Concat byte-packing.
+        | "div" | "mod" | "pow"
         | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit"
         | "recurse" | "unfold" | "concat"
         // ADR-035 G21..G29 ψ-chain identifiers.
@@ -3004,13 +3011,17 @@ fn emit_term_for_call(
         // The reducer is rendered via emit_term_for_call's path (via a
         // synthesized two-arg call) so the same identifier-resolution
         // applies (PrimitiveOp / verb / closure violation).
-        let reducer_op_or_verb = match reducer_ident.to_string().as_str() {
+        let reducer_op_or_verb = match reducer_ident.unraw().to_string().as_str() {
             "add" => Some(quote! { ::uor_foundation::PrimitiveOp::Add }),
             "sub" => Some(quote! { ::uor_foundation::PrimitiveOp::Sub }),
             "mul" => Some(quote! { ::uor_foundation::PrimitiveOp::Mul }),
             "xor" => Some(quote! { ::uor_foundation::PrimitiveOp::Xor }),
             "and" => Some(quote! { ::uor_foundation::PrimitiveOp::And }),
             "or" => Some(quote! { ::uor_foundation::PrimitiveOp::Or }),
+            // ADR-053 ring-axis completion as tree_fold reducers.
+            "div" => Some(quote! { ::uor_foundation::PrimitiveOp::Div }),
+            "mod" => Some(quote! { ::uor_foundation::PrimitiveOp::Mod }),
+            "pow" => Some(quote! { ::uor_foundation::PrimitiveOp::Pow }),
             _ => None,
         };
         // Pairwise reduction: at each level, fold adjacent pairs.
@@ -3219,7 +3230,7 @@ fn emit_term_for_call(
         }
     }
 
-    let (operator, expected_arity) = match func_ident.to_string().as_str() {
+    let (operator, expected_arity) = match func_ident.unraw().to_string().as_str() {
         "add" => (quote! { ::uor_foundation::PrimitiveOp::Add }, 2usize),
         "sub" => (quote! { ::uor_foundation::PrimitiveOp::Sub }, 2),
         "mul" => (quote! { ::uor_foundation::PrimitiveOp::Mul }, 2),
@@ -3230,6 +3241,18 @@ fn emit_term_for_call(
         "bnot" => (quote! { ::uor_foundation::PrimitiveOp::Bnot }, 1),
         "succ" => (quote! { ::uor_foundation::PrimitiveOp::Succ }, 1),
         "pred" => (quote! { ::uor_foundation::PrimitiveOp::Pred }, 1),
+        // ADR-053 ring-axis completion: Div/Mod/Pow as substrate primitives.
+        // ADR-054 cites these in canonical body composition examples
+        // (rotr decomposition, pad-and-finalize via Concat). Per ADR-053's
+        // catalog the runtime catamorphism evaluates them as
+        // folding-transformations over Z/(2^n)Z.
+        //
+        // Note: `mod` is a Rust keyword, so closure-body authors invoke it as
+        // a raw identifier `r#mod(a, b)`; `Ident::unraw().to_string()`
+        // returns "mod" which the arm matches.
+        "div" => (quote! { ::uor_foundation::PrimitiveOp::Div }, 2),
+        "mod" => (quote! { ::uor_foundation::PrimitiveOp::Mod }, 2),
+        "pow" => (quote! { ::uor_foundation::PrimitiveOp::Pow }, 2),
         // ADR-026 reserved macro-vocabulary identifiers (G13–G18). The
         // closure-body lowering for these forms is specified
         // architecturally; the substrate-level macro recognises them so
@@ -3253,7 +3276,7 @@ fn emit_term_for_call(
             return Err(syn::Error::new(
                 func_ident.span(),
                 format!(
-                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, xor, and, or, neg, bnot, succ, pred), nor an ADR-026 macro-vocabulary identifier (hash/parallel/fold_n/tree_fold/first_admit/recurse/unfold), nor a declared verb"
+                    "closure violation: `{other}` is not a foundation PrimitiveOp (recognised: add, sub, mul, div, r#mod, pow, xor, and, or, neg, bnot, succ, pred, concat), nor an ADR-026 macro-vocabulary identifier (hash/parallel/fold_n/tree_fold/first_admit/recurse/unfold), nor a declared verb"
                 ),
             ));
         }
@@ -4859,12 +4882,39 @@ fn to_screaming_snake(s: &str) -> String {
 
 struct AxisInput {
     trait_decl: syn::ItemTrait,
+    /// ADR-055 body clause: the substrate-Term decomposition of the axis
+    /// kernel, written as a closure `|input| { … }`. The closure body is
+    /// lowered to a `Term` arena via the standard closure-body grammar
+    /// (ADR-022 D3 + ADR-026 + ADR-033 + ADR-034 + ADR-035 + ADR-053);
+    /// the macro emits `impl SubstrateTermBody` returning the arena.
+    ///
+    /// Wiki ADR-055 shows the clause placed inside the trait
+    /// (`fn body = |input| { … };`); that placement is not Rust-valid
+    /// trait-item syntax, so the SDK exposes it as a `body = |input|
+    /// { … };` clause after the trait declaration. The two surfaces are
+    /// semantically identical.
+    body: Option<syn::ExprClosure>,
 }
 
 impl Parse for AxisInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let trait_decl: syn::ItemTrait = input.parse()?;
-        Ok(Self { trait_decl })
+        let mut body = None;
+        if !input.is_empty() {
+            // ADR-055 body clause syntax: `body = |input| { ... };`
+            let body_kw: Ident = input.parse()?;
+            if body_kw != "body" {
+                return Err(syn::Error::new(
+                    body_kw.span(),
+                    "expected `body = |input| { … };` clause after the axis trait declaration (ADR-055)",
+                ));
+            }
+            input.parse::<Token![=]>()?;
+            let closure: syn::ExprClosure = input.parse()?;
+            input.parse::<Token![;]>()?;
+            body = Some(closure);
+        }
+        Ok(Self { trait_decl, body })
     }
 }
 
@@ -4874,6 +4924,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as AxisInput);
     let trait_decl = parsed.trait_decl;
     let trait_name = trait_decl.ident.clone();
+    let body_clause = parsed.body;
     // Collect method idents (kernel names).
     let mut kernel_idents: Vec<Ident> = Vec::new();
     for item in &trait_decl.items {
@@ -4943,10 +4994,91 @@ pub fn axis(input: TokenStream) -> TokenStream {
         &format!("axis_extension_impl_for_{trait_name_lower}"),
         trait_name.span(),
     );
+
+    // ADR-055 body clause lowering. When the macro's input carries a
+    // `body = |input| { … };` clause, lower the closure body to a Term
+    // arena via the standard closure-body grammar (the same path
+    // `prism_model!` uses for route bodies). The resulting arena lives
+    // in a const at the axis declaration's surrounding module so the
+    // companion-macro emission can reference it.
+    //
+    // When no body clause is provided, the companion macros emit
+    // `body_arena() -> &[]` (the primitive-fast-path interpretation per
+    // ADR-055 — byte-output-equivalent to `dispatch_kernel`).
+    let body_arena_const_name = Ident::new(
+        &format!("BODY_ARENA_{}", to_screaming_snake(&trait_name.to_string())),
+        trait_name.span(),
+    );
+    let (body_arena_const, body_arena_expr): (proc_macro2::TokenStream, proc_macro2::TokenStream) =
+        if let Some(closure) = body_clause {
+            // The closure must have exactly one input named `input`.
+            if closure.inputs.len() != 1 {
+                let err = syn::Error::new_spanned(
+                    &closure,
+                    "ADR-055 body clause: closure must have exactly one input named `input`",
+                );
+                return err.to_compile_error().into();
+            }
+            let input_pat = &closure.inputs[0];
+            let input_ident: Ident = match input_pat {
+                syn::Pat::Ident(pi) => pi.ident.clone(),
+                other => {
+                    let err = syn::Error::new_spanned(
+                        other,
+                        "ADR-055 body clause: closure input must be a bare identifier `input`",
+                    );
+                    return err.to_compile_error().into();
+                }
+            };
+            // Lower the closure body. We accept either a block body or an
+            // expression body; emit_term_for_block handles blocks, while a
+            // bare-expression body wraps as a single tail expr.
+            let body_block: syn::Block = match closure.body.as_ref() {
+                syn::Expr::Block(eb) => eb.block.clone(),
+                other => {
+                    let span = quote::ToTokens::to_token_stream(other);
+                    let parsed: syn::Block = match syn::parse2(quote! { { #span } }) {
+                        Ok(b) => b,
+                        Err(e) => return e.to_compile_error().into(),
+                    };
+                    parsed
+                }
+            };
+            let mut arena: Vec<TermSpec> = Vec::new();
+            let mut scope = BindingScope::default();
+            if let Err(e) = emit_term_for_block(&body_block, &input_ident, &mut arena, &mut scope) {
+                return e.to_compile_error().into();
+            }
+            let has_verb_splices = arena
+                .iter()
+                .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
+            let arena_expr = if has_verb_splices {
+                render_const_fn_arena_builder(&arena)
+            } else {
+                let term_specs = render_arena(&arena);
+                quote! { &[ #( #term_specs ),* ] }
+            };
+            (
+                quote! {
+                    #[allow(non_upper_case_globals, dead_code)]
+                    const #body_arena_const_name:
+                        &[::uor_foundation::enforcement::Term] = #arena_expr;
+                },
+                quote! { #body_arena_const_name },
+            )
+        } else {
+            // No body clause — primitive-fast-path interpretation.
+            (quote! {}, quote! { &[] })
+        };
     let expansion = quote! {
         #trait_decl
 
         #(#kernel_consts)*
+
+        // ADR-055 body-arena const (emitted when a `body = …;` clause is
+        // present; absent otherwise — companion-macro uses the empty-arena
+        // primitive-fast-path interpretation).
+        #body_arena_const
 
         /// Wiki ADR-030 companion macro: instantiate `AxisExtension`
         /// for a concrete struct implementing this axis trait. The
@@ -4961,17 +5093,15 @@ pub fn axis(input: TokenStream) -> TokenStream {
         macro_rules! #companion_macro_ident {
             // Non-generic form: simple struct ident.
             ($struct_ident:ident) => {
-                // ADR-055: SubstrateTermBody supertrait — the default empty
-                // body_arena signals the primitive-fast-path interpretation
-                // (the kernel-function dispatch path is the byte-output-
-                // equivalent realization). Application authors who want
-                // recursive fold-fusion through their axis kernel provide
-                // an explicit `body` clause via the `axis!` macro's
-                // forthcoming body-clause grammar.
+                // ADR-055: SubstrateTermBody supertrait. The body_arena
+                // resolves to the `BODY_ARENA_<AXIS>` const if the axis
+                // declaration carried a `body = …;` clause, otherwise to
+                // the empty slice (primitive-fast-path interpretation
+                // where dispatch_kernel is byte-output-equivalent).
                 impl ::uor_foundation::pipeline::__sdk_seal::Sealed for $struct_ident {}
                 impl ::uor_foundation::pipeline::SubstrateTermBody for $struct_ident {
                     fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
-                        &[]
+                        #body_arena_expr
                     }
                 }
                 impl ::uor_foundation::pipeline::AxisExtension for $struct_ident {
@@ -5026,7 +5156,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
                 $(where $($where_clauses)*)?
                 {
                     fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
-                        &[]
+                        #body_arena_expr
                     }
                 }
                 impl<$($generic_params)*> ::uor_foundation::pipeline::AxisExtension for $struct_ty
