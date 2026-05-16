@@ -1093,6 +1093,290 @@ fn prism_model_emits_chained_project_field_terms() {
 // G4 with positional chained access: `input.0.0`.
 partition_product!(PosOuter, InnerLR, LeafA);
 
+// ── Dependency 1: verb! depth-2 partition-product field access ────────
+//
+// ADR-033 G20 + ADR-056: verbs may use depth-2 field-access (`input.0.0`,
+// `input.0.1`, `input.1`) to project the constituent fields of a nested
+// partition-product shape. The chained-field syntax lowers to nested
+// `Term::ProjectField` arena entries, with each ProjectField's
+// byte_offset/byte_length resolved via the const-eval lookup chain
+// `<InnerTy as PartitionProductFactor<IDX>>::Factor as PartitionProductFields>::FIELDS[IDX2]`.
+//
+// Pre-v0.4.10 the verb! macro shared the depth-1 lowering path but the
+// chained type-resolution wasn't reaching `PartitionProductFactor`
+// through the verb's input-type pin; v0.4.10 closes the parity gap.
+
+verb! {
+    pub fn verb_depth2_pos00(input: PosOuter) -> ConstrainedTypeInput {
+        input.0.0
+    }
+}
+
+verb! {
+    pub fn verb_depth2_pos01(input: PosOuter) -> ConstrainedTypeInput {
+        input.0.1
+    }
+}
+
+verb! {
+    pub fn verb_depth2_pos1(input: PosOuter) -> ConstrainedTypeInput {
+        input.1
+    }
+}
+
+#[test]
+fn verb_macro_admits_depth2_positional_field_access() {
+    // Depth-2 `input.0.0` lowers to nested ProjectField entries:
+    // [Variable, ProjectField(0 → 0), ProjectField(1 → 0)].
+    let arena = verb_depth2_pos00_term_arena();
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+    assert!(matches!(
+        arena[2],
+        Term::ProjectField {
+            source_index: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn verb_macro_admits_depth2_pos01() {
+    let arena = verb_depth2_pos01_term_arena();
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(
+        arena[2],
+        Term::ProjectField {
+            source_index: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn verb_macro_admits_depth1_pos1_in_chained_context() {
+    let arena = verb_depth2_pos1_term_arena();
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+}
+
+// Three-operand depth-2 access: read all three constituent fields in one
+// verb body. This is the actual implementer-reported failure mode —
+// nested ProjectField rotation under verb-call composition.
+verb! {
+    pub fn verb_depth2_three_operands(input: PosOuter) -> ConstrainedTypeInput {
+        // Compose all three depth-2 projections through concat (admissible
+        // in verb bodies per ADR-056).
+        concat(concat(input.0.0, input.0.1), input.1)
+    }
+}
+
+#[test]
+fn verb_macro_admits_three_operand_depth2_access() {
+    let arena = verb_depth2_three_operands_term_arena();
+    // Expect: Variable, PF(0→0), PF(1→0), Variable, PF(3→0), PF(4→1),
+    //         Application(Concat, [2..3+1]), Variable, PF(7→1),
+    //         Application(Concat, [combined..]).
+    // The exact arena layout depends on how clone_term_spec rewrites
+    // arg-contiguity, but the key constraint is: the macro accepts the
+    // syntax without panicking.
+    assert!(!arena.is_empty());
+    // Final term is the outermost Concat application.
+    let last = arena.last().unwrap();
+    match last {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Concat));
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application(Concat, …) at root, got {other:?}"),
+    }
+}
+
+// ── Dependency 2: wide-Witt TermValue literal embedding in verb bodies ─
+//
+// ADR-051 commits Term::Literal carries a TermValue (byte sequence) so
+// wide-Witt literals (W128+) are natively representable without Concat
+// composition over narrow literals. The verb-body grammar surfaces this
+// via two call forms:
+//
+// - `literal_u64(<value>, <level>)` — narrow form, packs a u64 value as
+//   big-endian bytes at the declared Witt level's byte width.
+// - `literal_bytes(<bytes>, <level>)` — wide form, accepts a byte slice
+//   for widths > 8 bytes (W128 = 16, W256 = 32, etc.).
+//
+// Both lower to `Term::Literal { value: TermValue, level }` at compile
+// time via the foundation-emitted `pipeline::literal_u64` and
+// `pipeline::literal_bytes` const fns.
+
+verb! {
+    pub fn verb_wide_literal_u64(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // Narrow form at an intermediate width — W16 holds 0xDEAD as
+        // exactly two bytes (big-endian: 0xDE, 0xAD).
+        literal_u64(0xDEAD, uor_foundation::WittLevel::W16)
+    }
+}
+
+#[test]
+fn verb_macro_admits_literal_u64_wide_form() {
+    let arena = verb_wide_literal_u64_term_arena();
+    assert_eq!(arena.len(), 1);
+    match arena[0] {
+        Term::Literal { value, level } => {
+            assert_eq!(value.bytes(), &[0xDEu8, 0xAD][..]);
+            assert_eq!(level.witt_length(), 16);
+        }
+        other => panic!("expected Literal at index 0, got {other:?}"),
+    }
+}
+
+/// Public byte-table acting as the test's wide-literal source. In a real
+/// secp256k1 verb body this would be the prime modulus P:
+///   `pub const P_LITERAL: &[u8; 32] = &[0xff; 32];`
+pub const W128_TEST_BYTES: &[u8; 16] = &[
+    0xCA, 0xFE, 0xBA, 0xBE, 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED, 0xFA, 0xCE, 0xC0, 0xFF, 0xEE, 0x99,
+];
+
+verb! {
+    pub fn verb_wide_literal_bytes(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // Wide form: a 128-bit constant from a static byte table. Real-world
+        // use sites embed prime moduli (secp256k1 P), AES round constants,
+        // FHE plaintext coefficients, etc.
+        literal_bytes(W128_TEST_BYTES, uor_foundation::WittLevel::new(128))
+    }
+}
+
+#[test]
+fn verb_macro_admits_literal_bytes_wide_form_at_w128() {
+    let arena = verb_wide_literal_bytes_term_arena();
+    assert_eq!(arena.len(), 1);
+    match arena[0] {
+        Term::Literal { value, level } => {
+            assert_eq!(value.bytes(), W128_TEST_BYTES);
+            assert_eq!(level.witt_length(), 128);
+        }
+        other => panic!("expected Literal at index 0, got {other:?}"),
+    }
+}
+
+verb! {
+    pub fn verb_wide_literal_compose(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // ADR-051 + ADR-053: wide literals participate in compound verb
+        // bodies via the standard substrate ops. This pattern realizes
+        // the secp256k1 `field_mul_p` decomposition: project the input
+        // bytes, multiply by an in-arena wide constant, take the
+        // remainder mod the prime modulus.
+        r#mod(
+            mul(input, literal_bytes(W128_TEST_BYTES, uor_foundation::WittLevel::new(128))),
+            literal_bytes(W128_TEST_BYTES, uor_foundation::WittLevel::new(128))
+        )
+    }
+}
+
+#[test]
+fn verb_macro_admits_wide_literal_in_compound_body() {
+    let arena = verb_wide_literal_compose_term_arena();
+    // Outermost: Application(Mod, [mul, literal]).
+    let last = arena.last().expect("non-empty arena");
+    match last {
+        Term::Application { operator, args } => {
+            assert!(matches!(operator, PrimitiveOp::Mod));
+            assert_eq!(args.len, 2);
+        }
+        other => panic!("expected Application(Mod, …) at root, got {other:?}"),
+    }
+}
+
+// ── Dependency 3: ADR-056 ψ-residuals scope refinement ─────────────────
+//
+// Per ADR-056, the ψ-residuals discipline (rejection of `concat`,
+// `hash`, `first_admit`, and byte-comparison binary ops) applies to the
+// route body's syntactic surface ONLY. Verb bodies and axis! body
+// clauses admit the full substrate vocabulary so canonical compound
+// operations — SHA padding (concat + Le for block-threshold compare),
+// HMAC (concat for keyed-input composition), Merkle (concat for hash
+// combine), tensor saturation (Le/Ge for clamp bounds) — can be
+// expressed as substrate-Term decompositions per ADR-055.
+
+verb! {
+    pub fn verb_admits_concat(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // Pre-ADR-056 this raised ψ-residual violation in verb! bodies;
+        // post-ADR-056 it lowers to Application(Concat, [lhs, rhs]).
+        concat(input, input)
+    }
+}
+
+#[test]
+fn verb_macro_admits_concat_per_adr_056() {
+    let arena = verb_admits_concat_term_arena();
+    let last = arena.last().expect("non-empty arena");
+    assert!(matches!(
+        last,
+        Term::Application {
+            operator: PrimitiveOp::Concat,
+            ..
+        }
+    ));
+}
+
+verb! {
+    pub fn verb_admits_byte_compare(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // Byte-level comparison (<, <=, >, >=) is the SHA padding-length
+        // and tensor saturation-clamp recipe. Admissible in verb bodies
+        // per ADR-056.
+        input <= 64
+    }
+}
+
+#[test]
+fn verb_macro_admits_byte_comparison_per_adr_056() {
+    let arena = verb_admits_byte_compare_term_arena();
+    let last = arena.last().expect("non-empty arena");
+    assert!(matches!(
+        last,
+        Term::Application {
+            operator: PrimitiveOp::Le,
+            ..
+        }
+    ));
+}
+
+verb! {
+    pub fn verb_admits_hash(input: ConstrainedTypeInput) -> ConstrainedTypeInput {
+        // `hash(<value>)` lowers to AxisInvocation { axis 0, kernel 0 }
+        // in verb bodies — the canonical hash-axis dispatch per ADR-030.
+        // Admissible in verb bodies per ADR-056 (route bodies still
+        // reject it).
+        hash(input)
+    }
+}
+
+#[test]
+fn verb_macro_admits_hash_per_adr_056() {
+    let arena = verb_admits_hash_term_arena();
+    let last = arena.last().expect("non-empty arena");
+    assert!(matches!(
+        last,
+        Term::AxisInvocation {
+            axis_index: 0,
+            kernel_id: 0,
+            ..
+        }
+    ));
+}
+
 prism_model! {
     pub struct ChainedPosModel;
     pub struct ChainedPosRoute;

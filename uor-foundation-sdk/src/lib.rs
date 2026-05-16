@@ -1804,6 +1804,20 @@ enum TermSpec {
         value: proc_macro2::TokenStream,
         level: proc_macro2::TokenStream,
     },
+    /// ADR-051 wide-Witt literal carrier (Dependency 2 in v0.4.10): a
+    /// `Term::Literal` whose `value` is a byte sequence (rather than a
+    /// u64). Surfaces as `literal_bytes(&[u8], WittLevel)` in verb bodies.
+    /// Renders to `pipeline::literal_bytes(<bytes_expr>, <level_expr>)`
+    /// at the consumer's compile time, producing a const Term::Literal
+    /// whose TermValue carrier holds the full byte sequence.
+    ///
+    /// Required for wide Witt-level literals (W128+) that don't fit in
+    /// a u64 — secp256k1 P_LITERAL (W256), AES round constants (W128),
+    /// FHE plaintext-coefficient tables, etc.
+    LiteralBytesExpr {
+        bytes: proc_macro2::TokenStream,
+        level: proc_macro2::TokenStream,
+    },
     /// Compile-time verb splice — wiki ADR-024.
     ///
     /// Inlines the verb's `&'static [Term]` fragment into the host
@@ -1892,11 +1906,22 @@ struct BindingScope {
     /// ADR-033 G20: the route input type, threaded through the closure-
     /// body parser so field-access expressions can synthesize const-eval
     /// lookups against `<RouteInputTy as PartitionProductFields>::FIELDS`.
-    /// `None` for `verb!` bodies (verbs are typed as `pub fn`s and the
-    /// closure-body parser doesn't track their input type — verb fields
-    /// are accessible only through indirection via PrismModel-level
-    /// projections).
+    /// Set for `prism_model!` route bodies, `verb!` bodies (since v0.4.9),
+    /// and `axis!` body clauses (since v0.4.9).
     route_input_ty: Option<syn::Type>,
+    /// ADR-056 scope refinement: the ψ-residuals discipline (rejection of
+    /// `concat`/`hash`/`first_admit` calls + `Le`/`Lt`/`Ge`/`Gt`
+    /// binary-op syntax) applies ONLY to the route body's syntactic
+    /// surface (the `prism_model!`-declared `route` function's closure
+    /// body). Verb bodies declared via `verb!` and axis impl bodies
+    /// declared via `axis!`'s `body = …;` clause are unrestricted within
+    /// the substrate vocabulary per ADR-024 + ADR-055; they may use the
+    /// full `PrimitiveOp` catalog (including `Concat`, `Le`, `Lt`, `Ge`,
+    /// `Gt`), `Term::FirstAdmit`, and `Term::AxisInvocation`.
+    ///
+    /// `true` only for `prism_model!`'s route body; `false` for `verb!`
+    /// bodies and `axis!` body clauses (and the default).
+    in_route_body: bool,
 }
 
 impl BindingScope {
@@ -2256,17 +2281,26 @@ fn emit_term_for_binary(
     scope: &mut BindingScope,
 ) -> Result<usize> {
     let operator = match expr.op {
-        // Wiki ADR-035 ψ-residuals discipline: byte-comparison
+        // ADR-035 ψ-residuals discipline scoped per ADR-056: byte-comparison
         // PrimitiveOps (Le, Lt, Ge, Gt) are ψ-enumeration residuals of
-        // search-based admission predicates and excluded from verb-body
-        // composition. The canonical compiled form is structural —
-        // admission is a property of the value's k-invariant signature,
-        // not a comparison predicate. Express admission through the
-        // ψ-chain (G21..G29) instead.
-        syn::BinOp::Le(_) => return reject_psi_residual_op(expr, "<=", "Le"),
-        syn::BinOp::Lt(_) => return reject_psi_residual_op(expr, "<", "Lt"),
-        syn::BinOp::Ge(_) => return reject_psi_residual_op(expr, ">=", "Ge"),
-        syn::BinOp::Gt(_) => return reject_psi_residual_op(expr, ">", "Gt"),
+        // search-based admission predicates and excluded from the route
+        // body's syntactic surface. Per ADR-056 the rejection applies ONLY
+        // to `prism_model!` route bodies (`in_route_body == true`); verb!
+        // bodies and axis! body clauses may use the full substrate
+        // vocabulary including these comparisons (SHA padding length
+        // comparison, tensor saturation clamp bounds, etc.).
+        syn::BinOp::Le(_) if scope.in_route_body => {
+            return reject_psi_residual_op(expr, "<=", "Le")
+        }
+        syn::BinOp::Lt(_) if scope.in_route_body => return reject_psi_residual_op(expr, "<", "Lt"),
+        syn::BinOp::Ge(_) if scope.in_route_body => {
+            return reject_psi_residual_op(expr, ">=", "Ge")
+        }
+        syn::BinOp::Gt(_) if scope.in_route_body => return reject_psi_residual_op(expr, ">", "Gt"),
+        syn::BinOp::Le(_) => quote! { ::uor_foundation::PrimitiveOp::Le },
+        syn::BinOp::Lt(_) => quote! { ::uor_foundation::PrimitiveOp::Lt },
+        syn::BinOp::Ge(_) => quote! { ::uor_foundation::PrimitiveOp::Ge },
+        syn::BinOp::Gt(_) => quote! { ::uor_foundation::PrimitiveOp::Gt },
         syn::BinOp::Add(_) => quote! { ::uor_foundation::PrimitiveOp::Add },
         syn::BinOp::Sub(_) => quote! { ::uor_foundation::PrimitiveOp::Sub },
         syn::BinOp::Mul(_) => quote! { ::uor_foundation::PrimitiveOp::Mul },
@@ -2276,7 +2310,7 @@ fn emit_term_for_binary(
         _ => {
             return Err(syn::Error::new_spanned(
                 expr,
-                "closure violation: binary operator is not in the closure-body grammar; recognised operators are arithmetic (+, -, *) and bitwise (^, &, |). Byte-level comparison (<=, <, >=, >) is excluded by the ADR-035 ψ-residuals discipline.",
+                "closure violation: binary operator is not in the closure-body grammar; recognised operators are arithmetic (+, -, *) and bitwise (^, &, |). Byte-level comparison (<=, <, >=, >) is admissible in verb bodies and axis impl bodies per ADR-056; it is excluded only from the route body's syntactic surface (per ADR-035/ADR-056).",
             ));
         }
     };
@@ -2338,6 +2372,10 @@ fn clone_term_spec(spec: &TermSpec) -> TermSpec {
         },
         TermSpec::LiteralExpr { value, level } => TermSpec::LiteralExpr {
             value: value.clone(),
+            level: level.clone(),
+        },
+        TermSpec::LiteralBytesExpr { bytes, level } => TermSpec::LiteralBytesExpr {
+            bytes: bytes.clone(),
             level: level.clone(),
         },
         TermSpec::VerbSplice {
@@ -2634,6 +2672,8 @@ fn emit_term_for_call(
         | "div" | "mod" | "pow"
         | "hash" | "parallel" | "fold_n" | "tree_fold" | "first_admit"
         | "recurse" | "unfold" | "concat"
+        // ADR-051: wide-value literal carriers (Dependency 2).
+        | "literal_u64" | "literal_bytes"
         // ADR-035 G21..G29 ψ-chain identifiers.
         | "nerve" | "chain_complex" | "homology_groups" | "betti" | "cochain_complex"
         | "cohomology_groups" | "postnikov_tower" | "homotopy_groups" | "k_invariants" => false,
@@ -3084,15 +3124,68 @@ fn emit_term_for_call(
         return Ok(current_level[0]);
     }
 
-    // Wiki ADR-035 ψ-residuals discipline: `first_admit` lowers to
-    // `Term::FirstAdmit` — ψ-enumeration over a counter domain, which
-    // recovers structural admission by brute-force search rather than by
-    // structural witness. The grammar form remains recognized so the
-    // proc-macro can emit a precise error rather than silently emitting a
-    // non-conforming arena; `Term::FirstAdmit` itself remains in the
-    // substrate for non-verb-body contexts (conformance-corpus
-    // generators, foundation-internal trace replay).
-    if func_ident == "first_admit" {
+    // ADR-051 wide-Witt literal embedding (Dependency 2 in v0.4.10):
+    // `literal_u64(<value>, <level>)` lowers to `TermSpec::LiteralExpr`
+    // which renders to a const-evaluated `pipeline::literal_u64(...)`
+    // call producing a `Term::Literal { value: TermValue, level }` at
+    // the consumer's compile time. The u64 form is sufficient for
+    // widths up to W64; the level argument controls the byte-width of
+    // the resulting TermValue.
+    if unraw_name == "literal_u64" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "`literal_u64(<value>, <level>)` expects 2 arguments, got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let value_tokens = quote::ToTokens::to_token_stream(&call.args[0]);
+        let level_tokens = quote::ToTokens::to_token_stream(&call.args[1]);
+        let idx = arena.len();
+        arena.push(TermSpec::LiteralExpr {
+            value: value_tokens,
+            level: level_tokens,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-051 wide-Witt literal embedding (Dependency 2 in v0.4.10):
+    // `literal_bytes(<bytes>, <level>)` lowers to `TermSpec::LiteralBytesExpr`
+    // which renders to a const-evaluated `pipeline::literal_bytes(...)`
+    // call producing a `Term::Literal { value: TermValue, level }` whose
+    // TermValue carrier holds the full byte sequence. Required for wide
+    // Witt-level literals (W128+) that don't fit in a u64 — secp256k1
+    // P_LITERAL (W256), AES round constants (W128), FHE plaintext-
+    // coefficient tables, etc.
+    if unraw_name == "literal_bytes" {
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "`literal_bytes(<bytes>, <level>)` expects 2 arguments, got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let bytes_tokens = quote::ToTokens::to_token_stream(&call.args[0]);
+        let level_tokens = quote::ToTokens::to_token_stream(&call.args[1]);
+        let idx = arena.len();
+        arena.push(TermSpec::LiteralBytesExpr {
+            bytes: bytes_tokens,
+            level: level_tokens,
+        });
+        return Ok(idx);
+    }
+
+    // ADR-035 ψ-residuals discipline scoped per ADR-056: `first_admit`
+    // lowers to `Term::FirstAdmit` — ψ-enumeration over a counter domain.
+    // Per ADR-056 the rejection applies only when the syntactic emission
+    // is in the route body (`in_route_body == true`); verb! bodies and
+    // axis! body clauses may use `first_admit` for bounded search per
+    // ADR-034 (its canonical use site).
+    if func_ident == "first_admit" && scope.in_route_body {
         return reject_psi_residual_call(
             call,
             "first_admit(<domain>, |idx| <pred>)",
@@ -3102,49 +3195,110 @@ fn emit_term_for_call(
              predicate enumerated over a counter domain. Express the \
              admission relation through the ψ-chain (G21..G29): \
              e.g. `k_invariants(homotopy_groups(postnikov_tower(nerve(input))))` \
-             produces the κ-label that classifies the input's homotopy type.",
+             produces the κ-label that classifies the input's homotopy type. \
+             Per ADR-056 this restriction applies only to the route body's \
+             syntactic surface; verb and axis impl bodies admit `first_admit` \
+             directly.",
         );
     }
 
-    // Wiki ADR-035 ψ-residuals discipline: `concat` lowers to
-    // `Term::Application { operator: PrimitiveOp::Concat }` — a
-    // byte-concatenation residual of byte-shape-aware admission, which
-    // recovers structural admission by byte-level manipulation rather
-    // than by k-invariant signature. Rejected at emission.
+    // ADR-056: `concat` is admissible in verb! / axis! bodies per the
+    // ADR-035 scope refinement. In route bodies (in_route_body == true),
+    // the rejection remains — admission predicates may not depend on
+    // byte-level concatenation. In verb / axis body contexts, concat
+    // emits `Term::Application { operator: PrimitiveOp::Concat, … }`
+    // and is the canonical realization of SHA padding, HMAC composition,
+    // Merkle tree internal-node combination, etc.
     if func_ident == "concat" {
-        return reject_psi_residual_call(
-            call,
-            "concat(<lhs>, <rhs>)",
-            "Application { operator: PrimitiveOp::Concat }",
-            "The canonical compiled form is structural — admission is a \
-             property of the value's k-invariant signature, not a \
-             byte-shape predicate. If byte-concatenation is the input's \
-             structural decomposition, use `partition_product!` to \
-             declare the typed shape and `Term::ProjectField` (G20) to \
-             extract sub-byte ranges; pipe each component through the \
-             ψ-chain instead of byte-manipulating before admission.",
-        );
+        if scope.in_route_body {
+            return reject_psi_residual_call(
+                call,
+                "concat(<lhs>, <rhs>)",
+                "Application { operator: PrimitiveOp::Concat }",
+                "The canonical compiled form is structural — admission is a \
+                 property of the value's k-invariant signature, not a \
+                 byte-shape predicate. If byte-concatenation is the input's \
+                 structural decomposition, use `partition_product!` to \
+                 declare the typed shape and `Term::ProjectField` (G20) to \
+                 extract sub-byte ranges; pipe each component through the \
+                 ψ-chain instead of byte-manipulating before admission. \
+                 Per ADR-056 this restriction applies only to the route \
+                 body's syntactic surface; verb and axis impl bodies admit \
+                 `concat` directly.",
+            );
+        }
+        // Verb / axis body: emit `Term::Application { operator: Concat }`.
+        if call.args.len() != 2 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "PrimitiveOp `concat` expects 2 arguments (lhs, rhs), got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let lhs_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let rhs_root = emit_term_for_expr(&call.args[1], route_input, arena, scope)?;
+        let already_contiguous = rhs_root == lhs_root + 1;
+        let (args_start, args_len) = if already_contiguous {
+            (lhs_root as u32, 2u32)
+        } else {
+            let start = arena.len();
+            let lhs_dup = clone_term_spec(&arena[lhs_root]);
+            arena.push(lhs_dup);
+            let rhs_dup = clone_term_spec(&arena[rhs_root]);
+            arena.push(rhs_dup);
+            (start as u32, 2u32)
+        };
+        let idx = arena.len();
+        arena.push(TermSpec::Application {
+            operator: quote! { ::uor_foundation::PrimitiveOp::Concat },
+            args_start,
+            args_len,
+        });
+        return Ok(idx);
     }
 
-    // Wiki ADR-035 ψ-residuals discipline: `hash(input)` lowers to
-    // `Term::AxisInvocation` — axis-trait-method dispatch from a verb
-    // body. The canonical hash axis is consumed by resolvers
-    // (`ResolverTuple` per ADR-036), not by verb-body composition.
-    // Hash invocations belong in `NerveResolver::resolve` or other
-    // resolver bodies, not in the verb body's structural composition.
+    // ADR-056: `hash(input)` lowers to `Term::AxisInvocation` (axis 0 =
+    // canonical hash axis, kernel 0 = `fold_bytes` ∘ `finalize`). In
+    // route bodies it's rejected (the route's surface composes ψ-chain
+    // forms, not axis dispatch). In verb / axis bodies it's admissible
+    // — canonical hash invocations are exactly how SHA, BLAKE3, etc.
+    // expose themselves to compound operations like HMAC and Merkle.
     if func_ident == "hash" {
-        return reject_psi_residual_call(
-            call,
-            "hash(<value>)",
-            "AxisInvocation",
-            "The canonical hash axis is consumed by resolvers, not by \
-             verb-body composition (ADR-036). Move the `hash(...)` call \
-             into a `NerveResolver` (or other resolver-trait impl) where \
-             the per-value content fingerprint is computed as part of \
-             the resolver's internal resolution semantics; the verb body \
-             composes ψ-chain forms (G21..G29) over the input's \
-             structural decomposition.",
-        );
+        if scope.in_route_body {
+            return reject_psi_residual_call(
+                call,
+                "hash(<value>)",
+                "AxisInvocation",
+                "The canonical hash axis is consumed by resolvers and verb \
+                 bodies, not directly by the route body (ADR-036 + ADR-056). \
+                 Move the `hash(...)` call into a `NerveResolver` (or other \
+                 resolver-trait impl) where the per-value content fingerprint \
+                 is computed as part of the resolver's internal resolution \
+                 semantics — or into a verb body, which admits `hash(...)` \
+                 freely per ADR-056. The route body composes ψ-chain forms \
+                 (G21..G29) over the input's structural decomposition.",
+            );
+        }
+        // Verb / axis body: emit `Term::AxisInvocation { axis 0, kernel 0 }`.
+        if call.args.len() != 1 {
+            return Err(syn::Error::new(
+                func_ident.span(),
+                format!(
+                    "`hash(<value>)` expects 1 argument, got {}",
+                    call.args.len()
+                ),
+            ));
+        }
+        let value_root = emit_term_for_expr(&call.args[0], route_input, arena, scope)?;
+        let idx = arena.len();
+        arena.push(TermSpec::AxisInvocation {
+            axis_index: 0,
+            kernel_id: 0,
+            input_index: value_root as u32,
+        });
+        return Ok(idx);
     }
 
     // Wiki ADR-035 G21..G29: closure-body grammar identifiers for the
@@ -3354,6 +3508,10 @@ fn emit_term_for_call(
                     value: value.clone(),
                     level: level.clone(),
                 },
+                TermSpec::LiteralBytesExpr { bytes, level } => TermSpec::LiteralBytesExpr {
+                    bytes: bytes.clone(),
+                    level: level.clone(),
+                },
                 TermSpec::VerbSplice {
                     arg_root_idx,
                     fragment_path,
@@ -3473,6 +3631,12 @@ fn render_arena(arena: &[TermSpec]) -> Vec<proc_macro2::TokenStream> {
             TermSpec::LiteralExpr { value, level } => quote! {
                 ::uor_foundation::pipeline::literal_u64(
                     #value,
+                    #level,
+                )
+            },
+            TermSpec::LiteralBytesExpr { bytes, level } => quote! {
+                ::uor_foundation::pipeline::literal_bytes(
+                    #bytes,
                     #level,
                 )
             },
@@ -3750,6 +3914,12 @@ fn render_atomic_term_in_builder(
         TermSpec::LiteralExpr { value, level } => quote! {
             ::uor_foundation::pipeline::literal_u64(
                 #value,
+                #level,
+            )
+        },
+        TermSpec::LiteralBytesExpr { bytes, level } => quote! {
+            ::uor_foundation::pipeline::literal_bytes(
+                #bytes,
                 #level,
             )
         },
@@ -4179,9 +4349,14 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
     // ADR-033 G20: pin the route input type into the binding scope so
     // field-access expressions can synthesize the const-eval lookup
     // against `<RouteInputTy as PartitionProductFields>::FIELDS`.
+    //
+    // ADR-056: this is the `prism_model!` route body — the only syntactic
+    // surface the ψ-residuals discipline applies to. Verb! bodies and
+    // axis! body clauses keep `in_route_body == false` (the default).
     let mut arena: Vec<TermSpec> = Vec::new();
     let mut scope = BindingScope {
         route_input_ty: Some(input_ty.clone()),
+        in_route_body: true,
         ..BindingScope::default()
     };
     if let Err(e) = emit_term_for_block(&route_body, &route_input_ident, &mut arena, &mut scope) {
@@ -4573,9 +4748,18 @@ pub fn verb(input: TokenStream) -> TokenStream {
 
     let mut arena: Vec<TermSpec> = Vec::new();
     // ADR-033 G20: pin the verb's input type into the binding scope so
-    // field-access expressions can synthesize const-eval lookups.
+    // field-access expressions can synthesize const-eval lookups
+    // (including depth-2 chains like `input.0.0` per Dependency 1).
+    //
+    // ADR-056: verb bodies are NOT subject to the ψ-residuals discipline
+    // (which applies only to the route body's syntactic surface). Verbs
+    // may use the full substrate vocabulary — `Concat`, `Le`/`Lt`/`Ge`/
+    // `Gt`, `hash(...)` axis invocations, `first_admit(...)` bounded
+    // search — to realize compound operations like SHA padding, HMAC,
+    // Merkle tree construction, and tensor saturation.
     let mut scope = BindingScope {
         route_input_ty: Some(input_ty.clone()),
+        in_route_body: false,
         ..BindingScope::default()
     };
     if let Err(e) = emit_term_for_block(&body, &input_param, &mut arena, &mut scope) {
