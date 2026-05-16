@@ -778,7 +778,14 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
 /// Variadic input: `partition_product!(Name, A, B, [C, …])`.
 struct VariadicShapeArgs {
     name: Ident,
-    operands: Vec<Ident>,
+    /// Operands as full `syn::Type` since v0.4.11 — admits both bare
+    /// identifiers (`LeafA`) and generic-parameter-bearing types
+    /// (`BigIntShape<128>`, `MerkleRoot<H, 32>`). The latter resolves
+    /// the implementer-reported const-generic leaf depth-2 access
+    /// gap by letting closure-body field-access expressions thread the
+    /// full type through `<#ty as PartitionProductFields>::FIELDS[idx]`
+    /// const-eval lookups.
+    operands: Vec<syn::Type>,
     /// ADR-033 G3: per-operand field names, parallel to `operands`. Each
     /// entry is `Some(ident)` for the named-field form
     /// `partition_product!(N, lhs: A, rhs: B)` and `None` for positional
@@ -791,20 +798,29 @@ impl Parse for VariadicShapeArgs {
     fn parse(input: ParseStream) -> Result<Self> {
         let name: Ident = input.parse()?;
         input.parse::<Token![,]>()?;
-        let mut operands: Vec<Ident> = Vec::new();
+        let mut operands: Vec<syn::Type> = Vec::new();
         let mut field_names: Vec<Option<Ident>> = Vec::new();
         // Helper: try to parse one operand, possibly with a `name:` prefix.
         // The decision is made by peeking past the first ident for a
         // `:` token; that distinguishes named-field form from positional.
-        fn parse_one(input: ParseStream) -> Result<(Option<Ident>, Ident)> {
-            let first: Ident = input.parse()?;
-            if input.peek(Token![:]) {
-                input.parse::<Token![:]>()?;
-                let ty: Ident = input.parse()?;
-                Ok((Some(first), ty))
-            } else {
-                Ok((None, first))
+        // Since v0.4.11 the operand-type slot accepts arbitrary `syn::Type`
+        // (admitting `BigIntShape<128>`, `MerkleRoot<H, 32>`, `Tensor<f32,
+        // [3, 4]>`, etc.) in both positional and named forms.
+        fn parse_one(input: ParseStream) -> Result<(Option<Ident>, syn::Type)> {
+            // Speculative parse: try `<ident>:` to detect the named-field form.
+            let forked = input.fork();
+            if let Ok(first) = forked.parse::<Ident>() {
+                if forked.peek(Token![:]) {
+                    // Confirmed named-field form.
+                    input.parse::<Ident>()?;
+                    input.parse::<Token![:]>()?;
+                    let ty: syn::Type = input.parse()?;
+                    return Ok((Some(first), ty));
+                }
             }
+            // Positional form — parse the operand as a full type.
+            let ty: syn::Type = input.parse()?;
+            Ok((None, ty))
         }
         let (n0, t0) = parse_one(input)?;
         field_names.push(n0);
@@ -854,7 +870,7 @@ pub fn partition_product(input: TokenStream) -> TokenStream {
 
 fn expand_partition_product(
     name: Ident,
-    operands: &[Ident],
+    operands: &[syn::Type],
     field_names: &[Option<Ident>],
 ) -> TokenStream {
     if operands.len() == 2 {
@@ -865,10 +881,10 @@ fn expand_partition_product(
         let r = &operands[1];
         let iri = format!(
             "urn:uor:product:{}:{}",
-            lexically_earlier(l, r),
-            lexically_later(l, r),
+            lexically_earlier_ty(l, r),
+            lexically_later_ty(l, r),
         );
-        let (l, r) = canonical_operand_pair(l, r);
+        let (l, r) = canonical_operand_pair_ty(l, r);
         let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
         let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
         // ADR-033 G3: per-factor names — empty string for positional, the
@@ -987,14 +1003,17 @@ fn expand_partition_product(
         let first_b = &operands[1];
         let first_step_call = expand_partition_product_helper(prev.clone(), first_a, first_b);
         chain.push(first_step_call);
-        // Each subsequent step: prev × operand[i+1] → next
+        // Each subsequent step: prev × operand[i+1] → next. `prev` is
+        // always a synthesized intermediate Ident; wrap as Type::Path so
+        // the helper's `&syn::Type` signature accepts it.
         for i in 2..operands.len() {
             let next = if i == operands.len() - 1 {
                 name.clone()
             } else {
                 intermediate_names[i - 1].clone()
             };
-            let next_call = expand_partition_product_helper(next.clone(), &prev, &operands[i]);
+            let prev_ty: syn::Type = syn::parse_quote! { #prev };
+            let next_call = expand_partition_product_helper(next.clone(), &prev_ty, &operands[i]);
             chain.push(next_call);
             prev = next;
         }
@@ -1011,7 +1030,7 @@ fn expand_partition_product(
 /// via `input.0.0` rather than the names they supplied.
 fn expand_partition_product_named_flat(
     name: Ident,
-    operands: &[Ident],
+    operands: &[syn::Type],
     field_names: &[Option<Ident>],
 ) -> TokenStream {
     // Build the FIELDS array: `(running_sum, operand_i.SITE_COUNT)`.
@@ -1077,12 +1096,13 @@ fn expand_partition_product_named_flat(
         }
         acc
     };
-    // IRI: enumerate operands lexicographically for stability.
-    let mut sorted: Vec<&Ident> = operands.iter().collect();
-    sorted.sort_by_key(|i| i.to_string());
+    // IRI: enumerate operands lexicographically (by token-stream-string,
+    // which incorporates generic-arg lists) for stability.
+    let mut sorted: Vec<&syn::Type> = operands.iter().collect();
+    sorted.sort_by_key(|t| type_token_string(t));
     let iri_body: String = sorted
         .iter()
-        .map(|i| i.to_string())
+        .map(|t| type_token_string(t))
         .collect::<Vec<_>>()
         .join(":");
     let iri = format!("urn:uor:product:{iri_body}");
@@ -1150,15 +1170,15 @@ fn expand_partition_product_named_flat(
 /// left-associative variadic chain.
 fn expand_partition_product_helper(
     name: Ident,
-    left: &Ident,
-    right: &Ident,
+    left: &syn::Type,
+    right: &syn::Type,
 ) -> proc_macro2::TokenStream {
     let iri = format!(
         "urn:uor:product:{}:{}",
-        lexically_earlier(left, right),
-        lexically_later(left, right),
+        lexically_earlier_ty(left, right),
+        lexically_later_ty(left, right),
     );
-    let (l, r) = canonical_operand_pair(left, right);
+    let (l, r) = canonical_operand_pair_ty(left, right);
     let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
     let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
     quote! {
@@ -1248,7 +1268,7 @@ pub fn partition_coproduct(input: TokenStream) -> TokenStream {
     expand_partition_coproduct(parsed.name, &parsed.operands)
 }
 
-fn expand_partition_coproduct(name: Ident, operands: &[Ident]) -> TokenStream {
+fn expand_partition_coproduct(name: Ident, operands: &[syn::Type]) -> TokenStream {
     if operands.len() == 2 {
         let combined = expand_partition_coproduct_helper(name, &operands[0], &operands[1]);
         return combined.into();
@@ -1275,8 +1295,9 @@ fn expand_partition_coproduct(name: Ident, operands: &[Ident]) -> TokenStream {
         } else {
             intermediate_names[i - 1].clone()
         };
+        let prev_ty: syn::Type = syn::parse_quote! { #prev };
         let step =
-            expand_partition_coproduct_helper(next.clone(), &prev, &operands[i]);
+            expand_partition_coproduct_helper(next.clone(), &prev_ty, &operands[i]);
         chain.push(step);
         prev = next;
     }
@@ -1286,15 +1307,15 @@ fn expand_partition_coproduct(name: Ident, operands: &[Ident]) -> TokenStream {
 
 fn expand_partition_coproduct_helper(
     name: Ident,
-    left: &Ident,
-    right: &Ident,
+    left: &syn::Type,
+    right: &syn::Type,
 ) -> proc_macro2::TokenStream {
     let iri = format!(
         "urn:uor:coproduct:{}:{}",
-        lexically_earlier(left, right),
-        lexically_later(left, right),
+        lexically_earlier_ty(left, right),
+        lexically_later_ty(left, right),
     );
-    let (l, r) = canonical_operand_pair(left, right);
+    let (l, r) = canonical_operand_pair_ty(left, right);
     let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
     let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
     let tag_coeffs_l = format_ident_suffix(&name, "__TAG_COEFFS_L");
@@ -4859,6 +4880,43 @@ fn lexically_later(a: &Ident, b: &Ident) -> String {
 fn canonical_operand_pair(a: &Ident, b: &Ident) -> (Ident, Ident) {
     let a_s = a.to_string();
     let b_s = b.to_string();
+    if a_s.as_str() <= b_s.as_str() {
+        (a.clone(), b.clone())
+    } else {
+        (b.clone(), a.clone())
+    }
+}
+
+/// Type-aware variants of the canonical-ordering helpers. Used by the
+/// `partition_product!` / `partition_coproduct!` / `cartesian_product_shape!`
+/// variadic parsers (since v0.4.11) so operands carrying const-generic or
+/// turbofish arguments (`BigIntShape<128>`, `MerkleRoot<H, 32>`,
+/// `Tensor<f32, [3, 4]>`) round-trip through the same canonicalization
+/// rules as bare-Ident operands.
+fn type_token_string(ty: &syn::Type) -> String {
+    // Stable string form: the full token stream so generic params and
+    // path qualifiers participate in canonical ordering.
+    quote::ToTokens::to_token_stream(ty).to_string()
+}
+
+fn lexically_earlier_ty(a: &syn::Type, b: &syn::Type) -> String {
+    let a_s = type_token_string(a);
+    let b_s = type_token_string(b);
+    if a_s.as_str() <= b_s.as_str() { a_s } else { b_s }
+}
+
+fn lexically_later_ty(a: &syn::Type, b: &syn::Type) -> String {
+    let a_s = type_token_string(a);
+    let b_s = type_token_string(b);
+    if a_s.as_str() > b_s.as_str() { a_s } else { b_s }
+}
+
+fn canonical_operand_pair_ty(
+    a: &syn::Type,
+    b: &syn::Type,
+) -> (syn::Type, syn::Type) {
+    let a_s = type_token_string(a);
+    let b_s = type_token_string(b);
     if a_s.as_str() <= b_s.as_str() {
         (a.clone(), b.clone())
     } else {

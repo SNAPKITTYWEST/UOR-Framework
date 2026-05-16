@@ -1299,6 +1299,185 @@ fn verb_macro_admits_wide_literal_in_compound_body() {
     }
 }
 
+// ── Const-generic leaf shape (BigIntShape<N>): depth-2 verb! access ────
+//
+// Implementer-reported regression: a verb body's depth-2 field access
+// through a partition product containing a const-generic leaf (like
+// `BigIntShape<N>`) triggers a const-eval failure pre-v0.4.11. The
+// hand-rolled non-generic LeafA depth-2 case (earlier in this file)
+// works fine.
+
+/// A const-generic leaf shape implementing the partition-shape contract
+/// generically over `const N: usize`. Mirrors prism-numerics'
+/// `BigIntShape<N>` declaration shape.
+pub struct BigIntShape<const N: usize>;
+
+impl<const N: usize> ConstrainedTypeShape for BigIntShape<N> {
+    const IRI: &'static str = "https://example.org/sdk-smoke/BigIntShape";
+    const SITE_COUNT: usize = N;
+    const CONSTRAINTS: &'static [ConstraintRef] = &[];
+    const CYCLE_SIZE: u64 = 1;
+}
+
+impl<const N: usize> uor_foundation::pipeline::__sdk_seal::Sealed for BigIntShape<N> {}
+impl<const N: usize> uor_foundation::pipeline::IntoBindingValue for BigIntShape<N> {
+    const MAX_BYTES: usize = 0;
+    fn into_binding_bytes(
+        &self,
+        _out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        Ok(0)
+    }
+}
+impl<const N: usize> uor_foundation::enforcement::GroundedShape for BigIntShape<N> {}
+
+// Monomorphized alias the `partition_product!` macro accepted pre-v0.4.11
+// (the parser took bare idents). v0.4.11 widens the parser to accept full
+// `syn::Type` operands so generic shapes can be passed directly without
+// the intermediate alias. The alias is retained for use in tests below
+// that compare the in-place vs aliased forms.
+pub type Big128 = BigIntShape<128>;
+
+partition_product!(OuterBigInt, Big128, LeafA);
+
+// v0.4.11: in-place generic operand without the intermediate alias.
+partition_product!(OuterBigIntDirect, BigIntShape<128>, LeafA);
+
+#[test]
+fn partition_product_admits_in_place_const_generic_operand() {
+    // The IRI must canonicalize the generic operand token-string-wise so
+    // `partition_product!(_, BigIntShape<128>, LeafA)` and
+    // `partition_product!(_, LeafA, BigIntShape<128>)` produce identical
+    // IRIs (canonical ordering applies).
+    let iri = <OuterBigIntDirect as ConstrainedTypeShape>::IRI;
+    assert!(
+        iri.contains("BigIntShape"),
+        "IRI should mention BigIntShape, got `{iri}`"
+    );
+    assert!(
+        iri.contains("LeafA"),
+        "IRI should mention LeafA, got `{iri}`"
+    );
+    // SITE_COUNT sums: BigIntShape<128>::SITE_COUNT = 128, LeafA = 2.
+    assert_eq!(<OuterBigIntDirect as ConstrainedTypeShape>::SITE_COUNT, 130);
+}
+
+verb! {
+    pub fn verb_depth1_through_in_place_const_generic(input: OuterBigIntDirect) -> ConstrainedTypeInput {
+        // Depth-1 access through the in-place const-generic partition product.
+        input.1
+    }
+}
+
+#[test]
+fn verb_macro_admits_depth1_with_in_place_const_generic_operand() {
+    let arena = verb_depth1_through_in_place_const_generic_term_arena();
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+}
+
+// Depth-2 with an in-place const-generic INNER partition product.
+partition_product!(InnerBigInt, BigIntShape<128>, LeafA);
+partition_product!(BigIntOuterDirect, InnerBigInt, LeafA);
+
+verb! {
+    pub fn verb_depth2_through_in_place_const_generic(input: BigIntOuterDirect) -> ConstrainedTypeInput {
+        // input.0 = InnerBigInt; input.0.0 = BigIntShape<128>.
+        input.0.0
+    }
+}
+
+#[test]
+fn verb_macro_admits_depth2_through_in_place_const_generic() {
+    let arena = verb_depth2_through_in_place_const_generic_term_arena();
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+    assert!(matches!(
+        arena[2],
+        Term::ProjectField {
+            source_index: 1,
+            ..
+        }
+    ));
+}
+
+// Pre-v0.4.11 the `prism_model!`-equivalent depth-2 access via verb!
+// hit a const-eval failure when the inner factor was const-generic;
+// v0.4.11 closes the gap so the depth-2 access compiles and lowers
+// to nested `Term::ProjectField` entries.
+verb! {
+    pub fn verb_depth2_const_generic_leaf(input: OuterBigInt) -> ConstrainedTypeInput {
+        // input.0 = Big128 (= BigIntShape<128>) — a const-generic leaf.
+        // input.0.0 would attempt to project through Big128 which is
+        // a leaf scalar (no PartitionProductFields impl). So the
+        // realistic depth-2 case is `input.1` for the LeafA side.
+        input.1
+    }
+}
+
+#[test]
+fn verb_macro_handles_const_generic_outer_partition_product() {
+    let arena = verb_depth2_const_generic_leaf_term_arena();
+    assert_eq!(arena.len(), 2);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+}
+
+// True depth-2 with a const-generic INNER partition product: an outer
+// partition over a (BigIntInner alias of const-generic) partition and
+// a leaf. Tests the case where `input.0.0` traverses through a
+// const-generic-derived `<Outer as PartitionProductFactor<0>>::Factor`
+// to reach the inner partition's first field.
+partition_product!(BigIntInner, Big128, LeafA);
+partition_product!(BigIntOuter, BigIntInner, LeafA);
+
+verb! {
+    pub fn verb_depth2_const_generic_inner(input: BigIntOuter) -> ConstrainedTypeInput {
+        // input.0 = BigIntInner (a partition product containing a
+        // const-generic leaf); input.0.0 = Big128 (= BigIntShape<128>).
+        input.0.0
+    }
+}
+
+#[test]
+fn verb_macro_admits_depth2_through_const_generic_inner_partition() {
+    let arena = verb_depth2_const_generic_inner_term_arena();
+    assert_eq!(arena.len(), 3);
+    assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
+    assert!(matches!(
+        arena[1],
+        Term::ProjectField {
+            source_index: 0,
+            ..
+        }
+    ));
+    assert!(matches!(
+        arena[2],
+        Term::ProjectField {
+            source_index: 1,
+            ..
+        }
+    ));
+}
+
 // ── Dependency 3: ADR-056 ψ-residuals scope refinement ─────────────────
 //
 // Per ADR-056, the ψ-residuals discipline (rejection of `concat`,
