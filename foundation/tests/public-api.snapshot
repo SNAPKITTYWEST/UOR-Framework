@@ -396,6 +396,7 @@ foundation/src/pipeline.rs: struct InhabitanceImpossibilityCertificate
 foundation/src/pipeline.rs: struct InteractionDeclaration
 foundation/src/pipeline.rs: struct InteractionDriver
 foundation/src/pipeline.rs: struct KInvariantsBytes
+foundation/src/pipeline.rs: struct LexicographicLessEqThreshold
 foundation/src/pipeline.rs: struct NullChainComplexResolver
 foundation/src/pipeline.rs: struct NullCochainComplexResolver
 foundation/src/pipeline.rs: struct NullCohomologyGroupResolver
@@ -450,3 +451,4 @@ foundation/src/pipeline.rs: trait ResolverTuple
 foundation/src/pipeline.rs: trait SubstrateTermBody
 foundation/src/pipeline.rs: trait TypedCommitment
 foundation/src/pipeline.rs: trait WitnessTupleSource
+foundation/src/pipeline.rs: type TargetCommitment

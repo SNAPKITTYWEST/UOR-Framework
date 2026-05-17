@@ -3470,6 +3470,97 @@ fn emit_observable_predicate(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
+    // ── LexicographicLessEqThreshold ─────────────────────────────────
+    //
+    // Wiki ADR-040 + ADR-049: byte-sequence threshold observable under
+    // `observable:ValueThresholdObservable`. Predicate form:
+    // `(digest as big-endian unsigned integer) <= (target as big-endian
+    // unsigned integer)`. Realizes the `type:LexicographicLessEqBound`
+    // bound-shape catalog primitive per ADR-040's bound-to-predicate
+    // dispatch table. Canonical search-cost commitment per ADR-048
+    // (`TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>`).
+    f.doc_comment("Wiki ADR-040 + ADR-049: byte-sequence threshold observable under");
+    f.doc_comment("`observable:ValueThresholdObservable`. Predicate form:");
+    f.doc_comment("`(digest as big-endian unsigned integer) <= (target as");
+    f.doc_comment("big-endian unsigned integer)`. The target byte sequence IS the");
+    f.doc_comment("argument; the predicate's accept_prob under U1 is");
+    f.doc_comment("`(target_int + 1) / 2^(8 * width)`.");
+    f.doc_comment("");
+    f.doc_comment("Realizes the `type:LexicographicLessEqBound` catalog primitive per");
+    f.doc_comment("ADR-040; consumed by `TargetCommitment = SingletonCommitment<Self>`");
+    f.doc_comment("as the canonical search-cost commitment per ADR-048.");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("pub struct LexicographicLessEqThreshold {");
+    f.indented_doc_comment("Byte-sequence target for the threshold comparison. The");
+    f.indented_doc_comment("predicate accepts iff the digest's big-endian unsigned");
+    f.indented_doc_comment("integer value is `<= target`'s big-endian unsigned integer");
+    f.indented_doc_comment("value. Both operands are right-aligned via leading zero pad");
+    f.indented_doc_comment("when lengths differ.");
+    f.line("    pub target: &'static [u8],");
+    f.line("}");
+    f.blank();
+    f.line("impl __sdk_seal::Sealed for LexicographicLessEqThreshold {}");
+    f.blank();
+    f.line("impl ObservablePredicate for LexicographicLessEqThreshold {");
+    f.line("    fn accept_prob(&self) -> f64 {");
+    f.line("        // ADR-040: accept_prob = (target_int + 1) / 2^(8 * width).");
+    f.line("        // Compute via f64 with mantissa headroom: take the leading");
+    f.line("        // bytes of the target into a u64 tail and divide by the");
+    f.line("        // corresponding 2^bits. For widths > 8 bytes the tail-truncation");
+    f.line("        // is conservative (returns the lower bound on the probability,");
+    f.line("        // since high bytes carry the most significant magnitude).");
+    f.line("        let width = self.target.len();");
+    f.line("        if width == 0 {");
+    f.line("            return 0.0;");
+    f.line("        }");
+    f.line("        let head = if width <= 8 { width } else { 8 };");
+    f.line("        let mut head_be = [0u8; 8];");
+    f.line("        head_be[8 - head..].copy_from_slice(&self.target[..head]);");
+    f.line("        let target_int = u64::from_be_bytes(head_be);");
+    f.line("        let denom_bits = (head * 8) as u32;");
+    f.line("        // (target_int + 1) / 2^denom_bits — the +1 accounts for the");
+    f.line("        // <=-inclusive boundary at target_int itself.");
+    f.line("        let denom = if denom_bits >= 64 {");
+    f.line("            // u64::MAX + 1 in f64-safe arithmetic.");
+    f.line("            (u64::MAX as f64) + 1.0");
+    f.line("        } else {");
+    f.line("            (1u64 << denom_bits) as f64");
+    f.line("        };");
+    f.line("        ((target_int as f64) + 1.0) / denom");
+    f.line("    }");
+    f.line("    fn evaluate(&self, digest: &[u8]) -> bool {");
+    f.line("        // Big-endian unsigned comparison: pad the shorter operand with");
+    f.line("        // leading zeros to max(len). Compare byte-by-byte from MSB.");
+    f.line("        let max_len = digest.len().max(self.target.len());");
+    f.line("        let mut i = 0usize;");
+    f.line("        while i < max_len {");
+    f.line("            let d = if i + digest.len() >= max_len {");
+    f.line("                digest[i + digest.len() - max_len]");
+    f.line("            } else {");
+    f.line("                0u8");
+    f.line("            };");
+    f.line("            let t = if i + self.target.len() >= max_len {");
+    f.line("                self.target[i + self.target.len() - max_len]");
+    f.line("            } else {");
+    f.line("                0u8");
+    f.line("            };");
+    f.line("            if d < t {");
+    f.line("                return true;");
+    f.line("            }");
+    f.line("            if d > t {");
+    f.line("                return false;");
+    f.line("            }");
+    f.line("            i += 1;");
+    f.line("        }");
+    f.line("        // Equal — `<=` accepts.");
+    f.line("        true");
+    f.line("    }");
+    f.line("    fn observable_iri(&self) -> &'static str {");
+    f.line("        \"https://uor.foundation/observable/LexicographicLessEqThreshold\"");
+    f.line("    }");
+    f.line("}");
+    f.blank();
+
     // ── Helpers used by the four observables' evaluate methods ──────
     f.doc_comment("Wiki ADR-049: p-adic valuation of a big-endian byte sequence as");
     f.doc_comment("an integer. Returns ν_p(n) where n is the big-endian unsigned");
@@ -3837,6 +3928,35 @@ fn emit_typed_commitment(f: &mut RustFile) {
     f.doc_comment("predicate IRI list is reconstructed by the catamorphism's trace-emission");
     f.doc_comment("path across the `AndCommitment<A, B>` tree.");
     f.line("pub const AND_IRI_SLOT: &str = \"https://uor.foundation/observable/Conjunction\";");
+    f.blank();
+
+    // ── TargetCommitment ─────────────────────────────────────────────
+    //
+    // Wiki ADR-048 + ADR-040 canonical search-cost commitment alias:
+    // `TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>`.
+    // Realizes the bound-shape-to-predicate-impl correspondence the wiki
+    // committed for `type:LexicographicLessEqBound` (Bitcoin-PoW-style
+    // threshold acceptance; ZK proof-system search-cost commitments;
+    // any application needing to bound `(digest as BE integer) <= target`).
+    f.doc_comment("Wiki ADR-048 + ADR-040 canonical search-cost commitment alias.");
+    f.doc_comment("");
+    f.doc_comment("`TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>` —");
+    f.doc_comment("a single typed predicate enforcing `digest <= target` (big-endian unsigned");
+    f.doc_comment("comparison). Realizes the `type:LexicographicLessEqBound` bound-shape");
+    f.doc_comment("primitive's dispatch path per ADR-040; consumed as the canonical");
+    f.doc_comment("search-cost commitment in Bitcoin-PoW-style payload encodings and ZK");
+    f.doc_comment("proof-system difficulty commitments.");
+    f.doc_comment("");
+    f.doc_comment("# Example");
+    f.doc_comment("");
+    f.doc_comment("```ignore");
+    f.doc_comment("use uor_foundation::pipeline::{LexicographicLessEqThreshold, TargetCommitment, SingletonCommitment};");
+    f.doc_comment("const TARGET: &[u8] = &[0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];");
+    f.doc_comment("const C: TargetCommitment = SingletonCommitment {");
+    f.doc_comment("    predicate: LexicographicLessEqThreshold { target: TARGET },");
+    f.doc_comment("};");
+    f.doc_comment("```");
+    f.line("pub type TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>;");
     f.blank();
 }
 

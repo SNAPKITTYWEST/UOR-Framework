@@ -6,7 +6,7 @@ typed Rust traits. Import and implement.
 ## Contents
 
 - 34 namespaces
-- 473 OWL classes (one trait each)
+- 474 OWL classes (one trait each)
 - 948 OWL properties (one method each)
 - 3601 named individuals (constants and enums)
 - `enforcement` module with declarative builders and opaque witnesses
@@ -16,7 +16,7 @@ typed Rust traits. Import and implement.
 
 ```toml
 [dependencies]
-uor-foundation = "0.4.11"
+uor-foundation = "0.4.12"
 ```
 
 ### HostTypes (target §4.1 W10)

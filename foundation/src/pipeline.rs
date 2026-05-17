@@ -2680,6 +2680,86 @@ impl ObservablePredicate for AffineParity {
     }
 }
 
+/// Wiki ADR-040 + ADR-049: byte-sequence threshold observable under
+/// `observable:ValueThresholdObservable`. Predicate form:
+/// `(digest as big-endian unsigned integer) <= (target as
+/// big-endian unsigned integer)`. The target byte sequence IS the
+/// argument; the predicate's accept_prob under U1 is
+/// `(target_int + 1) / 2^(8 * width)`.
+/// Realizes the `type:LexicographicLessEqBound` catalog primitive per
+/// ADR-040; consumed by `TargetCommitment = SingletonCommitment<Self>`
+/// as the canonical search-cost commitment per ADR-048.
+#[derive(Debug, Clone, Copy)]
+pub struct LexicographicLessEqThreshold {
+    /// Byte-sequence target for the threshold comparison. The
+    /// predicate accepts iff the digest's big-endian unsigned
+    /// integer value is `<= target`'s big-endian unsigned integer
+    /// value. Both operands are right-aligned via leading zero pad
+    /// when lengths differ.
+    pub target: &'static [u8],
+}
+
+impl __sdk_seal::Sealed for LexicographicLessEqThreshold {}
+
+impl ObservablePredicate for LexicographicLessEqThreshold {
+    fn accept_prob(&self) -> f64 {
+        // ADR-040: accept_prob = (target_int + 1) / 2^(8 * width).
+        // Compute via f64 with mantissa headroom: take the leading
+        // bytes of the target into a u64 tail and divide by the
+        // corresponding 2^bits. For widths > 8 bytes the tail-truncation
+        // is conservative (returns the lower bound on the probability,
+        // since high bytes carry the most significant magnitude).
+        let width = self.target.len();
+        if width == 0 {
+            return 0.0;
+        }
+        let head = if width <= 8 { width } else { 8 };
+        let mut head_be = [0u8; 8];
+        head_be[8 - head..].copy_from_slice(&self.target[..head]);
+        let target_int = u64::from_be_bytes(head_be);
+        let denom_bits = (head * 8) as u32;
+        // (target_int + 1) / 2^denom_bits — the +1 accounts for the
+        // <=-inclusive boundary at target_int itself.
+        let denom = if denom_bits >= 64 {
+            // u64::MAX + 1 in f64-safe arithmetic.
+            (u64::MAX as f64) + 1.0
+        } else {
+            (1u64 << denom_bits) as f64
+        };
+        ((target_int as f64) + 1.0) / denom
+    }
+    fn evaluate(&self, digest: &[u8]) -> bool {
+        // Big-endian unsigned comparison: pad the shorter operand with
+        // leading zeros to max(len). Compare byte-by-byte from MSB.
+        let max_len = digest.len().max(self.target.len());
+        let mut i = 0usize;
+        while i < max_len {
+            let d = if i + digest.len() >= max_len {
+                digest[i + digest.len() - max_len]
+            } else {
+                0u8
+            };
+            let t = if i + self.target.len() >= max_len {
+                self.target[i + self.target.len() - max_len]
+            } else {
+                0u8
+            };
+            if d < t {
+                return true;
+            }
+            if d > t {
+                return false;
+            }
+            i += 1;
+        }
+        // Equal — `<=` accepts.
+        true
+    }
+    fn observable_iri(&self) -> &'static str {
+        "https://uor.foundation/observable/LexicographicLessEqThreshold"
+    }
+}
+
 /// Wiki ADR-049: p-adic valuation of a big-endian byte sequence as
 /// an integer. Returns ν_p(n) where n is the big-endian unsigned
 /// integer view of `digest`. Convention: ν_p(0) = digest.len() * 8
@@ -3016,6 +3096,23 @@ impl<A: TypedCommitment, B: TypedCommitment> TypedCommitment for AndCommitment<A
 /// predicate IRI list is reconstructed by the catamorphism's trace-emission
 /// path across the `AndCommitment<A, B>` tree.
 pub const AND_IRI_SLOT: &str = "https://uor.foundation/observable/Conjunction";
+
+/// Wiki ADR-048 + ADR-040 canonical search-cost commitment alias.
+/// `TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>` —
+/// a single typed predicate enforcing `digest <= target` (big-endian unsigned
+/// comparison). Realizes the `type:LexicographicLessEqBound` bound-shape
+/// primitive's dispatch path per ADR-040; consumed as the canonical
+/// search-cost commitment in Bitcoin-PoW-style payload encodings and ZK
+/// proof-system difficulty commitments.
+/// # Example
+/// ```ignore
+/// use uor_foundation::pipeline::{LexicographicLessEqThreshold, TargetCommitment, SingletonCommitment};
+/// const TARGET: &[u8] = &[0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];
+/// const C: TargetCommitment = SingletonCommitment {
+///     predicate: LexicographicLessEqThreshold { target: TARGET },
+/// };
+/// ```
+pub type TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>;
 
 /// Foundation-internal seal module — `__` prefix and `#[doc(hidden)]`
 /// signal "for the SDK macro only." The `prism_model!` macro emits

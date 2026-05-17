@@ -920,10 +920,15 @@ symbols = [
     "AndCommitment",
     "SINGLETON_IRI_SLOT",
     "AND_IRI_SLOT",
+    # ADR-040 + ADR-048 catalog correspondence: TargetCommitment is the
+    # canonical search-cost commitment alias for
+    # `SingletonCommitment<LexicographicLessEqThreshold>`, realizing the
+    # `type:LexicographicLessEqBound` bound-shape primitive's dispatch path.
+    "TargetCommitment",
 ]
 behavior = "behavior_catamorphism_evaluator"
 
-# ─── Mapping: ADR-049 — ObservablePredicate surface + 4 typed
+# ─── Mapping: ADR-049 — ObservablePredicate surface + 5 typed
 # observable primitives + axis::cryptanalyze battery + CryptanalysisReport
 # + TestOutcome. The observable predicate surface and cryptanalysis
 # battery let any implementor consume the canonical hash axis as
@@ -937,6 +942,11 @@ symbols = [
     "WalshHadamardParity",
     "UltrametricCloseTo",
     "AffineParity",
+    # ADR-040 + ADR-049 catalog correspondence: LexicographicLessEqThreshold
+    # is the 5th foundation-published ObservablePredicate impl, realizing the
+    # `type:LexicographicLessEqBound` bound-shape primitive under the
+    # `observable:ValueThresholdObservable` taxonomy subclass.
+    "LexicographicLessEqThreshold",
     "CryptanalysisReport",
     "TestOutcome",
     "axis",

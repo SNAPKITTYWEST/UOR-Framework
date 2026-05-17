@@ -1299,6 +1299,73 @@ fn verb_macro_admits_wide_literal_in_compound_body() {
     }
 }
 
+// ── ADR-040 + ADR-048 + ADR-049: LexicographicLessEqThreshold + TargetCommitment ─
+//
+// Wiki amendment (post-v0.4.11): the canonical search-cost commitment
+// realization. `LexicographicLessEqThreshold` is the 5th foundation-
+// published ObservablePredicate impl realizing the
+// `type:LexicographicLessEqBound` bound-shape primitive's dispatch path.
+// `TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>`
+// is the canonical alias consumed by Bitcoin-PoW-style payload encodings,
+// ZK proof-system difficulty commitments, and any application bounding
+// `(digest as BE integer) <= target`.
+
+#[test]
+fn lexicographic_less_eq_threshold_evaluates_be_unsigned_inequality() {
+    use uor_foundation::pipeline::{LexicographicLessEqThreshold, ObservablePredicate};
+    const TARGET: &[u8] = &[0x00, 0xFF];
+    let pred = LexicographicLessEqThreshold { target: TARGET };
+    // digest < target: 0x0010 < 0x00FF → accept.
+    assert!(pred.evaluate(&[0x00, 0x10]));
+    // digest = target → accept (<= is inclusive).
+    assert!(pred.evaluate(&[0x00, 0xFF]));
+    // digest > target → reject.
+    assert!(!pred.evaluate(&[0x01, 0x00]));
+    // Shorter digest, right-aligned: 0x10 padded to 0x0010 → accept.
+    assert!(pred.evaluate(&[0x10]));
+}
+
+#[test]
+fn lexicographic_less_eq_threshold_observable_iri_is_canonical() {
+    use uor_foundation::pipeline::{LexicographicLessEqThreshold, ObservablePredicate};
+    let pred = LexicographicLessEqThreshold { target: &[0; 0] };
+    assert_eq!(
+        pred.observable_iri(),
+        "https://uor.foundation/observable/LexicographicLessEqThreshold"
+    );
+}
+
+#[test]
+fn lexicographic_less_eq_threshold_accept_prob_under_u1() {
+    use uor_foundation::pipeline::{LexicographicLessEqThreshold, ObservablePredicate};
+    // target = 0x80 (half of u8 range); accept_prob = (128 + 1) / 256 ≈ 0.504.
+    let pred = LexicographicLessEqThreshold { target: &[0x80] };
+    let p = pred.accept_prob();
+    assert!((p - (129.0 / 256.0)).abs() < 1e-12);
+}
+
+#[test]
+fn target_commitment_alias_is_singleton_of_threshold() {
+    use uor_foundation::pipeline::{
+        LexicographicLessEqThreshold, SingletonCommitment, TargetCommitment, TypedCommitment,
+    };
+    const TARGET: &[u8] = &[0x00, 0xFF, 0xFF];
+    const C: TargetCommitment = SingletonCommitment {
+        predicate: LexicographicLessEqThreshold { target: TARGET },
+    };
+    // The alias is exactly SingletonCommitment<LexicographicLessEqThreshold>;
+    // bandwidth/accept_prob delegate to the inner predicate.
+    assert_eq!(C.predicate_count(), 1);
+    // accept_prob: target = 0x00FFFF; (target_int + 1) / 2^24 ≈ 65536 / 16777216.
+    let p = C.accept_prob();
+    assert!(p > 0.0);
+    assert!(p < 1.0);
+    // evaluate: digest 0x000010 (=16) <= target 0x00FFFF (=65535) → accept.
+    assert!(C.evaluate(&[0x00, 0x00, 0x10]));
+    // digest 0x010000 (=65536) > target → reject.
+    assert!(!C.evaluate(&[0x01, 0x00, 0x00]));
+}
+
 // ── Const-generic leaf shape (BigIntShape<N>): depth-2 verb! access ────
 //
 // Implementer-reported regression: a verb body's depth-2 field access

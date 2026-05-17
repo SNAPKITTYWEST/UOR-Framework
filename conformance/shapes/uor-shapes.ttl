@@ -1,7 +1,5 @@
 # UOR Foundation SHACL Shapes
-# Generated from ontology v0.3.0 — 471 NodeShapes (Phases A–J + T1 cleanup +
-# Workstream C: 2 impossibility cert subclasses + Product/Coproduct
-# Completion Amendment: 3 new partition/foundation classes).
+# Generated from ontology v0.4.12 — 474 NodeShapes.
 
 @prefix rdf:        <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs:       <http://www.w3.org/2000/01/rdf-schema#> .
@@ -15,6 +13,7 @@
 @prefix resolver:   <https://uor.foundation/resolver/> .
 @prefix type:       <https://uor.foundation/type/> .
 @prefix partition:  <https://uor.foundation/partition/> .
+@prefix foundation: <https://uor.foundation/foundation/> .
 @prefix observable: <https://uor.foundation/observable/> .
 @prefix carry:      <https://uor.foundation/carry/> .
 @prefix homology:   <https://uor.foundation/homology/> .
@@ -41,7 +40,6 @@
 @prefix region:     <https://uor.foundation/region/> .
 @prefix boundary:   <https://uor.foundation/boundary/> .
 @prefix conformance:<https://uor.foundation/conformance/> .
-@prefix foundation: <https://uor.foundation/foundation/> .
 @prefix uor-sh:     <https://uor.foundation/shapes/> .
 
 # ── u/ namespace (1) ─────────────────────────────
@@ -132,7 +130,25 @@ uor-sh:TermShape
 uor-sh:TriadShape
     a               sh:NodeShape ;
     sh:targetClass  schema:Triad ;
-    rdfs:label      "TriadShape" .
+    rdfs:label      "TriadShape" ;
+    sh:property [
+        sh:path schema:triadStratum ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path schema:triadSpectrum ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path schema:triadAddress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] .
 
 uor-sh:LiteralShape
     a               sh:NodeShape ;
@@ -817,7 +833,7 @@ uor-sh:SessionQueryShape
         sh:class state:Session ;
     ] .
 
-# ── resolver/ namespace (31) ──────────────────────
+# ── resolver/ namespace (32) ──────────────────────
 
 uor-sh:ResolverShape
     a               sh:NodeShape ;
@@ -1203,7 +1219,6 @@ uor-sh:ResidualVerdictResolverShape
     sh:targetClass  resolver:ResidualVerdictResolver ;
     rdfs:label      "ResidualVerdictResolverShape" .
 
-# v0.2.2 Phase C.4
 uor-sh:MultiplicationResolverShape
     a               sh:NodeShape ;
     sh:targetClass  resolver:MultiplicationResolver ;
@@ -1274,7 +1289,7 @@ uor-sh:ModuliResolverShape
         sh:class homology:DeformationComplex ;
     ] .
 
-# ── type/ namespace (40) ──────────────────────────
+# ── type/ namespace (36) ──────────────────────────
 
 uor-sh:TypeDefinitionShape
     a               sh:NodeShape ;
@@ -1310,7 +1325,17 @@ uor-sh:ProductTypeShape
 uor-sh:SumTypeShape
     a               sh:NodeShape ;
     sh:targetClass  type:SumType ;
-    rdfs:label      "SumTypeShape" .
+    rdfs:label      "SumTypeShape" ;
+    sh:property [
+        sh:path type:variant ;
+        sh:class type:TypeDefinition ;
+    ] ;
+    sh:property [
+        sh:path type:tagSite ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class partition:TagSite ;
+    ] .
 
 uor-sh:ConstrainedTypeShape
     a               sh:NodeShape ;
@@ -1364,47 +1389,6 @@ uor-sh:ConstraintShape
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:nonNegativeInteger ;
-    ] .
-
-# v0.2.2 Phase D (Q4) — parametric constraint shapes. Replaces the seven
-# enumerated constraint-kind shapes with BoundConstraint, BoundShape, and
-# Conjunction shapes. The (observable, shape) kind catalogue is represented
-# by six BoundConstraint individuals, each validated by BoundConstraintShape.
-uor-sh:BoundConstraintShape
-    a               sh:NodeShape ;
-    sh:targetClass  type:BoundConstraint ;
-    rdfs:label      "BoundConstraintShape" ;
-    sh:property [
-        sh:path type:boundObservable ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:class observable:Observable ;
-    ] ;
-    sh:property [
-        sh:path type:boundShape ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:class type:BoundShape ;
-    ] ;
-    sh:property [
-        sh:path type:boundArguments ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:datatype xsd:string ;
-    ] .
-
-uor-sh:BoundShapeShape
-    a               sh:NodeShape ;
-    sh:targetClass  type:BoundShape ;
-    rdfs:label      "BoundShapeShape" .
-
-uor-sh:ConjunctionShape
-    a               sh:NodeShape ;
-    sh:targetClass  type:Conjunction ;
-    rdfs:label      "ConjunctionShape" ;
-    sh:property [
-        sh:path type:conjuncts ;
-        sh:class type:BoundConstraint ;
     ] .
 
 uor-sh:MetricAxisShape
@@ -1822,7 +1806,106 @@ uor-sh:ConstraintDefaultsShape
         sh:datatype xsd:integer ;
     ] .
 
-# ── partition/ namespace (11) ─────────────────────
+uor-sh:BoundConstraintShape
+    a               sh:NodeShape ;
+    sh:targetClass  type:BoundConstraint ;
+    rdfs:label      "BoundConstraintShape" ;
+    sh:property [
+        sh:path type:modulus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:positiveInteger ;
+    ] ;
+    sh:property [
+        sh:path type:residue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path type:carryPattern ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class schema:Datum ;
+    ] ;
+    sh:property [
+        sh:path type:minDepth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path type:maxDepth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path type:hammingBound ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path type:siteIndex ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path type:siteValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class schema:Datum ;
+    ] ;
+    sh:property [
+        sh:path type:affineOffset ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class schema:Datum ;
+    ] ;
+    sh:property [
+        sh:path type:affineGenerator ;
+        sh:class schema:Datum ;
+    ] ;
+    sh:property [
+        sh:path type:boundObservable ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class observable:Observable ;
+    ] ;
+    sh:property [
+        sh:path type:boundShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class type:BoundShape ;
+    ] ;
+    sh:property [
+        sh:path type:boundArguments ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+uor-sh:BoundShapeShape
+    a               sh:NodeShape ;
+    sh:targetClass  type:BoundShape ;
+    rdfs:label      "BoundShapeShape" .
+
+uor-sh:ConjunctionShape
+    a               sh:NodeShape ;
+    sh:targetClass  type:Conjunction ;
+    rdfs:label      "ConjunctionShape" ;
+    sh:property [
+        sh:path type:composedFrom ;
+        sh:class type:Constraint ;
+    ] ;
+    sh:property [
+        sh:path type:conjuncts ;
+        sh:class type:BoundConstraint ;
+    ] .
+
+# ── partition/ namespace (15) ─────────────────────
 
 uor-sh:PartitionShape
     a               sh:NodeShape ;
@@ -1881,6 +1964,18 @@ uor-sh:PartitionShape
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:boolean ;
+    ] ;
+    sh:property [
+        sh:path partition:tagSiteOf ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class partition:TagSite ;
+    ] ;
+    sh:property [
+        sh:path partition:productCategoryLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
     ] .
 
 uor-sh:ComponentShape
@@ -2007,18 +2102,6 @@ uor-sh:SiteBindingShape
         sh:class partition:SiteIndex ;
     ] .
 
-# v0.2.2 Phase D (Q4) — observable backing siteConstraintKind.
-uor-sh:FreeRankObservableShape
-    a               sh:NodeShape ;
-    sh:targetClass  partition:FreeRankObservable ;
-    rdfs:label      "FreeRankObservableShape" .
-
-# v0.2.2 Phase E — partition component enum class.
-uor-sh:PartitionComponentShape
-    a               sh:NodeShape ;
-    sh:targetClass  partition:PartitionComponent ;
-    rdfs:label      "PartitionComponentShape" .
-
 uor-sh:PartitionProductShape
     a               sh:NodeShape ;
     sh:targetClass  partition:PartitionProduct ;
@@ -2053,7 +2136,58 @@ uor-sh:PartitionCoproductShape
         sh:class partition:Partition ;
     ] .
 
-# ── observable/ namespace (50) ────────────────────
+uor-sh:CartesianPartitionProductShape
+    a               sh:NodeShape ;
+    sh:targetClass  partition:CartesianPartitionProduct ;
+    rdfs:label      "CartesianPartitionProductShape" ;
+    sh:property [
+        sh:path partition:leftCartesianFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class partition:Partition ;
+    ] ;
+    sh:property [
+        sh:path partition:rightCartesianFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class partition:Partition ;
+    ] .
+
+uor-sh:TagSiteShape
+    a               sh:NodeShape ;
+    sh:targetClass  partition:TagSite ;
+    rdfs:label      "TagSiteShape" ;
+    sh:property [
+        sh:path partition:tagValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+    ] .
+
+uor-sh:FreeRankObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  partition:FreeRankObservable ;
+    rdfs:label      "FreeRankObservableShape" .
+
+uor-sh:PartitionComponentShape
+    a               sh:NodeShape ;
+    sh:targetClass  partition:PartitionComponent ;
+    rdfs:label      "PartitionComponentShape" .
+
+# ── foundation/ namespace (1) ────────────────────
+
+uor-sh:LayoutInvariantShape
+    a               sh:NodeShape ;
+    sh:targetClass  foundation:LayoutInvariant ;
+    rdfs:label      "LayoutInvariantShape" ;
+    sh:property [
+        sh:path foundation:layoutRule ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+# ── observable/ namespace (57) ────────────────────
 
 uor-sh:ObservableShape
     a               sh:NodeShape ;
@@ -2143,20 +2277,20 @@ uor-sh:HolonomyObservableShape
     sh:targetClass  observable:HolonomyObservable ;
     rdfs:label      "HolonomyObservableShape" .
 
-# Wiki ADR-038: AxisProjectionObservable — closed-catalog extension
-# carrying axis-realized projection values from the substrate-extension
-# surface per ADR-030.
-uor-sh:AxisProjectionObservableShape
-    a               sh:NodeShape ;
-    sh:targetClass  observable:AxisProjectionObservable ;
-    rdfs:label      "AxisProjectionObservableShape" .
-
-# Wiki ADR-049: SpectralObservable — closed-catalog extension hosting
-# Walsh–Hadamard-parity-derived spectral readings of the σ-projection.
 uor-sh:SpectralObservableShape
     a               sh:NodeShape ;
     sh:targetClass  observable:SpectralObservable ;
     rdfs:label      "SpectralObservableShape" .
+
+uor-sh:ValueThresholdObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  observable:ValueThresholdObservable ;
+    rdfs:label      "ValueThresholdObservableShape" .
+
+uor-sh:AxisProjectionObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  observable:AxisProjectionObservable ;
+    rdfs:label      "AxisProjectionObservableShape" .
 
 uor-sh:RingMetricShape
     a               sh:NodeShape ;
@@ -2173,19 +2307,16 @@ uor-sh:IncompatibilityMetricShape
     sh:targetClass  observable:IncompatibilityMetric ;
     rdfs:label      "IncompatibilityMetricShape" .
 
-# v0.2.2 Phase D (Q4) — observable for BoundConstraint value-mod residue/affine kinds.
 uor-sh:ValueModObservableShape
     a               sh:NodeShape ;
     sh:targetClass  observable:ValueModObservable ;
     rdfs:label      "ValueModObservableShape" .
 
-# v0.2.2 Phase E — the grounding completion ratio observable.
 uor-sh:GroundingSigmaShape
     a               sh:NodeShape ;
     sh:targetClass  observable:GroundingSigma ;
     rdfs:label      "GroundingSigmaShape" .
 
-# v0.2.2 Phase E — the per-site Jacobian row observable.
 uor-sh:JacobianObservableShape
     a               sh:NodeShape ;
     sh:targetClass  observable:JacobianObservable ;
@@ -2382,7 +2513,7 @@ uor-sh:LandauerBudgetShape
     rdfs:label      "LandauerBudgetShape" ;
     sh:property [
         sh:path observable:landauerNats ;
-        sh:minCount 0 ;
+        sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:decimal ;
     ] .
@@ -2675,13 +2806,7 @@ uor-sh:EulerCharacteristicObservableShape
         sh:class schema:TermExpression ;
     ] .
 
-# ── carry/ namespace (5) ─────────────────────────
-
-# v0.2.2 Phase D (Q4) — observable backing carryConstraintKind.
-uor-sh:CarryDepthObservableShape
-    a               sh:NodeShape ;
-    sh:targetClass  carry:CarryDepthObservable ;
-    rdfs:label      "CarryDepthObservableShape" .
+# ── carry/ namespace (6) ─────────────────────────
 
 uor-sh:CarryChainShape
     a               sh:NodeShape ;
@@ -2797,6 +2922,11 @@ uor-sh:EncodingQualityShape
         sh:maxCount 1 ;
         sh:datatype xsd:boolean ;
     ] .
+
+uor-sh:CarryDepthObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  carry:CarryDepthObservable ;
+    rdfs:label      "CarryDepthObservableShape" .
 
 # ── homology/ namespace (14) ──────────────────────
 
@@ -3425,25 +3555,7 @@ uor-sh:InhabitanceImpossibilityWitnessShape
         sh:class trace:InhabitanceSearchTrace ;
     ] .
 
-# ── derivation/ namespace (10) ────────────────────
-
-# v0.2.2 Phase D (Q4) — observable backing depthConstraintKind.
-uor-sh:DerivationDepthObservableShape
-    a               sh:NodeShape ;
-    sh:targetClass  derivation:DerivationDepthObservable ;
-    rdfs:label      "DerivationDepthObservableShape" .
-
-# v0.2.2 Phase E — ordered DerivationTrace produced by Derivation::replay().
-uor-sh:DerivationTraceShape
-    a               sh:NodeShape ;
-    sh:targetClass  derivation:DerivationTrace ;
-    rdfs:label      "DerivationTraceShape" ;
-    sh:property [
-        sh:path derivation:traceEventCount ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:datatype xsd:nonNegativeInteger ;
-    ] .
+# ── derivation/ namespace (12) ────────────────────
 
 uor-sh:DerivationShape
     a               sh:NodeShape ;
@@ -3641,6 +3753,22 @@ uor-sh:InhabitanceCheckpointShape
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:integer ;
+    ] .
+
+uor-sh:DerivationDepthObservableShape
+    a               sh:NodeShape ;
+    sh:targetClass  derivation:DerivationDepthObservable ;
+    rdfs:label      "DerivationDepthObservableShape" .
+
+uor-sh:DerivationTraceShape
+    a               sh:NodeShape ;
+    sh:targetClass  derivation:DerivationTrace ;
+    rdfs:label      "DerivationTraceShape" ;
+    sh:property [
+        sh:path derivation:traceEventCount ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
     ] .
 
 # ── trace/ namespace (8) ─────────────────────────
@@ -3857,7 +3985,7 @@ uor-sh:InhabitanceSearchTraceShape
         sh:class derivation:InhabitanceCheckpoint ;
     ] .
 
-# ── cert/ namespace (14) ──────────────────────────
+# ── cert/ namespace (18) ──────────────────────────
 
 uor-sh:CertificateShape
     a               sh:NodeShape ;
@@ -4101,13 +4229,6 @@ uor-sh:InhabitanceCertificateShape
         sh:class type:ConstrainedType ;
     ] .
 
-# v0.2.2 Phase E
-uor-sh:PartitionCertificateShape
-    a               sh:NodeShape ;
-    sh:targetClass  cert:PartitionCertificate ;
-    rdfs:label      "PartitionCertificateShape" .
-
-# v0.2.2 Phase C.4
 uor-sh:MultiplicationCertificateShape
     a               sh:NodeShape ;
     sh:targetClass  cert:MultiplicationCertificate ;
@@ -4130,6 +4251,21 @@ uor-sh:MultiplicationCertificateShape
         sh:maxCount 1 ;
         sh:datatype xsd:decimal ;
     ] .
+
+uor-sh:PartitionCertificateShape
+    a               sh:NodeShape ;
+    sh:targetClass  cert:PartitionCertificate ;
+    rdfs:label      "PartitionCertificateShape" .
+
+uor-sh:GenericImpossibilityCertificateShape
+    a               sh:NodeShape ;
+    sh:targetClass  cert:GenericImpossibilityCertificate ;
+    rdfs:label      "GenericImpossibilityCertificateShape" .
+
+uor-sh:InhabitanceImpossibilityCertificateShape
+    a               sh:NodeShape ;
+    sh:targetClass  cert:InhabitanceImpossibilityCertificate ;
+    rdfs:label      "InhabitanceImpossibilityCertificateShape" .
 
 # ── morphism/ namespace (20) ──────────────────────
 
@@ -4323,7 +4459,7 @@ uor-sh:ProjectionMapShape
         sh:path morphism:projectionOrder ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
-        sh:class type:CompositeConstraint ;
+        sh:class type:Conjunction ;
     ] ;
     sh:property [
         sh:path morphism:roundTripCoherence ;
@@ -4758,7 +4894,13 @@ uor-sh:SessionBoundaryShape
 uor-sh:GroundedContextShape
     a               sh:NodeShape ;
     sh:targetClass  state:GroundedContext ;
-    rdfs:label      "GroundedContextShape" .
+    rdfs:label      "GroundedContextShape" ;
+    sh:property [
+        sh:path state:groundedTriad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class schema:Triad ;
+    ] .
 
 uor-sh:GroundingWitnessShape
     a               sh:NodeShape ;
@@ -6834,6 +6976,12 @@ uor-sh:LinearBudgetShape
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:nonNegativeInteger ;
+    ] ;
+    sh:property [
+        sh:path linear:stackBudgetBytes ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:nonNegativeInteger ;
     ] .
 
 uor-sh:LeaseAllocationShape
@@ -7128,7 +7276,7 @@ uor-sh:BoundaryProtocolShape
         sh:path boundary:protocolOrdering ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
-        sh:class type:CompositeConstraint ;
+        sh:class type:Conjunction ;
     ] .
 
 uor-sh:BoundarySessionShape
@@ -7146,7 +7294,7 @@ uor-sh:BoundarySessionShape
         sh:datatype xsd:nonNegativeInteger ;
     ] .
 
-# ── conformance/ namespace (31) ───────────────────
+# ── conformance/ namespace (32) ───────────────────
 
 uor-sh:ShapeShape
     a               sh:NodeShape ;
@@ -7273,7 +7421,6 @@ uor-sh:PredicateShapeShape
     sh:targetClass  conformance:PredicateShape ;
     rdfs:label      "PredicateShapeShape" .
 
-# v0.2.2 T1.2: InteractionShape backs InteractionDeclarationBuilder.
 uor-sh:InteractionShapeShape
     a               sh:NodeShape ;
     sh:targetClass  conformance:InteractionShape ;
@@ -7627,59 +7774,3 @@ uor-sh:PreludeExportShape
         sh:datatype xsd:string ;
     ] .
 
-# Workstream C (v0.2.2 closure): impossibility cert carriers for
-# resolver `certify` failure paths per target §4.2
-# `Certified<ImpossibilityWitness>`. Minimal NodeShapes — the certs
-# are sealed witnesses with no external properties to constrain.
-uor-sh:GenericImpossibilityCertificateShape
-    a               sh:NodeShape ;
-    sh:targetClass  cert:GenericImpossibilityCertificate ;
-    rdfs:label      "GenericImpossibilityCertificateShape" .
-
-uor-sh:InhabitanceImpossibilityCertificateShape
-    a               sh:NodeShape ;
-    sh:targetClass  cert:InhabitanceImpossibilityCertificate ;
-    rdfs:label      "InhabitanceImpossibilityCertificateShape" .
-
-# Product/Coproduct Completion Amendment — new partition-algebra and
-# foundation-layout classes. Minimal NodeShapes matching the witness-shim
-# pattern above (sealed types with only the amendment-defined properties
-# to constrain).
-uor-sh:CartesianPartitionProductShape
-    a               sh:NodeShape ;
-    sh:targetClass  partition:CartesianPartitionProduct ;
-    rdfs:label      "CartesianPartitionProductShape" ;
-    sh:property [
-        sh:path partition:leftCartesianFactor ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:class partition:Partition ;
-    ] ;
-    sh:property [
-        sh:path partition:rightCartesianFactor ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:class partition:Partition ;
-    ] .
-
-uor-sh:TagSiteShape
-    a               sh:NodeShape ;
-    sh:targetClass  partition:TagSite ;
-    rdfs:label      "TagSiteShape" ;
-    sh:property [
-        sh:path partition:tagValue ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:datatype xsd:boolean ;
-    ] .
-
-uor-sh:LayoutInvariantShape
-    a               sh:NodeShape ;
-    sh:targetClass  foundation:LayoutInvariant ;
-    rdfs:label      "LayoutInvariantShape" ;
-    sh:property [
-        sh:path foundation:layoutRule ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:datatype xsd:string ;
-    ] .

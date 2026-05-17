@@ -47,7 +47,15 @@ pub const NAMESPACES: usize = 34;
 /// Observable subclass hosting Walsh–Hadamard-parity-derived spectral
 /// readings of the σ-projection's frequency-domain spectrum, parallel
 /// to the seven internally-derived categories).
-pub const CLASSES: usize = 473;
+/// Wiki ADR-040 + ADR-049 catalog correspondence amendment: +1
+/// (observable:ValueThresholdObservable — top-level Observable subclass
+/// hosting byte-sequence threshold comparison readings of digests,
+/// realizing the type:LexicographicLessEqBound bound-shape primitive's
+/// dispatch path; foundation's LexicographicLessEqThreshold observable
+/// falls under this subclass; canonical search-cost commitment alias
+/// TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>
+/// per ADR-048 consumes it).
+pub const CLASSES: usize = 474;
 
 /// Total properties including the global `uor:space` annotation.
 ///
@@ -393,7 +401,11 @@ pub const CLASSIFICATION_ALREADY_IMPLEMENTED: usize = 4;
 /// alongside the seven internally-derived Observable categories).
 /// Wiki ADR-049: +1 (observable:SpectralObservable — Walsh–Hadamard-
 /// parity-derived spectral subclass added under Path-1 codegen).
-pub const CLASSIFICATION_PATH1: usize = 415;
+/// Wiki ADR-040 + ADR-049 catalog correspondence amendment: +1
+/// (observable:ValueThresholdObservable — byte-sequence threshold
+/// subclass realizing the type:LexicographicLessEqBound dispatch path;
+/// added under Path-1 codegen).
+pub const CLASSIFICATION_PATH1: usize = 416;
 
 /// Path 2 — theorem-witness classes closed by the Phase 3
 /// `{Foo}Witness` + `{Foo}MintInputs` + `impl VerifiedMint` codegen

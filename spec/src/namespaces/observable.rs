@@ -125,6 +125,39 @@ fn classes() -> Vec<Class> {
             subclass_of: &["https://uor.foundation/observable/Observable"],
             disjoint_with: &[],
         },
+        // Wiki ADR-040 + ADR-049 closed-catalog extension:
+        // ValueThresholdObservable as a top-level Observable subclass
+        // parallel to SpectralObservable / AxisProjectionObservable.
+        // Distinct because its values carry from a byte-sequence
+        // threshold comparison (`digest <= target` under big-endian
+        // unsigned ordering), not from the framework's internal
+        // algebraic/topological structure. Realizes the
+        // `type:LexicographicLessEqBound` bound-shape primitive's
+        // dispatch path per ADR-040; foundation's typed observable
+        // `LexicographicLessEqThreshold` falls under this subclass.
+        // Consumed by `TargetCommitment = SingletonCommitment<…>` as
+        // the canonical search-cost commitment per ADR-048.
+        Class {
+            id: "https://uor.foundation/observable/ValueThresholdObservable",
+            label: "ValueThresholdObservable",
+            comment: "ADR-040 + ADR-049: an observable whose value is a byte-sequence \
+                      threshold comparison reading of a digest. Distinct from the seven \
+                      internally-derived Observable categories (Stratum / Metric / Path / \
+                      Reduction / Catastrophe / Curvature / Holonomy) and from \
+                      SpectralObservable / AxisProjectionObservable — its values carry \
+                      from `(digest as big-endian unsigned integer) <= (target as \
+                      big-endian unsigned integer)`, the predicate form ADR-040 named \
+                      when it committed `type:LexicographicLessEqBound`. Foundation's \
+                      typed observable `LexicographicLessEqThreshold` per ADR-049 falls \
+                      under this subclass; the canonical search-cost commitment alias \
+                      `TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>` \
+                      per ADR-048 consumes it. The ConstraintRef::Bound.args_repr \
+                      canonical-string-form encoding for ValueThresholdObservable \
+                      arguments carries the target byte sequence as the bound's \
+                      argument directly.",
+            subclass_of: &["https://uor.foundation/observable/Observable"],
+            disjoint_with: &[],
+        },
         // ADR-038 closed-catalog extension: AxisProjectionObservable as
         // a top-level Observable subclass parallel to the seven
         // internally-derived categories (Stratum / Metric / Path /

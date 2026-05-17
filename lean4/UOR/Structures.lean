@@ -1175,6 +1175,17 @@ instance : Inhabited (ValueModObservable UOR.Prims.Standard) where
     hasUnit := none
   }
 
+/-- ADR-040 + ADR-049: an observable whose value is a byte-sequence threshold comparison reading of a digest. Distinct from the seven internally-derived Observable categories (Stratum / Metric / Path / Reduction / Catastrophe / Curvature / Holonomy) and from SpectralObservable / AxisProjectionObservable — its values carry from `(digest as big-endian unsigned integer) <= (target as big-endian unsigned integer)`, the predicate form ADR-040 named when it committed `type:LexicographicLessEqBound`. Foundation's typed observable `LexicographicLessEqThreshold` per ADR-049 falls under this subclass; the canonical search-cost commitment alias `TargetCommitment = SingletonCommitment<LexicographicLessEqThreshold>` per ADR-048 consumes it. The ConstraintRef::Bound.args_repr canonical-string-form encoding for ValueThresholdObservable arguments carries the target byte sequence as the bound's argument directly. -/
+structure ValueThresholdObservable (P : Primitives) extends Observable P
+
+instance : Inhabited (ValueThresholdObservable UOR.Prims.Standard) where
+  default := {
+    value := none
+    source := none
+    target := none
+    hasUnit := none
+  }
+
 /-- The Whitehead product [α, β] ∈ πp+q−1 for α ∈ πp, β ∈ πq. -/
 structure WhiteheadProduct (P : Primitives) where
   /-- True iff this Whitehead product is trivial (zero in πp+q−1). -/
