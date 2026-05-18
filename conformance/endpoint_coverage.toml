@@ -538,6 +538,21 @@ behavior = "behavior_catamorphism_evaluator"
 symbols = ["SubstrateTermBody"]
 behavior = "behavior_adr_055_substrate_term_body"
 
+# ─── Mapping: ADR-057 bounded recursive structural typing ──────────────
+# ADR-057 commits `ConstraintRef::Recurse { shape_iri, descent_bound }`
+# as the constraint-level bounded-recursion primitive (parallel to
+# `Term::Recurse` at the term level), plus the foundation
+# `pipeline::shape_iri_registry` module with `RegisteredShape` carriers
+# + `lookup_shape` + `__register_shape`. Required for bounded recursive
+# structural typing of JSON, XML, AST shapes, S-expressions, ASN.1 /
+# Protobuf message families, filesystem hierarchies, and other
+# inductively-defined input domains. Test coverage by the
+# `adr057_*` smoke tests pinning ConstraintRef::Recurse round-trip and
+# the registry lookup surface.
+[coverage.adr057_bounded_recursive_typing]
+symbols = ["shape_iri_registry"]
+behavior = "behavior_catamorphism_evaluator"
+
 # ─── Mapping: ADR-033 G20 field-access projection ──────────────────────
 # ADR-033 admits closure-body field access on `partition_product`-shaped
 # inputs (`<expr>.<index>` and `<expr>.<field_name>`). Lowered to

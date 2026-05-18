@@ -9,13 +9,20 @@
 //!    primitives Div=15, Mod=16, Pow=17);
 //! 2. `certificate_kind_discriminant(CertificateKind) -> u8` matches 1..=21
 //!    (5 Phase C kinds + 16 Phase D per-resolver kinds);
-//! 3. `TRACE_REPLAY_FORMAT_VERSION = 9` (bumped from 8 when ADR-055 landed —
-//!    introducing the `SubstrateTermBody` supertrait on `AxisExtension` so the
-//!    catamorphism's structural reach extends through every axis surface to
-//!    the leaf level via `AxisTuple::body_arena_at`. Bumped from 7 when
-//!    ADR-050/051/052/053 landed — adding the ring-axis arithmetic completion
-//!    (Div/Mod/Pow primitives, width-parametric semantics, wide-literal
-//!    carrier in `Term::Literal`, and axis-generic SDK emission). Bumped from 6 when
+//! 3. `TRACE_REPLAY_FORMAT_VERSION = 10` (bumped from 9 when ADR-057 landed —
+//!    introducing `ConstraintRef::Recurse { shape_iri, descent_bound }` as
+//!    the constraint-level bounded-recursion primitive with discriminant
+//!    byte 10 in `fold_constraint_ref`. Required for bounded recursive
+//!    structural typing of JSON values, XML documents, AST shapes,
+//!    S-expressions, ASN.1 / Protobuf message families, filesystem
+//!    hierarchies, and other inductively-defined input domains. Bumped
+//!    from 8 when ADR-055 landed — introducing the `SubstrateTermBody`
+//!    supertrait on `AxisExtension` so the catamorphism's structural
+//!    reach extends through every axis surface to the leaf level via
+//!    `AxisTuple::body_arena_at`. Bumped from 7 when ADR-050/051/052/053
+//!    landed — adding the ring-axis arithmetic completion (Div/Mod/Pow
+//!    primitives, width-parametric semantics, wide-literal carrier in
+//!    `Term::Literal`, and axis-generic SDK emission). Bumped from 6 when
 //!    ADR-048 landed — adding the `CommitmentEvaluated` trace event variant
 //!    for the post-resolver `TypedCommitment::evaluate(kappa_label)`
 //!    consultation, plus the 5th `C: TypedCommitment` substrate parameter on
@@ -70,8 +77,8 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "pub const fn certificate_kind_discriminant(kind: CertificateKind) -> u8",
         ),
         (
-            "TRACE_REPLAY_FORMAT_VERSION = 9",
-            "pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 9",
+            "TRACE_REPLAY_FORMAT_VERSION = 10",
+            "pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 10",
         ),
         (
             "fold_unit_digest helper",
@@ -114,7 +121,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         report.push(TestResult::pass(
             VALIDATOR,
             "T6.21 trace byte layout: primitive/certificate discriminants, \
-             TRACE_REPLAY_FORMAT_VERSION = 9, and 7 fold_*_digest helpers pinned",
+             TRACE_REPLAY_FORMAT_VERSION = 10, and 7 fold_*_digest helpers pinned",
         ));
     } else {
         report.push(TestResult::fail_with_details(

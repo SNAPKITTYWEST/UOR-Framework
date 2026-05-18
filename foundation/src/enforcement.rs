@@ -7151,7 +7151,7 @@ impl Default for ContentAddress {
 /// Increment when the layout changes (event ordering, trailing fields,
 /// primitive-op discriminant table, certificate-kind discriminant table).
 /// Pinned by the `rust/trace_byte_layout_pinned` conformance validator.
-pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 9;
+pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 10;
 
 /// v0.2.2 T5: pluggable content hasher with parametric output width.
 /// The foundation does not ship an implementation. Downstream substrate
@@ -7601,6 +7601,18 @@ pub fn fold_constraint_ref<H: Hasher>(mut hasher: H, c: &crate::pipeline::Constr
                 hasher = fold_constraint_ref(hasher, &lifted);
                 i += 1;
             }
+        }
+        // ADR-057 wire-format: discriminant byte 10 + content-addressed
+        // shape_iri + descent_bound. The discriminant table extension
+        // requires TRACE_REPLAY_FORMAT_VERSION bump per ADR-013/TR-08.
+        C::Recurse {
+            shape_iri,
+            descent_bound,
+        } => {
+            hasher = hasher.fold_byte(10);
+            hasher = hasher.fold_bytes(shape_iri.as_bytes());
+            hasher = hasher.fold_byte(0);
+            hasher = hasher.fold_bytes(&descent_bound.to_be_bytes());
         }
     }
     hasher
@@ -21362,11 +21374,7 @@ fn pc_classify_constraint(
                 ));
             }
         }
-        crate::pipeline::ConstraintRef::Affine {
-            coefficients,
-            coefficient_count,
-            bias,
-        } => {
+        crate::pipeline::ConstraintRef::Affine { coefficients, coefficient_count, bias } => {
             let count = *coefficient_count as usize;
             let mut nonzero_count: u32 = 0;
             let mut nonzero_index: usize = 0;
@@ -21376,13 +21384,12 @@ fn pc_classify_constraint(
                 if coefficients[i] != 0 {
                     nonzero_count = nonzero_count.saturating_add(1);
                     nonzero_index = i;
-                    if i > max_nonzero_index {
-                        max_nonzero_index = i;
-                    }
+                    if i > max_nonzero_index { max_nonzero_index = i; }
                 }
                 i += 1;
             }
-            let touches_tag_site = nonzero_count > 0 && (max_nonzero_index as u16) >= tag_site;
+            let touches_tag_site = nonzero_count > 0
+                && (max_nonzero_index as u16) >= tag_site;
             let is_canonical_tag_pinner = nonzero_count == 1
                 && (nonzero_index as u16) == tag_site
                 && coefficients[nonzero_index] == 1;
@@ -21394,18 +21401,14 @@ fn pc_classify_constraint(
                 }
                 if in_left_region {
                     *left_pins = left_pins.saturating_add(1);
-                    if *bias != 0 {
-                        *left_bias_ok = false;
-                    }
+                    if *bias != 0 { *left_bias_ok = false; }
                 } else {
                     *right_pins = right_pins.saturating_add(1);
-                    if *bias != -1 {
-                        *right_bias_ok = false;
-                    }
+                    if *bias != -1 { *right_bias_ok = false; }
                 }
             } else if touches_tag_site {
-                let nonzero_only_at_tag_site =
-                    nonzero_count == 1 && (nonzero_index as u16) == tag_site;
+                let nonzero_only_at_tag_site = nonzero_count == 1
+                    && (nonzero_index as u16) == tag_site;
                 if nonzero_only_at_tag_site {
                     return Err(GenericImpossibilityWitness::for_identity(
                         "https://uor.foundation/foundation/CoproductTagEncoding",
@@ -21417,10 +21420,7 @@ fn pc_classify_constraint(
                 }
             }
         }
-        crate::pipeline::ConstraintRef::Conjunction {
-            conjuncts,
-            conjunct_count,
-        } => {
+        crate::pipeline::ConstraintRef::Conjunction { conjuncts, conjunct_count } => {
             if max_depth == 0 {
                 return Err(GenericImpossibilityWitness::for_identity(
                     "https://uor.foundation/op/ST_6",
@@ -21447,7 +21447,10 @@ fn pc_classify_constraint(
         | crate::pipeline::ConstraintRef::Hamming { .. }
         | crate::pipeline::ConstraintRef::Depth { .. }
         | crate::pipeline::ConstraintRef::SatClauses { .. }
-        | crate::pipeline::ConstraintRef::Bound { .. } => {
+        | crate::pipeline::ConstraintRef::Bound { .. }
+        // ADR-057: Recurse references a shape by content-addressed IRI;
+        // no site references at this level to check.
+        | crate::pipeline::ConstraintRef::Recurse { .. } => {
             // No site references at this level; nothing to check.
         }
     }

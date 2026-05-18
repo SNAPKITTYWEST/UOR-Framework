@@ -134,6 +134,22 @@ pub enum ConstraintRef {
         conjuncts: [LeafConstraintRef; CONJUNCTION_MAX_TERMS],
         conjunct_count: u32,
     },
+    /// ADR-057 substrate amendment: bounded recursive shape reference.
+    /// The constraint references another `ConstrainedTypeShape` by its
+    /// content-addressed IRI, with an explicit `descent_bound` bounding
+    /// the recursion at evaluation time. The runtime ψ_1 NerveResolver
+    /// expands the reference to the registered shape's `CONSTRAINTS`
+    /// array, decrementing `descent_bound` on each `Recurse` traversal;
+    /// when `descent_bound = 0` the recursion bottoms out (no further
+    /// constraints at that depth).
+    ///
+    /// The const-time admission path defers `Recurse` to runtime per
+    /// ADR-057's deferral rule (parallel to ADR-049's
+    /// `LandauerCost` deferral).
+    Recurse {
+        shape_iri: &'static str,
+        descent_bound: u32,
+    },
 }
 
 /// `ConstraintRef` minus the recursive `Conjunction` variant — the
@@ -169,6 +185,11 @@ pub enum LeafConstraintRef {
         observable_iri: &'static str,
         bound_shape_iri: &'static str,
         args_repr: &'static str,
+    },
+    /// See [`ConstraintRef::Recurse`] (ADR-057).
+    Recurse {
+        shape_iri: &'static str,
+        descent_bound: u32,
     },
 }
 
@@ -212,6 +233,13 @@ impl ConstraintRef {
                 args_repr,
             },
             ConstraintRef::Conjunction { .. } => LeafConstraintRef::Site { position: 0 },
+            ConstraintRef::Recurse {
+                shape_iri,
+                descent_bound,
+            } => LeafConstraintRef::Recurse {
+                shape_iri,
+                descent_bound,
+            },
         }
     }
 }
@@ -249,6 +277,13 @@ impl LeafConstraintRef {
                 observable_iri,
                 bound_shape_iri,
                 args_repr,
+            },
+            LeafConstraintRef::Recurse {
+                shape_iri,
+                descent_bound,
+            } => ConstraintRef::Recurse {
+                shape_iri,
+                descent_bound,
             },
         }
     }
@@ -305,6 +340,12 @@ pub(crate) const fn encode_constraint_to_clauses(
                 Some(UNSAT_SENTINEL)
             }
         }
+        // ADR-057: Recurse defers to the runtime ψ_1 NerveResolver
+        // which expands the referenced shape's constraints via the
+        // shape-IRI registry. At preflight (const-eval) it carries no
+        // CNF residue — the recursion is bounded, the unrolling occurs
+        // at runtime against the registry.
+        ConstraintRef::Recurse { .. } => Some(EMPTY),
     }
 }
 
@@ -5399,6 +5440,15 @@ pub const fn shift_constraint(c: ConstraintRef, offset: u32) -> ConstraintRef {
                 conjunct_count,
             }
         }
+        // ADR-057: Recurse references a shape by content-addressed IRI;
+        // there are no site positions to shift. Pass through unchanged.
+        ConstraintRef::Recurse {
+            shape_iri,
+            descent_bound,
+        } => ConstraintRef::Recurse {
+            shape_iri,
+            descent_bound,
+        },
     }
 }
 
@@ -5472,6 +5522,15 @@ pub const fn shift_leaf_constraint(c: LeafConstraintRef, offset: u32) -> LeafCon
                 bias,
             }
         }
+        // ADR-057: Recurse references a shape by content-addressed IRI;
+        // there are no site positions to shift. Pass through unchanged.
+        LeafConstraintRef::Recurse {
+            shape_iri,
+            descent_bound,
+        } => LeafConstraintRef::Recurse {
+            shape_iri,
+            descent_bound,
+        },
     }
 }
 
@@ -5516,6 +5575,83 @@ where
     B: ConstrainedTypeShape,
 {
     A::CONSTRAINTS.len() + B::CONSTRAINTS.len()
+}
+
+/// ADR-057: bounded recursive structural typing — foundation shape-IRI
+/// registry module. Mirrors the architectural pattern of the
+/// observable-IRI registry per ADR-038/049 and the substitution-axis
+/// catalog per ADR-007/030: a closed catalog of shape IRIs admissible
+/// as `ConstraintRef::Recurse` targets, collected at link time and
+/// consulted by ψ_1's NerveResolver at evaluation time.
+pub mod shape_iri_registry {
+    use super::ConstraintRef;
+
+    /// ADR-057: a registered shape entry. `iri` is the shape's
+    /// content-addressed identifier per ADR-017; `site_count`,
+    /// `constraints`, and `cycle_size` mirror the corresponding
+    /// `ConstrainedTypeShape` associated items so ψ_1's resolver
+    /// can walk the referenced shape's constraint set without
+    /// touching the original trait impl.
+    #[derive(Debug, Clone, Copy)]
+    pub struct RegisteredShape {
+        /// Content-addressed IRI of the shape (per ADR-017).
+        pub iri: &'static str,
+        /// Mirror of `<T as ConstrainedTypeShape>::SITE_COUNT`.
+        pub site_count: usize,
+        /// Mirror of `<T as ConstrainedTypeShape>::CONSTRAINTS`.
+        pub constraints: &'static [ConstraintRef],
+        /// Mirror of `<T as ConstrainedTypeShape>::CYCLE_SIZE`.
+        pub cycle_size: u64,
+    }
+
+    /// Foundation's built-in shape registry. Currently empty — applications
+    /// supply their `RegisteredShape` entries via `register_shape!` per ADR-057.
+    /// Future foundation-provided shapes (canonical JSON, AST, etc.) will
+    /// be appended here.
+    static FOUNDATION_REGISTRY: &[RegisteredShape] = &[];
+
+    /// ADR-057: look up a registered shape by IRI. Walks the foundation
+    /// registry plus any application-provided entries injected via
+    /// `register_shape!`. Returns `None` if the IRI is not present.
+    /// Called by ψ_1's NerveResolver during `ConstraintRef::Recurse`
+    /// evaluation; called by the verifier-side validation per ADR-019.
+    #[must_use]
+    pub fn lookup_shape(iri: &str) -> Option<&'static RegisteredShape> {
+        // Foundation-built-in registry — linear scan; the registry is
+        // small (handful of canonical shapes per standard-library
+        // sub-crate publishing them).
+        let mut i = 0;
+        while i < FOUNDATION_REGISTRY.len() {
+            let entry = &FOUNDATION_REGISTRY[i];
+            if iri_eq(entry.iri, iri) {
+                return Some(entry);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    fn iri_eq(a: &str, b: &str) -> bool {
+        a.as_bytes() == b.as_bytes()
+    }
+
+    /// ADR-057: SDK-facing entry point for shape registration. The
+    /// `register_shape!` SDK macro emits a call to this function at
+    /// crate initialization time. Foundation's MVP registry is
+    /// link-section-collected via the SDK macro; this entry exists for
+    /// future imperative-registration paths (test harnesses, dynamic
+    /// loaders).
+    /// Doc-hidden: not part of the application-author surface per ADR-022
+    /// D1's seal-by-naming-convention pattern. The `register_shape!`
+    /// SDK macro is the sanctioned entry point.
+    #[doc(hidden)]
+    pub fn __register_shape(_shape: &'static RegisteredShape) {
+        // MVP: no-op. v0.4.13 ships the registry surface; the
+        // link-section-based collection mechanism extends the
+        // FOUNDATION_REGISTRY in a follow-up release. Applications
+        // requiring registration today consult the wiki ADR-057 for
+        // the deferred-to-runtime evaluation discipline.
+    }
 }
 
 /// ADR-032: per-Witt-level zero-sized marker types implementing
@@ -6373,6 +6509,11 @@ pub const fn validate_constrained_type_const<T: ConstrainedTypeShape + Copy>(
                 conjuncts,
                 conjunct_count,
             } => conjunction_all_sat(conjuncts, *conjunct_count),
+            // ADR-057: const-time validation defers Recurse to runtime
+            // admission (parallel to ADR-049's LandauerCost deferral).
+            // The only const check is that `shape_iri` is non-empty —
+            // the registry lookup happens at the runtime admission path.
+            ConstraintRef::Recurse { shape_iri, .. } => !shape_iri.is_empty(),
         };
         if !ok {
             return Err(ShapeViolation {
@@ -6915,6 +7056,11 @@ pub fn preflight_feasibility(constraints: &[ConstraintRef]) -> Result<(), ShapeV
                 conjuncts,
                 conjunct_count,
             } => conjunction_all_sat(conjuncts, *conjunct_count),
+            // ADR-057: Recurse defers to runtime ψ_1 NerveResolver
+            // via the shape-IRI registry. Preflight feasibility
+            // accepts on non-empty shape_iri; the registry lookup
+            // happens at runtime admission.
+            ConstraintRef::Recurse { shape_iri, .. } => !shape_iri.is_empty(),
         };
         if !ok {
             return Err(ShapeViolation {

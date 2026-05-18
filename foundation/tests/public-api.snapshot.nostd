@@ -377,6 +377,7 @@ foundation/src/pipeline.rs: fn walsh_hadamard_parity
 foundation/src/pipeline.rs: mod __sdk_seal
 foundation/src/pipeline.rs: mod axis
 foundation/src/pipeline.rs: mod inhabitance
+foundation/src/pipeline.rs: mod shape_iri_registry
 foundation/src/pipeline.rs: mod witt_domain
 foundation/src/pipeline.rs: struct AffineParity
 foundation/src/pipeline.rs: struct AndCommitment

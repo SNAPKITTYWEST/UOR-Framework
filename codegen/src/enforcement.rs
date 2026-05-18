@@ -5440,7 +5440,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Increment when the layout changes (event ordering, trailing fields,");
     f.doc_comment("primitive-op discriminant table, certificate-kind discriminant table).");
     f.doc_comment("Pinned by the `rust/trace_byte_layout_pinned` conformance validator.");
-    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 9;");
+    f.line("pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 10;");
     f.blank();
     f.doc_comment("v0.2.2 T5: pluggable content hasher with parametric output width.");
     f.doc_comment("");
@@ -5933,6 +5933,15 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("                hasher = fold_constraint_ref(hasher, &lifted);");
     f.line("                i += 1;");
     f.line("            }");
+    f.line("        }");
+    f.line("        // ADR-057 wire-format: discriminant byte 10 + content-addressed");
+    f.line("        // shape_iri + descent_bound. The discriminant table extension");
+    f.line("        // requires TRACE_REPLAY_FORMAT_VERSION bump per ADR-013/TR-08.");
+    f.line("        C::Recurse { shape_iri, descent_bound } => {");
+    f.line("            hasher = hasher.fold_byte(10);");
+    f.line("            hasher = hasher.fold_bytes(shape_iri.as_bytes());");
+    f.line("            hasher = hasher.fold_byte(0);");
+    f.line("            hasher = hasher.fold_bytes(&descent_bound.to_be_bytes());");
     f.line("        }");
     f.line("    }");
     f.line("    hasher");
@@ -13155,7 +13164,10 @@ fn emit_pc_validate_coproduct_structure(f: &mut RustFile) {
     f.line("        | crate::pipeline::ConstraintRef::Hamming { .. }");
     f.line("        | crate::pipeline::ConstraintRef::Depth { .. }");
     f.line("        | crate::pipeline::ConstraintRef::SatClauses { .. }");
-    f.line("        | crate::pipeline::ConstraintRef::Bound { .. } => {");
+    f.line("        | crate::pipeline::ConstraintRef::Bound { .. }");
+    f.line("        // ADR-057: Recurse references a shape by content-addressed IRI;");
+    f.line("        // no site references at this level to check.");
+    f.line("        | crate::pipeline::ConstraintRef::Recurse { .. } => {");
     f.line("            // No site references at this level; nothing to check.");
     f.line("        }");
     f.line("    }");
