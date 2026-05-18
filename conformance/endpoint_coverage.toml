@@ -782,6 +782,23 @@ symbols = [
 ]
 behavior = "phase_x4_betti"
 
+# ADR-057: registry-parameterized nerve-Betti companions + the
+# constraint-expansion helper. These are the wiki-faithful ψ_1
+# structural-reading entry points: `primitive_simplicial_nerve_betti_in`
+# and `primitive_cartesian_nerve_betti_in` expand `ConstraintRef::Recurse`
+# entries through the application's ShapeRegistryProvider plus foundation's
+# built-in registry; `expand_constraints_in` is the underlying flattening
+# walker. Exercised by `behavior_adr_057_recursive_typing.rs` tests
+# `primitive_simplicial_nerve_betti_in_*` and
+# `null_resolver_tuple_carries_empty_shape_registry_by_default`.
+[coverage.nerve_primitives_registry_aware]
+symbols = [
+    "primitive_simplicial_nerve_betti_in",
+    "primitive_cartesian_nerve_betti_in",
+    "expand_constraints_in",
+]
+behavior = "behavior_adr_057_recursive_typing"
+
 # ─── Mapping: Product/Coproduct Completion Amendment — PartitionHandle ─
 [coverage.partition_handle_resolver]
 symbols = [

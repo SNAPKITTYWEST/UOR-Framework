@@ -7755,12 +7755,59 @@ pub(crate) fn fold_terminal_reduction<H: Hasher>(
 /// rather than silently truncating — truncation produced Betti numbers for a
 /// differently-shaped complex than the caller asked about. Callers propagate
 /// the witness via `?` (pattern mirrored on `primitive_terminal_reduction`).
+/// ADR-057: `T::CONSTRAINTS` may contain `ConstraintRef::Recurse` entries
+/// referencing shapes by IRI. This primitive expands Recurse references
+/// through the **foundation built-in shape-IRI registry** (`lookup_shape`),
+/// decrementing the descent budget on each Recurse encountered and
+/// terminating when the budget reaches zero. Applications that register
+/// their own shapes (via the SDK `register_shape!` macro) use
+/// [`primitive_simplicial_nerve_betti_in`] which is generic over the
+/// application's `ShapeRegistryProvider`. The structural reading at ψ_1
+/// reflects the expanded constraint geometry — Recurse entries are not
+/// opaque anonymous Sites but their structurally-substituted body per the
+/// registered shape's `CONSTRAINTS` array.
 /// # Errors
-/// Returns `NERVE_CAPACITY_EXCEEDED` when either cap is exceeded.
+/// Returns `NERVE_CAPACITY_EXCEEDED` when either cap is exceeded after
+/// expansion. Returns `RECURSE_SHAPE_UNREGISTERED` when a `Recurse`
+/// entry references an IRI not present in the consulted registry
+/// (non-zero descent budget).
 pub fn primitive_simplicial_nerve_betti<T: crate::pipeline::ConstrainedTypeShape + ?Sized>(
 ) -> Result<[u32; MAX_BETTI_DIMENSION], GenericImpossibilityWitness> {
-    let k_all = T::CONSTRAINTS.len();
-    if k_all > NERVE_CONSTRAINTS_CAP {
+    // ADR-057: foundation-default registry path. EmptyShapeRegistry's
+    // REGISTRY is the empty slice, so lookup_shape_in falls through to
+    // foundation's built-in FOUNDATION_REGISTRY (the canonical stdlib path).
+    primitive_simplicial_nerve_betti_in::<T, crate::pipeline::shape_iri_registry::EmptyShapeRegistry>(
+    )
+}
+
+/// ADR-057: registry-parameterized variant of
+/// [`primitive_simplicial_nerve_betti`]. Walks `T::CONSTRAINTS` and expands
+/// every `ConstraintRef::Recurse { shape_iri, descent_bound }` entry by
+/// looking up `shape_iri` through `R`'s registry plus foundation's
+/// built-in registry, decrementing the descent budget on each recursive
+/// walk, and terminating when the budget reaches zero. The expanded
+/// constraint sequence is the input to the nerve computation — the
+/// structural reading at ψ_1 reflects the recursive grammar.
+/// This is the entry point ψ_1 `NerveResolver` impls call from the
+/// application's resolver-tuple — `R` is the ResolverTuple's
+/// `ShapeRegistry` associated type per ADR-036+ADR-057.
+/// # Errors
+/// Returns `NERVE_CAPACITY_EXCEEDED` when the expanded constraint set
+/// exceeds `NERVE_CONSTRAINTS_CAP` or `NERVE_SITES_CAP`. Returns
+/// `RECURSE_SHAPE_UNREGISTERED` when a `Recurse` entry references an
+/// IRI not present in either `R::REGISTRY` or foundation's built-in.
+pub fn primitive_simplicial_nerve_betti_in<
+    T: crate::pipeline::ConstrainedTypeShape + ?Sized,
+    R: crate::pipeline::shape_iri_registry::ShapeRegistryProvider,
+>() -> Result<[u32; MAX_BETTI_DIMENSION], GenericImpossibilityWitness> {
+    // ADR-057 step 3: expand T::CONSTRAINTS, walking ConstraintRef::Recurse
+    // through R's registry with bounded descent.
+    let mut expanded: [crate::pipeline::ConstraintRef; NERVE_CONSTRAINTS_CAP] =
+        [crate::pipeline::ConstraintRef::Site { position: 0 }; NERVE_CONSTRAINTS_CAP];
+    let mut n_expanded: usize = 0;
+    expand_constraints_in::<R>(T::CONSTRAINTS, u32::MAX, &mut expanded, &mut n_expanded)?;
+    let n_constraints = n_expanded;
+    if n_constraints > NERVE_CONSTRAINTS_CAP {
         return Err(GenericImpossibilityWitness::for_identity(
             "NERVE_CAPACITY_EXCEEDED",
         ));
@@ -7771,7 +7818,6 @@ pub fn primitive_simplicial_nerve_betti<T: crate::pipeline::ConstrainedTypeShape
             "NERVE_CAPACITY_EXCEEDED",
         ));
     }
-    let n_constraints = k_all;
     let n_sites = s_all;
     let mut out = [0u32; MAX_BETTI_DIMENSION];
     if n_constraints == 0 {
@@ -7782,7 +7828,7 @@ pub fn primitive_simplicial_nerve_betti<T: crate::pipeline::ConstrainedTypeShape
     let mut support = [0u16; NERVE_CONSTRAINTS_CAP];
     let mut c = 0;
     while c < n_constraints {
-        support[c] = constraint_site_support_mask::<T>(c, n_sites);
+        support[c] = constraint_site_support_mask_of(&expanded[c], n_sites);
         c += 1;
     }
     // Enumerate 1-simplices: pairs (i,j) with i<j and support[i] & support[j] != 0.
@@ -7882,6 +7928,74 @@ pub fn primitive_simplicial_nerve_betti<T: crate::pipeline::ConstrainedTypeShape
     Ok(out)
 }
 
+/// ADR-057 step 3: walk `in_constraints`, copying non-Recurse entries into
+/// `out_arr` and expanding every `ConstraintRef::Recurse { shape_iri,
+/// descent_bound }` by looking up `shape_iri` through `R`'s registry plus
+/// foundation's built-in registry and recursing into the referenced shape's
+/// `CONSTRAINTS`. The effective descent budget at each Recurse is the min
+/// of the caller's `descent_remaining` and the constraint's own
+/// `descent_bound`; on Recurse the budget decrements by 1 before recursion.
+/// A budget of 0 terminates the descent (the Recurse contributes no
+/// further constraints — the recursion bottoms out).
+/// # Errors
+/// Returns `NERVE_CAPACITY_EXCEEDED` when the expansion would exceed
+/// `NERVE_CONSTRAINTS_CAP`. Returns `RECURSE_SHAPE_UNREGISTERED` when a
+/// `Recurse` entry with non-zero effective budget references an IRI not
+/// present in either `R::REGISTRY` or foundation's built-in registry.
+pub fn expand_constraints_in<R: crate::pipeline::shape_iri_registry::ShapeRegistryProvider>(
+    in_constraints: &[crate::pipeline::ConstraintRef],
+    descent_remaining: u32,
+    out_arr: &mut [crate::pipeline::ConstraintRef; NERVE_CONSTRAINTS_CAP],
+    out_n: &mut usize,
+) -> Result<(), GenericImpossibilityWitness> {
+    let mut i = 0;
+    while i < in_constraints.len() {
+        match in_constraints[i] {
+            crate::pipeline::ConstraintRef::Recurse {
+                shape_iri,
+                descent_bound,
+            } => {
+                // Effective budget = min(caller's remaining, this Recurse's bound).
+                let budget = if descent_remaining < descent_bound {
+                    descent_remaining
+                } else {
+                    descent_bound
+                };
+                if budget == 0 {
+                    // Bottom out — contribute no further constraints.
+                } else {
+                    match crate::pipeline::shape_iri_registry::lookup_shape_in::<R>(shape_iri) {
+                        Some(registered) => {
+                            expand_constraints_in::<R>(
+                                registered.constraints,
+                                budget - 1,
+                                out_arr,
+                                out_n,
+                            )?;
+                        }
+                        None => {
+                            return Err(GenericImpossibilityWitness::for_identity(
+                                "RECURSE_SHAPE_UNREGISTERED",
+                            ));
+                        }
+                    }
+                }
+            }
+            other => {
+                if *out_n >= NERVE_CONSTRAINTS_CAP {
+                    return Err(GenericImpossibilityWitness::for_identity(
+                        "NERVE_CAPACITY_EXCEEDED",
+                    ));
+                }
+                out_arr[*out_n] = other;
+                *out_n += 1;
+            }
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 /// Phase X.4: cap on the number of constraints considered by the nerve
 /// primitive. Phase 1a (orphan-closure): inputs exceeding this cap are
 /// rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
@@ -7909,15 +8023,17 @@ pub const NERVE_C2_MAX: usize = 56;
 pub(crate) const NERVE_RANK_MOD_P: i64 = 1_000_000_007;
 
 /// Phase X.4: per-constraint site-support bitmask. Returns bit `s` set iff
-/// constraint `c` in `T::CONSTRAINTS` touches site index `s` (`s < n_sites`).
+/// constraint `c` touches site index `s` (`s < n_sites`).
 /// `Affine { coefficients, .. }` returns the bitmask of sites whose
 /// coefficient is non-zero — the natural "site support" of the affine
 /// relation. Remaining non-site-local variants (Residue, Hamming, Depth,
 /// Bound, Conjunction, SatClauses) return an all-ones mask over `n_sites`.
-pub(crate) const fn constraint_site_support_mask<
-    T: crate::pipeline::ConstrainedTypeShape + ?Sized,
->(
-    c: usize,
+/// ADR-057: slice-based — operates directly on a `&ConstraintRef` rather
+/// than indexing a `ConstrainedTypeShape::CONSTRAINTS` slot. ψ_1 calls this
+/// from [`primitive_simplicial_nerve_betti_in`] after `T::CONSTRAINTS` has
+/// been expanded into a fixed-size array via [`expand_constraints_in`].
+pub(crate) const fn constraint_site_support_mask_of(
+    c: &crate::pipeline::ConstraintRef,
     n_sites: usize,
 ) -> u16 {
     let all_mask: u16 = if n_sites == 0 {
@@ -7925,7 +8041,7 @@ pub(crate) const fn constraint_site_support_mask<
     } else {
         (1u16 << n_sites) - 1
     };
-    match &T::CONSTRAINTS[c] {
+    match c {
         crate::pipeline::ConstraintRef::Site { position } => {
             if n_sites == 0 {
                 0
@@ -7964,6 +8080,9 @@ pub(crate) const fn constraint_site_support_mask<
                 }
             }
         }
+        // ADR-057: any Recurse entry left in the array means
+        // expand_constraints_in already bottomed out (descent_bound = 0).
+        // Treat it as a structural placeholder with no specific site support.
         _ => all_mask,
     }
 }

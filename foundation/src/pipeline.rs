@@ -1299,6 +1299,13 @@ pub trait ResolverTuple: __sdk_seal::Sealed {
     const ARITY: usize;
     /// Resolver category at each tuple position.
     const CATEGORIES: &'static [ResolverCategory];
+    /// ADR-057: the application's shape-IRI registry. ψ_1's NerveResolver impl
+    /// expands `ConstraintRef::Recurse` references through this registry when
+    /// computing N(C). Defaults to [`shape_iri_registry::EmptyShapeRegistry`]
+    /// (foundation built-in registry only); applications declaring recursive
+    /// shapes via the SDK `register_shape!` macro thread the marker type
+    /// through their `resolver!`-declared ResolverTuple.
+    type ShapeRegistry: crate::pipeline::shape_iri_registry::ShapeRegistryProvider;
 }
 
 /// Wiki ADR-041: zero-cost typed-coordinate carrier for ψ_1 output —
@@ -1812,6 +1819,11 @@ impl __sdk_seal::Sealed for NullResolverTuple {}
 impl ResolverTuple for NullResolverTuple {
     const ARITY: usize = 0;
     const CATEGORIES: &'static [ResolverCategory] = &[];
+    // ADR-057: foundation built-in registry only — the empty
+    // registry provider falls through to FOUNDATION_REGISTRY in
+    // shape_iri_registry. Applications with their own recursive
+    // shapes set this to their `register_shape!`-emitted marker.
+    type ShapeRegistry = crate::pipeline::shape_iri_registry::EmptyShapeRegistry;
 }
 
 /// ADR-036 Null `NerveResolver` impl. `resolve` always emits the
@@ -5354,14 +5366,43 @@ pub const fn kunneth_compose(
 /// Phase 1a (orphan-closure): propagates either component's
 /// `NERVE_CAPACITY_EXCEEDED` via `?`. Dropped `const fn` because
 /// the `Result` return of the per-component primitive is not `const`-evaluable.
+/// ADR-057: delegates to [`crate::enforcement::primitive_simplicial_nerve_betti`]
+/// on each component, which expands `ConstraintRef::Recurse` through
+/// foundation's built-in shape registry. For application-registry-aware
+/// expansion, use [`primitive_cartesian_nerve_betti_in`] generic over the
+/// application's `ShapeRegistryProvider`.
 /// # Errors
 /// Returns `NERVE_CAPACITY_EXCEEDED` if either component exceeds caps.
+/// Returns `RECURSE_SHAPE_UNREGISTERED` when a component's Recurse references
+/// an IRI not present in the consulted registry.
 pub fn primitive_cartesian_nerve_betti<S: CartesianProductShape>() -> Result<
     [u32; crate::enforcement::MAX_BETTI_DIMENSION],
     crate::enforcement::GenericImpossibilityWitness,
 > {
     let left = crate::enforcement::primitive_simplicial_nerve_betti::<S::Left>()?;
     let right = crate::enforcement::primitive_simplicial_nerve_betti::<S::Right>()?;
+    Ok(kunneth_compose(&left, &right))
+}
+
+/// ADR-057: registry-parameterized companion to
+/// [`primitive_cartesian_nerve_betti`]. Delegates to
+/// [`crate::enforcement::primitive_simplicial_nerve_betti_in`] on each
+/// component with `R` as the application's `ShapeRegistryProvider`.
+/// Recurse entries are expanded through `R::REGISTRY` plus foundation's
+/// built-in registry.
+/// # Errors
+/// Returns `NERVE_CAPACITY_EXCEEDED` if either component's expanded
+/// constraint set exceeds caps. Returns `RECURSE_SHAPE_UNREGISTERED` when
+/// a `Recurse` entry references an IRI not present in either registry.
+pub fn primitive_cartesian_nerve_betti_in<
+    S: CartesianProductShape,
+    R: crate::pipeline::shape_iri_registry::ShapeRegistryProvider,
+>() -> Result<
+    [u32; crate::enforcement::MAX_BETTI_DIMENSION],
+    crate::enforcement::GenericImpossibilityWitness,
+> {
+    let left = crate::enforcement::primitive_simplicial_nerve_betti_in::<S::Left, R>()?;
+    let right = crate::enforcement::primitive_simplicial_nerve_betti_in::<S::Right, R>()?;
     Ok(kunneth_compose(&left, &right))
 }
 

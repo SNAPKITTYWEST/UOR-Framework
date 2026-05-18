@@ -2743,6 +2743,19 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     f.line("    const ARITY: usize;");
     f.indented_doc_comment("Resolver category at each tuple position.");
     f.line("    const CATEGORIES: &'static [ResolverCategory];");
+    f.indented_doc_comment(
+        "ADR-057: the application's shape-IRI registry. ψ_1's NerveResolver impl",
+    );
+    f.indented_doc_comment(
+        "expands `ConstraintRef::Recurse` references through this registry when",
+    );
+    f.indented_doc_comment(
+        "computing N(C). Defaults to [`shape_iri_registry::EmptyShapeRegistry`]",
+    );
+    f.indented_doc_comment("(foundation built-in registry only); applications declaring recursive");
+    f.indented_doc_comment("shapes via the SDK `register_shape!` macro thread the marker type");
+    f.indented_doc_comment("through their `resolver!`-declared ResolverTuple.");
+    f.line("    type ShapeRegistry: crate::pipeline::shape_iri_registry::ShapeRegistryProvider;");
     f.line("}");
     f.blank();
 
@@ -2978,6 +2991,11 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     f.line("impl ResolverTuple for NullResolverTuple {");
     f.line("    const ARITY: usize = 0;");
     f.line("    const CATEGORIES: &'static [ResolverCategory] = &[];");
+    f.line("    // ADR-057: foundation built-in registry only — the empty");
+    f.line("    // registry provider falls through to FOUNDATION_REGISTRY in");
+    f.line("    // shape_iri_registry. Applications with their own recursive");
+    f.line("    // shapes set this to their `register_shape!`-emitted marker.");
+    f.line("    type ShapeRegistry = crate::pipeline::shape_iri_registry::EmptyShapeRegistry;");
     f.line("}");
     f.blank();
 
@@ -6120,14 +6138,48 @@ fn emit_cartesian_product_shape(f: &mut RustFile) {
     f.doc_comment("`NERVE_CAPACITY_EXCEEDED` via `?`. Dropped `const fn` because");
     f.doc_comment("the `Result` return of the per-component primitive is not `const`-evaluable.");
     f.doc_comment("");
+    f.doc_comment("ADR-057: delegates to [`crate::enforcement::primitive_simplicial_nerve_betti`]");
+    f.doc_comment("on each component, which expands `ConstraintRef::Recurse` through");
+    f.doc_comment("foundation's built-in shape registry. For application-registry-aware");
+    f.doc_comment("expansion, use [`primitive_cartesian_nerve_betti_in`] generic over the");
+    f.doc_comment("application's `ShapeRegistryProvider`.");
+    f.doc_comment("");
     f.doc_comment("# Errors");
     f.doc_comment("");
     f.doc_comment("Returns `NERVE_CAPACITY_EXCEEDED` if either component exceeds caps.");
+    f.doc_comment("Returns `RECURSE_SHAPE_UNREGISTERED` when a component's Recurse references");
+    f.doc_comment("an IRI not present in the consulted registry.");
     f.line("pub fn primitive_cartesian_nerve_betti<S: CartesianProductShape>()");
     f.line("    -> Result<[u32; crate::enforcement::MAX_BETTI_DIMENSION], crate::enforcement::GenericImpossibilityWitness>");
     f.line("{");
     f.line("    let left = crate::enforcement::primitive_simplicial_nerve_betti::<S::Left>()?;");
     f.line("    let right = crate::enforcement::primitive_simplicial_nerve_betti::<S::Right>()?;");
+    f.line("    Ok(kunneth_compose(&left, &right))");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-057: registry-parameterized companion to");
+    f.doc_comment("[`primitive_cartesian_nerve_betti`]. Delegates to");
+    f.doc_comment("[`crate::enforcement::primitive_simplicial_nerve_betti_in`] on each");
+    f.doc_comment("component with `R` as the application's `ShapeRegistryProvider`.");
+    f.doc_comment("Recurse entries are expanded through `R::REGISTRY` plus foundation's");
+    f.doc_comment("built-in registry.");
+    f.doc_comment("");
+    f.doc_comment("# Errors");
+    f.doc_comment("");
+    f.doc_comment("Returns `NERVE_CAPACITY_EXCEEDED` if either component's expanded");
+    f.doc_comment("constraint set exceeds caps. Returns `RECURSE_SHAPE_UNREGISTERED` when");
+    f.doc_comment("a `Recurse` entry references an IRI not present in either registry.");
+    f.line("pub fn primitive_cartesian_nerve_betti_in<");
+    f.line("    S: CartesianProductShape,");
+    f.line("    R: crate::pipeline::shape_iri_registry::ShapeRegistryProvider,");
+    f.line(">() -> Result<");
+    f.line("    [u32; crate::enforcement::MAX_BETTI_DIMENSION],");
+    f.line("    crate::enforcement::GenericImpossibilityWitness,");
+    f.line("> {");
+    f.line(
+        "    let left = crate::enforcement::primitive_simplicial_nerve_betti_in::<S::Left, R>()?;",
+    );
+    f.line("    let right = crate::enforcement::primitive_simplicial_nerve_betti_in::<S::Right, R>()?;");
     f.line("    Ok(kunneth_compose(&left, &right))");
     f.line("}");
     f.blank();

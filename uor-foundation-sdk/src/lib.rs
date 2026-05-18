@@ -5992,6 +5992,14 @@ struct ResolverInput {
     struct_name: Ident,
     hasher_param: Ident,
     fields: Vec<(Ident, syn::Type)>,
+    /// ADR-057: optional shape-registry marker type. When the application's
+    /// `resolver!` declaration carries a `shape_registry: MyRegistry` clause,
+    /// the emitted `ResolverTuple` impl sets `type ShapeRegistry = MyRegistry`
+    /// — ψ_1's `NerveResolver` consults `R::REGISTRY` plus foundation's
+    /// built-in registry when expanding `ConstraintRef::Recurse`. Defaults
+    /// to `EmptyShapeRegistry` (foundation built-in registry only) when the
+    /// clause is absent.
+    shape_registry: Option<syn::Type>,
 }
 
 impl Parse for ResolverInput {
@@ -6014,6 +6022,7 @@ impl Parse for ResolverInput {
         let body;
         syn::braced!(body in input);
         let mut fields: Vec<(Ident, syn::Type)> = Vec::new();
+        let mut shape_registry: Option<syn::Type> = None;
         while !body.is_empty() {
             // `pub` is admitted but optional — discard.
             if body.peek(Token![pub]) {
@@ -6022,7 +6031,20 @@ impl Parse for ResolverInput {
             let field_name: Ident = body.parse()?;
             body.parse::<Token![:]>()?;
             let field_ty: syn::Type = body.parse()?;
-            fields.push((field_name, field_ty));
+            // ADR-057: the reserved `shape_registry` clause names the
+            // application's ShapeRegistryProvider marker type; it is NOT
+            // a resolver-category field.
+            if field_name == "shape_registry" {
+                if shape_registry.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &field_name,
+                        "`resolver!` shape_registry clause specified twice",
+                    ));
+                }
+                shape_registry = Some(field_ty);
+            } else {
+                fields.push((field_name, field_ty));
+            }
             if body.peek(Token![,]) {
                 body.parse::<Token![,]>()?;
             }
@@ -6032,6 +6054,7 @@ impl Parse for ResolverInput {
             struct_name,
             hasher_param,
             fields,
+            shape_registry,
         })
     }
 }
@@ -6117,6 +6140,7 @@ pub fn resolver(input: TokenStream) -> TokenStream {
         struct_name,
         hasher_param,
         fields,
+        shape_registry,
     } = parsed;
     // Validate field names against the canonical table.
     let recognised: Vec<&str> = RESOLVER_FIELD_TABLE.iter().map(|t| t.0).collect();
@@ -6223,6 +6247,15 @@ pub fn resolver(input: TokenStream) -> TokenStream {
         .iter()
         .map(|(_, ty)| quote::quote! { #ty: ::core::default::Default, })
         .collect();
+    // ADR-057: resolve the ShapeRegistry associated type — either the
+    // user's `shape_registry: MyRegistry` clause, or foundation's
+    // EmptyShapeRegistry default.
+    let shape_registry_ty: proc_macro2::TokenStream = match shape_registry {
+        Some(ty) => quote::quote! { #ty },
+        None => quote::quote! {
+            ::uor_foundation::pipeline::shape_iri_registry::EmptyShapeRegistry
+        },
+    };
     let expansion = quote::quote! {
         #struct_vis struct #struct_name<#hasher_param: ::uor_foundation::enforcement::Hasher> {
             #(#struct_fields)*
@@ -6241,6 +6274,11 @@ pub fn resolver(input: TokenStream) -> TokenStream {
             const ARITY: usize = #arity;
             const CATEGORIES: &'static [::uor_foundation::pipeline::ResolverCategory] =
                 &[#(#category_idents),*];
+            // ADR-057: ψ_1's NerveResolver consults this registry when
+            // expanding ConstraintRef::Recurse. Defaults to foundation's
+            // EmptyShapeRegistry when the application's `resolver!`
+            // declaration omits the `shape_registry: MyRegistry` clause.
+            type ShapeRegistry = #shape_registry_ty;
         }
 
         // ADR-036 + prism_model!-default-construction interop: emit

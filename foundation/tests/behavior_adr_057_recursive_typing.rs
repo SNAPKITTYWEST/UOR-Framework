@@ -260,3 +260,137 @@ fn lookup_shape_in_finds_second_entry() {
 fn empty_registry_provider_returns_none_via_lookup_shape_in() {
     assert!(lookup_shape_in::<EmptyShapeRegistry>("any-iri").is_none());
 }
+
+// ── ADR-057 step 3: Recurse expansion at ψ_1 (structural reading) ───────
+//
+// These tests pin the wire-faithful behavior the wiki's ADR-057 step 3
+// commits: at ψ_1 evaluation, `ConstraintRef::Recurse { shape_iri, descent_bound }`
+// expands through the shape-IRI registry — the structural reading
+// reflects the **expanded** constraint geometry, not the opaque Recurse
+// node. Foundation's `primitive_simplicial_nerve_betti_in<T, R>` is the
+// computation; this test compares N(C) before and after expansion.
+
+use uor_foundation::enforcement::primitive_simplicial_nerve_betti_in;
+use uor_foundation::pipeline::ConstrainedTypeShape;
+
+/// Outer shape whose only constraint is `Recurse` pointing at
+/// `urn:test:recursive_inner` (the inner shape's CONSTRAINTS array is
+/// inlined in `RecursiveTestRegistry` below). Before ADR-057 expansion:
+/// nerve sees one opaque Site-like constraint with all-sites support.
+/// After expansion: nerve sees the inner's two non-overlapping Site
+/// constraints.
+struct OuterRecShape;
+impl ConstrainedTypeShape for OuterRecShape {
+    const IRI: &'static str = "urn:test:recursive_outer";
+    const SITE_COUNT: usize = 2;
+    const CYCLE_SIZE: u64 = u64::MAX; // saturated per ADR-057 cycle-size rule
+    const CONSTRAINTS: &'static [uor_foundation::pipeline::ConstraintRef] =
+        &[uor_foundation::pipeline::ConstraintRef::Recurse {
+            shape_iri: "urn:test:recursive_inner",
+            descent_bound: 4,
+        }];
+}
+
+/// Registry that knows about `urn:test:recursive_inner` with the inner
+/// shape's CONSTRAINTS array. The expansion at OuterRecShape's
+/// Recurse references this registry's entry.
+struct RecursiveTestRegistry;
+impl __sdk_seal::Sealed for RecursiveTestRegistry {}
+impl ShapeRegistryProvider for RecursiveTestRegistry {
+    const REGISTRY: &'static [RegisteredShape] = &[RegisteredShape {
+        iri: "urn:test:recursive_inner",
+        site_count: 2,
+        constraints: &[
+            uor_foundation::pipeline::ConstraintRef::Site { position: 0 },
+            uor_foundation::pipeline::ConstraintRef::Site { position: 1 },
+        ],
+        cycle_size: 4,
+    }];
+}
+
+#[test]
+fn primitive_simplicial_nerve_betti_in_returns_unregistered_without_registry() {
+    // OuterRecShape's only constraint is Recurse pointing at
+    // urn:test:recursive_inner. EmptyShapeRegistry's REGISTRY is empty
+    // and foundation's FOUNDATION_REGISTRY is also empty in v0.4.15,
+    // so lookup fails. ADR-057: the expansion errors with
+    // RECURSE_SHAPE_UNREGISTERED rather than silently treating Recurse
+    // as an anonymous Site.
+    let result = primitive_simplicial_nerve_betti_in::<OuterRecShape, EmptyShapeRegistry>();
+    assert!(
+        result.is_err(),
+        "ADR-057: unregistered shape must error, not silently fall through",
+    );
+}
+
+#[test]
+fn primitive_simplicial_nerve_betti_in_expands_via_registered_shape() {
+    // RecursiveTestRegistry contains urn:test:recursive_inner with two
+    // non-overlapping Site constraints (positions 0, 1). After
+    // expansion the nerve sees two vertices, no overlapping pairs ⇒
+    // b_0 = 2 (two disconnected components), b_1 = 0, b_2 = 0.
+    let betti = primitive_simplicial_nerve_betti_in::<OuterRecShape, RecursiveTestRegistry>()
+        .expect("recursive shape expands through the registered inner");
+    assert_eq!(
+        betti[0], 2,
+        "two disconnected Site constraints ⇒ b_0 = 2 after expansion",
+    );
+    assert_eq!(betti[1], 0, "no 1-simplices ⇒ b_1 = 0");
+    assert_eq!(betti[2], 0, "no 2-simplices ⇒ b_2 = 0");
+}
+
+#[test]
+fn primitive_simplicial_nerve_betti_default_path_consults_foundation_registry_only() {
+    // The default-path primitive (no R parameter) delegates to
+    // primitive_simplicial_nerve_betti_in::<T, EmptyShapeRegistry>().
+    // Since FOUNDATION_REGISTRY is empty for v0.4.15, an OuterRecShape
+    // call must error with RECURSE_SHAPE_UNREGISTERED — proving the
+    // default path is registry-aware, not Recurse-opaque.
+    let result = uor_foundation::enforcement::primitive_simplicial_nerve_betti::<OuterRecShape>();
+    assert!(
+        result.is_err(),
+        "default-path: unregistered Recurse must propagate the registry error",
+    );
+}
+
+#[test]
+fn primitive_simplicial_nerve_betti_in_bottoms_out_at_zero_descent_bound() {
+    // Shape with descent_bound = 0 — the Recurse contributes no
+    // further constraints. The expanded constraint set is empty;
+    // nerve of empty complex returns b_0 = 1 by convention.
+    struct ZeroBoundRecShape;
+    impl ConstrainedTypeShape for ZeroBoundRecShape {
+        const IRI: &'static str = "urn:test:zero_bound_outer";
+        const SITE_COUNT: usize = 2;
+        const CYCLE_SIZE: u64 = u64::MAX;
+        const CONSTRAINTS: &'static [uor_foundation::pipeline::ConstraintRef] =
+            &[uor_foundation::pipeline::ConstraintRef::Recurse {
+                shape_iri: "urn:test:recursive_inner",
+                descent_bound: 0,
+            }];
+    }
+    let betti = primitive_simplicial_nerve_betti_in::<ZeroBoundRecShape, RecursiveTestRegistry>()
+        .expect("zero-bound Recurse bottoms out — empty expansion");
+    assert_eq!(
+        betti[0], 1,
+        "zero-bound Recurse ⇒ empty expansion ⇒ b_0 = 1 (empty-complex convention)",
+    );
+}
+
+#[test]
+fn null_resolver_tuple_carries_empty_shape_registry_by_default() {
+    // ADR-057: ResolverTuple gains `type ShapeRegistry` associated
+    // type. NullResolverTuple defaults to EmptyShapeRegistry —
+    // applications declaring `resolver!` blocks without a
+    // `shape_registry:` clause inherit the same default. The associated
+    // type's REGISTRY const is observably the empty slice, so we can
+    // assert on its observable behavior (rather than just naming the
+    // type).
+    use uor_foundation::pipeline::{NullResolverTuple, ResolverTuple};
+    let registry =
+        <<NullResolverTuple as ResolverTuple>::ShapeRegistry as ShapeRegistryProvider>::REGISTRY;
+    assert!(
+        registry.is_empty(),
+        "NullResolverTuple's default ShapeRegistry must have an empty REGISTRY",
+    );
+}

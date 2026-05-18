@@ -3631,3 +3631,89 @@ fn partition_coproduct_admits_both_operands_recurse_marked() {
         .count();
     assert_eq!(recurse_count, 2);
 }
+
+// ── ADR-057: resolver! { shape_registry: MyRegistry } clause ───────────
+//
+// ADR-057 step 3 commits ψ_1's NerveResolver to expand Recurse references
+// through the application's ResolverTuple-bound ShapeRegistry. The
+// `resolver!` macro accepts a `shape_registry: MyRegistry` clause naming
+// the application's `register_shape!`-emitted marker type; absent the
+// clause, ShapeRegistry defaults to foundation's EmptyShapeRegistry.
+
+resolver! {
+    pub struct ResolversWithRegistry<H: ::uor_foundation::enforcement::Hasher> {
+        nerve: SentinelNerveResolver<H>,
+        shape_registry: TestShapeRegistry,
+    }
+}
+
+#[test]
+fn resolver_macro_binds_application_shape_registry_via_clause() {
+    use uor_foundation::pipeline::ResolverTuple;
+    // The macro-emitted `type ShapeRegistry = TestShapeRegistry` binds
+    // the application's marker — compile-time-checked via the
+    // associated-type projection.
+    fn assert_registry_is<R, Expected>()
+    where
+        R: ResolverTuple<ShapeRegistry = Expected>,
+    {
+    }
+    assert_registry_is::<ResolversWithRegistry<SmokeHasher>, TestShapeRegistry>();
+}
+
+resolver! {
+    pub struct ResolversDefaultRegistry<H: ::uor_foundation::enforcement::Hasher> {
+        nerve: SentinelNerveResolver<H>,
+    }
+}
+
+#[test]
+fn resolver_macro_defaults_shape_registry_to_empty_when_clause_absent() {
+    use uor_foundation::pipeline::shape_iri_registry::EmptyShapeRegistry;
+    use uor_foundation::pipeline::ResolverTuple;
+    // Absent the `shape_registry:` clause, the macro defaults to
+    // foundation's EmptyShapeRegistry (foundation built-in registry).
+    fn assert_registry_is<R, Expected>()
+    where
+        R: ResolverTuple<ShapeRegistry = Expected>,
+    {
+    }
+    assert_registry_is::<ResolversDefaultRegistry<SmokeHasher>, EmptyShapeRegistry>();
+}
+
+#[test]
+fn psi_1_primitive_expands_recurse_through_resolver_tuple_registry() {
+    // End-to-end realization of ADR-057 step 3: the application's
+    // resolver-tuple ShapeRegistry feeds into ψ_1's expansion call site.
+    use uor_foundation::enforcement::primitive_simplicial_nerve_betti_in;
+    use uor_foundation::pipeline::ResolverTuple;
+
+    // Define a recursive shape whose Recurse points at LeafA (registered
+    // in TestShapeRegistry above).
+    struct OuterShapeViaRegistry;
+    impl ConstrainedTypeShape for OuterShapeViaRegistry {
+        const IRI: &'static str = "urn:test:outer_via_registry";
+        const SITE_COUNT: usize = 2;
+        const CYCLE_SIZE: u64 = u64::MAX;
+        const CONSTRAINTS: &'static [ConstraintRef] = &[ConstraintRef::Recurse {
+            shape_iri: <LeafA as ConstrainedTypeShape>::IRI,
+            descent_bound: 4,
+        }];
+    }
+
+    // Resolve the ShapeRegistry through the ResolverTuple's associated
+    // type — exactly the form an application's ψ_1 NerveResolver impl
+    // uses at evaluation time.
+    type R = ResolversWithRegistry<SmokeHasher>;
+    type Reg = <R as ResolverTuple>::ShapeRegistry;
+    let betti = primitive_simplicial_nerve_betti_in::<OuterShapeViaRegistry, Reg>()
+        .expect("LeafA is registered in TestShapeRegistry — expansion succeeds");
+    // LeafA's CONSTRAINTS is [Site{0}, Site{1}] — two non-overlapping
+    // Site constraints. After expansion the nerve has 2 vertices, no
+    // 1-simplices (disjoint site supports) ⇒ b_0 = 2, b_1 = 0.
+    assert_eq!(
+        betti[0], 2,
+        "expanded LeafA constraints (Site{{0}}, Site{{1}}) ⇒ b_0 = 2",
+    );
+    assert_eq!(betti[1], 0, "no overlapping pairs ⇒ b_1 = 0");
+}
