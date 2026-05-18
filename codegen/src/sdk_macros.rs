@@ -792,6 +792,17 @@ struct VariadicShapeArgs {
     /// `partition_product!(N, A, B)`. The two forms must not be mixed in
     /// a single invocation.
     field_names: Vec<Option<Ident>>,
+    /// ADR-057 recurse markers, parallel to `operands`. `None` indicates
+    /// a normal (non-recursive) operand whose constraints inline at the
+    /// operand's position; `Some(bound)` indicates a `recurse:T` or
+    /// `recurse(bound):T` operand that lowers to `ConstraintRef::Recurse
+    /// { shape_iri: <T>::IRI, descent_bound: bound }` at the operand's
+    /// position. The descent_bound is a `proc_macro2::TokenStream` so the
+    /// bound expression can be any const-evaluable u32 expression
+    /// (literal, const reference, `<AppBounds as HostBounds>` associated
+    /// const, etc.); when the `recurse:T` form omits the bound, the
+    /// expression defaults to `u32::MAX` (saturated descent).
+    recurse_bounds: Vec<Option<proc_macro2::TokenStream>>,
 }
 
 impl Parse for VariadicShapeArgs {
@@ -800,39 +811,66 @@ impl Parse for VariadicShapeArgs {
         input.parse::<Token![,]>()?;
         let mut operands: Vec<syn::Type> = Vec::new();
         let mut field_names: Vec<Option<Ident>> = Vec::new();
-        // Helper: try to parse one operand, possibly with a `name:` prefix.
-        // The decision is made by peeking past the first ident for a
-        // `:` token; that distinguishes named-field form from positional.
-        // Since v0.4.11 the operand-type slot accepts arbitrary `syn::Type`
-        // (admitting `BigIntShape<128>`, `MerkleRoot<H, 32>`, `Tensor<f32,
-        // [3, 4]>`, etc.) in both positional and named forms.
-        fn parse_one(input: ParseStream) -> Result<(Option<Ident>, syn::Type)> {
-            // Speculative parse: try `<ident>:` to detect the named-field form.
+        let mut recurse_bounds: Vec<Option<proc_macro2::TokenStream>> = Vec::new();
+        // Helper: try to parse one operand, possibly with a `name:` prefix
+        // and possibly with a `recurse:` or `recurse(<bound>):` prefix.
+        // The decision tree:
+        //   - `recurse:T`              → positional + recurse, bound = u32::MAX
+        //   - `recurse(<bound>):T`     → positional + recurse, bound = <bound>
+        //   - `<name>: recurse:T`      → named + recurse, bound = u32::MAX
+        //   - `<name>: recurse(<bound>):T` → named + recurse, bound = <bound>
+        //   - `<name>:T`               → named, non-recurse (pre-ADR-057 form)
+        //   - `T`                      → positional, non-recurse (pre-ADR-057 form)
+        // Returns (field_name, operand_type, recurse_bound).
+        fn parse_one(
+            input: ParseStream,
+        ) -> Result<(Option<Ident>, syn::Type, Option<proc_macro2::TokenStream>)> {
+            // ADR-033 G3 + ADR-057 dispatch:
+            //   `recurse:T`              → positional + recurse (saturated)
+            //   `recurse(<b>):T`         → positional + recurse (bounded)
+            //   `<name>:recurse:T`       → named + recurse (saturated)
+            //   `<name>:recurse(<b>):T`  → named + recurse (bounded)
+            //   `<name>:T`               → named (non-recurse)
+            //   `T`                      → positional (non-recurse)
+            //
+            // The named-field detection forks past the leading ident +
+            // `:`. We MUST exclude `recurse` from the named-field
+            // interpretation: `recurse:T` is a positional recurse marker,
+            // not a field named "recurse" containing a `T`-typed scalar.
+            // The wiki's ADR-057 operand grammar reserves `recurse` as a
+            // marker keyword.
             let forked = input.fork();
-            if let Ok(first) = forked.parse::<Ident>() {
-                if forked.peek(Token![:]) {
-                    // Confirmed named-field form.
-                    input.parse::<Ident>()?;
+            let mut field_name: Option<Ident> = None;
+            if let Ok(maybe_name) = forked.parse::<Ident>() {
+                if maybe_name != "recurse" && forked.peek(Token![:]) {
+                    // Confirmed named-field form (and the name is not the
+                    // reserved `recurse` marker). Consume the ident + colon
+                    // from the real stream; the operand-position parser
+                    // below then handles either a `recurse` marker or a
+                    // plain type.
+                    field_name = Some(input.parse::<Ident>()?);
                     input.parse::<Token![:]>()?;
-                    let ty: syn::Type = input.parse()?;
-                    return Ok((Some(first), ty));
                 }
             }
-            // Positional form — parse the operand as a full type.
+            // Check for `recurse` operand marker at operand position.
+            let recurse_bound = parse_optional_recurse_marker(input)?;
+            // Parse the operand type.
             let ty: syn::Type = input.parse()?;
-            Ok((None, ty))
+            Ok((field_name, ty, recurse_bound))
         }
-        let (n0, t0) = parse_one(input)?;
+        let (n0, t0, r0) = parse_one(input)?;
         field_names.push(n0);
         operands.push(t0);
+        recurse_bounds.push(r0);
         while input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
             if input.is_empty() {
                 break;
             }
-            let (ni, ti) = parse_one(input)?;
+            let (ni, ti, ri) = parse_one(input)?;
             field_names.push(ni);
             operands.push(ti);
+            recurse_bounds.push(ri);
         }
         if operands.len() < 2 {
             return Err(syn::Error::new(
@@ -854,7 +892,55 @@ impl Parse for VariadicShapeArgs {
             name,
             operands,
             field_names,
+            recurse_bounds,
         })
+    }
+}
+
+/// ADR-057: parse an optional `recurse` or `recurse(<bound>)` marker
+/// preceding an operand type. Returns `Some(bound_tokens)` when the
+/// marker is present (defaulting to `u32::MAX` when no `(<bound>)`
+/// group is supplied), `None` when no marker is present.
+fn parse_optional_recurse_marker(
+    input: ParseStream,
+) -> Result<Option<proc_macro2::TokenStream>> {
+    // Speculative parse: peek for an `Ident` whose string is "recurse"
+    // followed by either `:` (the `recurse:T` form, but we'll consume
+    // `recurse` here and let the caller's `:` handling in parse_one
+    // distinguish it from a name-prefix `:`) or `(...)` for the bounded
+    // form. We use a fork to look ahead without consuming if the marker
+    // isn't present.
+    let forked = input.fork();
+    let Ok(marker_ident) = forked.parse::<Ident>() else {
+        return Ok(None);
+    };
+    if marker_ident != "recurse" {
+        return Ok(None);
+    }
+    // We confirmed `recurse`. Look at what follows:
+    //   `recurse(<bound>):T` — paren group then colon
+    //   `recurse:T`          — bare colon
+    // Anything else is a parse error.
+    if forked.peek(syn::token::Paren) {
+        // Bounded form. Consume the ident, the paren group, and the colon.
+        input.parse::<Ident>()?;
+        let content;
+        syn::parenthesized!(content in input);
+        let bound_expr: syn::Expr = content.parse()?;
+        input.parse::<Token![:]>()?;
+        Ok(Some(quote! { (#bound_expr) as u32 }))
+    } else if forked.peek(Token![:]) {
+        // Saturated form. Consume the ident and the colon.
+        input.parse::<Ident>()?;
+        input.parse::<Token![:]>()?;
+        Ok(Some(quote! { u32::MAX }))
+    } else {
+        // Not a recurse marker after all — the identifier is the
+        // operand's own type (a struct named `recurse` would shadow
+        // the marker, but that's an architectural violation —
+        // `recurse` is a reserved operand-grammar identifier per
+        // ADR-057). Fall through to treat the ident as a type.
+        Ok(None)
     }
 }
 
@@ -865,26 +951,51 @@ impl Parse for VariadicShapeArgs {
 #[proc_macro]
 pub fn partition_product(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as VariadicShapeArgs);
-    expand_partition_product(parsed.name, &parsed.operands, &parsed.field_names)
+    expand_partition_product(
+        parsed.name,
+        &parsed.operands,
+        &parsed.field_names,
+        &parsed.recurse_bounds,
+    )
 }
 
 fn expand_partition_product(
     name: Ident,
     operands: &[syn::Type],
     field_names: &[Option<Ident>],
+    recurse_bounds: &[Option<proc_macro2::TokenStream>],
 ) -> TokenStream {
+    // ADR-057: any operand marked `recurse:T` or `recurse(<bound>):T`
+    // triggers the recurse-aware emission path. The binary form uses
+    // `sdk_concat_product_constraints_v2`; CYCLE_SIZE saturates at
+    // `u64::MAX` per the ADR's "shape with Recurse constraint saturates"
+    // rule.
+    let any_recurse = recurse_bounds.iter().any(|b| b.is_some());
+
     if operands.len() == 2 {
         // Binary form — delegate to the existing product_shape! semantics
         // by emitting the same ConstrainedTypeShape impl pattern with the
         // PT_3 canonical-join `CONSTRAINTS`.
-        let l = &operands[0];
-        let r = &operands[1];
+        let l_orig = &operands[0];
+        let r_orig = &operands[1];
+        let l_recurse = &recurse_bounds[0];
+        let r_recurse = &recurse_bounds[1];
         let iri = format!(
             "urn:uor:product:{}:{}",
-            lexically_earlier_ty(l, r),
-            lexically_later_ty(l, r),
+            lexically_earlier_ty(l_orig, r_orig),
+            lexically_later_ty(l_orig, r_orig),
         );
-        let (l, r) = canonical_operand_pair_ty(l, r);
+        // ADR-057: canonical ordering is preserved, but when an operand
+        // is recurse-marked the marker must travel with the operand. We
+        // canonicalize the (type, recurse_bound) pair together.
+        let (l, r, l_recurse, r_recurse) = if type_token_string(l_orig)
+            <= type_token_string(r_orig)
+        {
+            (l_orig.clone(), r_orig.clone(), l_recurse.clone(), r_recurse.clone())
+        } else {
+            (r_orig.clone(), l_orig.clone(), r_recurse.clone(), l_recurse.clone())
+        };
+        let _ = canonical_operand_pair_ty; // suppress unused-import lint if generated
         let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
         let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
         // ADR-033 G3: per-factor names — empty string for positional, the
@@ -903,6 +1014,52 @@ fn expand_partition_product(
         // emit the static type of each factor so chained field-access
         // expressions in `prism_model!` closures can synthesize further
         // `<NextSource as PartitionProductFields>::FIELDS` lookups.
+        //
+        // ADR-057: when any operand is recurse-marked, switch to the v2
+        // emission path (`sdk_concat_product_constraints_v2`) and saturate
+        // CYCLE_SIZE at u64::MAX per the wiki commitment.
+        let (raw_const_init, len_const_init, cycle_size_init): (
+            proc_macro2::TokenStream,
+            proc_macro2::TokenStream,
+            proc_macro2::TokenStream,
+        ) = if any_recurse {
+            let l_recurse_expr = match &l_recurse {
+                Some(bound) => quote! { ::core::option::Option::Some(#bound) },
+                None => quote! { ::core::option::Option::None },
+            };
+            let r_recurse_expr = match &r_recurse {
+                Some(bound) => quote! { ::core::option::Option::Some(#bound) },
+                None => quote! { ::core::option::Option::None },
+            };
+            let l_recurse_flag = l_recurse.is_some();
+            let r_recurse_flag = r_recurse.is_some();
+            (
+                quote! {
+                    ::uor_foundation::pipeline::sdk_concat_product_constraints_v2::<#l, #r>(
+                        #l_recurse_expr,
+                        #r_recurse_expr,
+                    )
+                },
+                quote! {
+                    ::uor_foundation::pipeline::sdk_product_constraints_v2_len::<#l, #r>(
+                        #l_recurse_flag,
+                        #r_recurse_flag,
+                    )
+                },
+                quote! { u64::MAX },
+            )
+        } else {
+            (
+                quote! { ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>() },
+                quote! { ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>() },
+                quote! {
+                    ::uor_foundation::pipeline::cycle_size_product(
+                        <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                        <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                    )
+                },
+            )
+        };
         let expansion = quote! {
             /// UOR ADR-026 G17 partition-product shape (binary form).
             pub struct #name;
@@ -910,10 +1067,9 @@ fn expand_partition_product(
             const #raw_const:
                 [::uor_foundation::pipeline::ConstraintRef;
                  2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
-            = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+            = #raw_const_init;
 
-            const #len_const: usize =
-                ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+            const #len_const: usize = #len_const_init;
 
             impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
                 const IRI: &'static str = #iri;
@@ -930,11 +1086,11 @@ fn expand_partition_product(
                         None => &[],
                     }
                 };
-                // ADR-032: partition_product cardinality.
-                const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
-                    <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-                    <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-                );
+                // ADR-032 + ADR-057: cardinality saturates at u64::MAX when
+                // any operand is recurse-marked (the runtime resolves the
+                // recursive expansion against the registered shape's
+                // `<T>::CYCLE_SIZE`, which itself may be saturated).
+                const CYCLE_SIZE: u64 = #cycle_size_init;
             }
 
             impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -981,10 +1137,18 @@ fn expand_partition_product(
             // flat N-factor product with FIELDS/FIELD_NAMES exposing each
             // operand directly. The byte offsets are running sums of
             // SITE_COUNT.
-            return expand_partition_product_named_flat(name, operands, field_names);
+            return expand_partition_product_named_flat(
+                name,
+                operands,
+                field_names,
+                recurse_bounds,
+            );
         }
         // Positional variadic: keep the existing left-associative
         // helper-step chain; FIELD_NAMES stays positional ("","").
+        // ADR-057: each helper step folds an operand's recurse_bound into
+        // the binary product; intermediate step types are non-recurse
+        // (they're synthesized partition products).
         let mut intermediate_names: Vec<Ident> = Vec::with_capacity(operands.len() - 1);
         for i in 0..operands.len() - 2 {
             intermediate_names.push(Ident::new(
@@ -1001,11 +1165,19 @@ fn expand_partition_product(
         };
         let first_a = &operands[0];
         let first_b = &operands[1];
-        let first_step_call = expand_partition_product_helper(prev.clone(), first_a, first_b);
+        let first_step_call = expand_partition_product_helper(
+            prev.clone(),
+            first_a,
+            first_b,
+            &recurse_bounds[0],
+            &recurse_bounds[1],
+        );
         chain.push(first_step_call);
         // Each subsequent step: prev × operand[i+1] → next. `prev` is
         // always a synthesized intermediate Ident; wrap as Type::Path so
-        // the helper's `&syn::Type` signature accepts it.
+        // the helper's `&syn::Type` signature accepts it. The
+        // intermediate-step type is never recurse-marked; operand[i]'s
+        // recurse bound flows into the right side.
         for i in 2..operands.len() {
             let next = if i == operands.len() - 1 {
                 name.clone()
@@ -1013,7 +1185,13 @@ fn expand_partition_product(
                 intermediate_names[i - 1].clone()
             };
             let prev_ty: syn::Type = syn::parse_quote! { #prev };
-            let next_call = expand_partition_product_helper(next.clone(), &prev_ty, &operands[i]);
+            let next_call = expand_partition_product_helper(
+                next.clone(),
+                &prev_ty,
+                &operands[i],
+                &None,
+                &recurse_bounds[i],
+            );
             chain.push(next_call);
             prev = next;
         }
@@ -1032,7 +1210,9 @@ fn expand_partition_product_named_flat(
     name: Ident,
     operands: &[syn::Type],
     field_names: &[Option<Ident>],
+    recurse_bounds: &[Option<proc_macro2::TokenStream>],
 ) -> TokenStream {
+    let any_recurse = recurse_bounds.iter().any(|b| b.is_some());
     // Build the FIELDS array: `(running_sum, operand_i.SITE_COUNT)`.
     let mut fields_entries: Vec<proc_macro2::TokenStream> = Vec::with_capacity(operands.len());
     for (i, op) in operands.iter().enumerate() {
@@ -1080,12 +1260,12 @@ fn expand_partition_product_named_flat(
         )*
     };
     // CYCLE_SIZE: left-associative product fold via cycle_size_product.
-    let cycle_size_expr: proc_macro2::TokenStream = {
-        let mut acc = quote::quote! {
-            <#( #operands)* as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE
-        };
-        // Replace placeholder above with proper fold:
-        acc = quote::quote! { 1u64 };
+    // ADR-057: when any operand is recurse-marked, CYCLE_SIZE saturates
+    // at u64::MAX.
+    let cycle_size_expr: proc_macro2::TokenStream = if any_recurse {
+        quote::quote! { u64::MAX }
+    } else {
+        let mut acc = quote::quote! { 1u64 };
         for op in operands {
             acc = quote::quote! {
                 ::uor_foundation::pipeline::cycle_size_product(
@@ -1108,15 +1288,54 @@ fn expand_partition_product_named_flat(
     let iri = format!("urn:uor:product:{iri_body}");
     let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
     let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
-    // CONSTRAINTS: fold sdk_concat_product_constraints across operand
-    // pairs left-associatively. For ≥3 operands we approximate by
-    // concatenating only the first pair's constraints; this matches the
-    // helper-step chain's emission (each step concatenates two operands
-    // and the final shape inherits the last step). For correctness the
-    // generated CONSTRAINTS slice carries the first two operands'
-    // constraints; downstream uses it for preflight only.
+    // CONSTRAINTS: build via the binary helper applied to the first two
+    // operands' (type, recurse_bound) pair. For ≥3 operands the
+    // architectural fold (left-associative product) makes the
+    // first-pair representation a structural witness; downstream
+    // preflight consumes this slice. ADR-057-marked operands flow
+    // through the v2 helper.
     let l = &operands[0];
     let r = &operands[1];
+    let l_recurse = &recurse_bounds[0];
+    let r_recurse = &recurse_bounds[1];
+    let (raw_const_init, len_const_init): (
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+    ) = if l_recurse.is_some() || r_recurse.is_some() {
+        let l_recurse_expr = match l_recurse {
+            Some(bound) => quote::quote! { ::core::option::Option::Some(#bound) },
+            None => quote::quote! { ::core::option::Option::None },
+        };
+        let r_recurse_expr = match r_recurse {
+            Some(bound) => quote::quote! { ::core::option::Option::Some(#bound) },
+            None => quote::quote! { ::core::option::Option::None },
+        };
+        let l_recurse_flag = l_recurse.is_some();
+        let r_recurse_flag = r_recurse.is_some();
+        (
+            quote::quote! {
+                ::uor_foundation::pipeline::sdk_concat_product_constraints_v2::<#l, #r>(
+                    #l_recurse_expr,
+                    #r_recurse_expr,
+                )
+            },
+            quote::quote! {
+                ::uor_foundation::pipeline::sdk_product_constraints_v2_len::<#l, #r>(
+                    #l_recurse_flag,
+                    #r_recurse_flag,
+                )
+            },
+        )
+    } else {
+        (
+            quote::quote! {
+                ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>()
+            },
+            quote::quote! {
+                ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>()
+            },
+        )
+    };
     let expansion = quote::quote! {
         /// UOR ADR-026 G17 partition-product shape (named variadic form).
         pub struct #name;
@@ -1124,10 +1343,9 @@ fn expand_partition_product_named_flat(
         const #raw_const:
             [::uor_foundation::pipeline::ConstraintRef;
              2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
-        = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+        = #raw_const_init;
 
-        const #len_const: usize =
-            ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+        const #len_const: usize = #len_const_init;
 
         impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
             const IRI: &'static str = #iri;
@@ -1172,15 +1390,77 @@ fn expand_partition_product_helper(
     name: Ident,
     left: &syn::Type,
     right: &syn::Type,
+    left_recurse: &Option<proc_macro2::TokenStream>,
+    right_recurse: &Option<proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     let iri = format!(
         "urn:uor:product:{}:{}",
         lexically_earlier_ty(left, right),
         lexically_later_ty(left, right),
     );
-    let (l, r) = canonical_operand_pair_ty(left, right);
+    // ADR-057: canonical ordering pairs the (type, recurse_bound) together
+    // so the recurse marker travels with the operand it qualifies.
+    let (l, r, l_recurse, r_recurse) = if type_token_string(left) <= type_token_string(right) {
+        (
+            left.clone(),
+            right.clone(),
+            left_recurse.clone(),
+            right_recurse.clone(),
+        )
+    } else {
+        (
+            right.clone(),
+            left.clone(),
+            right_recurse.clone(),
+            left_recurse.clone(),
+        )
+    };
+    let _ = canonical_operand_pair_ty; // helper still exported; suppress unused
+    let any_recurse = l_recurse.is_some() || r_recurse.is_some();
     let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
     let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
+    let (raw_const_init, len_const_init, cycle_size_init): (
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+        proc_macro2::TokenStream,
+    ) = if any_recurse {
+        let l_recurse_expr = match &l_recurse {
+            Some(bound) => quote! { ::core::option::Option::Some(#bound) },
+            None => quote! { ::core::option::Option::None },
+        };
+        let r_recurse_expr = match &r_recurse {
+            Some(bound) => quote! { ::core::option::Option::Some(#bound) },
+            None => quote! { ::core::option::Option::None },
+        };
+        let l_recurse_flag = l_recurse.is_some();
+        let r_recurse_flag = r_recurse.is_some();
+        (
+            quote! {
+                ::uor_foundation::pipeline::sdk_concat_product_constraints_v2::<#l, #r>(
+                    #l_recurse_expr,
+                    #r_recurse_expr,
+                )
+            },
+            quote! {
+                ::uor_foundation::pipeline::sdk_product_constraints_v2_len::<#l, #r>(
+                    #l_recurse_flag,
+                    #r_recurse_flag,
+                )
+            },
+            quote! { u64::MAX },
+        )
+    } else {
+        (
+            quote! { ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>() },
+            quote! { ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>() },
+            quote! {
+                ::uor_foundation::pipeline::cycle_size_product(
+                    <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                    <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                )
+            },
+        )
+    };
     quote! {
         /// UOR ADR-026 G17 partition-product step.
         pub struct #name;
@@ -1188,10 +1468,9 @@ fn expand_partition_product_helper(
         const #raw_const:
             [::uor_foundation::pipeline::ConstraintRef;
              2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP]
-        = ::uor_foundation::pipeline::sdk_concat_product_constraints::<#l, #r>();
+        = #raw_const_init;
 
-        const #len_const: usize =
-            ::uor_foundation::pipeline::sdk_product_constraints_len::<#l, #r>();
+        const #len_const: usize = #len_const_init;
 
         impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
             const IRI: &'static str = #iri;
@@ -1208,11 +1487,10 @@ fn expand_partition_product_helper(
                     None => &[],
                 }
             };
-            // ADR-032: partition_product helper-step cardinality.
-            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_product(
-                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-            );
+            // ADR-032 + ADR-057: cardinality saturates at u64::MAX when
+            // any operand is recurse-marked (the runtime expansion against
+            // the registry resolves the recursive contribution).
+            const CYCLE_SIZE: u64 = #cycle_size_init;
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -1265,12 +1543,22 @@ pub fn partition_coproduct(input: TokenStream) -> TokenStream {
         .to_compile_error()
         .into();
     }
-    expand_partition_coproduct(parsed.name, &parsed.operands)
+    expand_partition_coproduct(parsed.name, &parsed.operands, &parsed.recurse_bounds)
 }
 
-fn expand_partition_coproduct(name: Ident, operands: &[syn::Type]) -> TokenStream {
+fn expand_partition_coproduct(
+    name: Ident,
+    operands: &[syn::Type],
+    recurse_bounds: &[Option<proc_macro2::TokenStream>],
+) -> TokenStream {
     if operands.len() == 2 {
-        let combined = expand_partition_coproduct_helper(name, &operands[0], &operands[1]);
+        let combined = expand_partition_coproduct_helper(
+            name,
+            &operands[0],
+            &operands[1],
+            &recurse_bounds[0],
+            &recurse_bounds[1],
+        );
         return combined.into();
     }
     let mut intermediate_names: Vec<Ident> = Vec::with_capacity(operands.len() - 1);
@@ -1286,8 +1574,13 @@ fn expand_partition_coproduct(name: Ident, operands: &[syn::Type]) -> TokenStrea
     } else {
         name.clone()
     };
-    let first_step =
-        expand_partition_coproduct_helper(prev.clone(), &operands[0], &operands[1]);
+    let first_step = expand_partition_coproduct_helper(
+        prev.clone(),
+        &operands[0],
+        &operands[1],
+        &recurse_bounds[0],
+        &recurse_bounds[1],
+    );
     chain.push(first_step);
     for i in 2..operands.len() {
         let next = if i == operands.len() - 1 {
@@ -1296,8 +1589,14 @@ fn expand_partition_coproduct(name: Ident, operands: &[syn::Type]) -> TokenStrea
             intermediate_names[i - 1].clone()
         };
         let prev_ty: syn::Type = syn::parse_quote! { #prev };
-        let step =
-            expand_partition_coproduct_helper(next.clone(), &prev_ty, &operands[i]);
+        // The intermediate-step type is never recurse-marked.
+        let step = expand_partition_coproduct_helper(
+            next.clone(),
+            &prev_ty,
+            &operands[i],
+            &None,
+            &recurse_bounds[i],
+        );
         chain.push(step);
         prev = next;
     }
@@ -1309,18 +1608,105 @@ fn expand_partition_coproduct_helper(
     name: Ident,
     left: &syn::Type,
     right: &syn::Type,
+    left_recurse: &Option<proc_macro2::TokenStream>,
+    right_recurse: &Option<proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     let iri = format!(
         "urn:uor:coproduct:{}:{}",
         lexically_earlier_ty(left, right),
         lexically_later_ty(left, right),
     );
-    let (l, r) = canonical_operand_pair_ty(left, right);
+    // ADR-057: canonical ordering pairs (type, recurse_bound) together.
+    let (l, r, l_recurse, r_recurse) = if type_token_string(left) <= type_token_string(right) {
+        (
+            left.clone(),
+            right.clone(),
+            left_recurse.clone(),
+            right_recurse.clone(),
+        )
+    } else {
+        (
+            right.clone(),
+            left.clone(),
+            right_recurse.clone(),
+            left_recurse.clone(),
+        )
+    };
+    let _ = canonical_operand_pair_ty;
+    let any_recurse = l_recurse.is_some() || r_recurse.is_some();
     let raw_const = format_ident_suffix(&name, "__CONSTRAINTS_RAW");
     let len_const = format_ident_suffix(&name, "__CONSTRAINTS_LEN");
     let tag_coeffs_l = format_ident_suffix(&name, "__TAG_COEFFS_L");
     let tag_coeffs_r = format_ident_suffix(&name, "__TAG_COEFFS_R");
     let tag_coeff_count = format_ident_suffix(&name, "__TAG_COEFF_COUNT");
+
+    // ADR-057: per-operand contribution blocks. Each block is a
+    // statement-list emitted inside the const-init for #raw_const; it
+    // advances `i` by the operand's number of constraint entries
+    // (`<T>::CONSTRAINTS.len()` for inline, `1` for recurse).
+    let left_block: proc_macro2::TokenStream = match &l_recurse {
+        Some(bound) => quote! {
+            out[i] = ::uor_foundation::pipeline::ConstraintRef::Recurse {
+                shape_iri: <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::IRI,
+                descent_bound: #bound,
+            };
+            i += 1;
+        },
+        None => quote! {
+            let left_arr = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
+            let mut li = 0;
+            while li < left_arr.len() {
+                out[i] = left_arr[li];
+                i += 1;
+                li += 1;
+            }
+        },
+    };
+    let right_block: proc_macro2::TokenStream = match &r_recurse {
+        Some(bound) => quote! {
+            out[i] = ::uor_foundation::pipeline::ConstraintRef::Recurse {
+                shape_iri: <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::IRI,
+                descent_bound: #bound,
+            };
+            i += 1;
+        },
+        None => quote! {
+            let right_arr = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
+            let mut ri = 0;
+            while ri < right_arr.len() {
+                out[i] = right_arr[ri];
+                i += 1;
+                ri += 1;
+            }
+        },
+    };
+    // Length is left-contribution + 1 (tag) + right-contribution + 1 (tag).
+    let len_const_init: proc_macro2::TokenStream = {
+        let left_len = match &l_recurse {
+            Some(_) => quote! { 1usize },
+            None => quote! {
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
+            },
+        };
+        let right_len = match &r_recurse {
+            Some(_) => quote! { 1usize },
+            None => quote! {
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
+            },
+        };
+        quote! { #left_len + #right_len + 2 }
+    };
+    let cycle_size_init: proc_macro2::TokenStream = if any_recurse {
+        quote! { u64::MAX }
+    } else {
+        quote! {
+            ::uor_foundation::pipeline::cycle_size_coproduct(
+                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+            )
+        }
+    };
+
     quote! {
         /// UOR ADR-026 G18 partition-coproduct step.
         pub struct #name;
@@ -1352,25 +1738,18 @@ fn expand_partition_coproduct_helper(
             let mut out =
                 [::uor_foundation::pipeline::ConstraintRef::Site { position: u32::MAX };
                  2 * ::uor_foundation::enforcement::NERVE_CONSTRAINTS_CAP + 2];
-            let left_arr = <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
-            let right_arr = <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS;
+            // ADR-057: per-operand contribution is either the operand's
+            // inline `CONSTRAINTS` array (default) or a single Recurse
+            // entry referencing the operand's shape IRI.
             let mut i = 0;
-            while i < left_arr.len() {
-                out[i] = left_arr[i];
-                i += 1;
-            }
+            #left_block
             out[i] = ::uor_foundation::pipeline::ConstraintRef::Affine {
                 coefficients: #tag_coeffs_l,
                 coefficient_count: #tag_coeff_count,
                 bias: 0,
             };
             i += 1;
-            let mut j = 0;
-            while j < right_arr.len() {
-                out[i] = right_arr[j];
-                i += 1;
-                j += 1;
-            }
+            #right_block
             out[i] = ::uor_foundation::pipeline::ConstraintRef::Affine {
                 coefficients: #tag_coeffs_r,
                 coefficient_count: #tag_coeff_count,
@@ -1378,10 +1757,7 @@ fn expand_partition_coproduct_helper(
             };
             out
         };
-        const #len_const: usize =
-            <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
-            + <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS.len()
-            + 2;
+        const #len_const: usize = #len_const_init;
 
         impl ::uor_foundation::pipeline::ConstrainedTypeShape for #name {
             const IRI: &'static str = #iri;
@@ -1402,12 +1778,10 @@ fn expand_partition_coproduct_helper(
                     None => &[],
                 }
             };
-            // ADR-032: coproduct cardinality = saturating sum + 1
-            // (the `+ 1` is the discriminant tag's contribution).
-            const CYCLE_SIZE: u64 = ::uor_foundation::pipeline::cycle_size_coproduct(
-                <#l as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-                <#r as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
-            );
+            // ADR-032 + ADR-057: coproduct cardinality = saturating sum + 1
+            // for non-recurse; saturates at u64::MAX when any operand
+            // carries a Recurse reference.
+            const CYCLE_SIZE: u64 = #cycle_size_init;
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
@@ -4850,6 +5224,130 @@ pub fn use_verbs(input: TokenStream) -> TokenStream {
 
     let expansion = quote! {
         #( #imports )*
+    };
+
+    expansion.into()
+}
+
+// =====================================================================
+// `register_shape!` — wiki ADR-057 SDK macro: registers application shapes
+// in the foundation's shape-IRI registry per ADR-057's bounded recursive
+// structural typing surface.
+//
+// Form:
+//
+// ```text
+// register_shape!(MyAppRegistry, Shape1, Shape2, Shape3);
+// ```
+//
+// `MyAppRegistry` is a fresh marker type (struct + sealed impl). The
+// remaining identifiers (or types — generic shapes admitted via the
+// same Type-parser path that `partition_product!` uses) are the shapes
+// to register; each must implement `ConstrainedTypeShape`.
+//
+// Emits:
+//
+// 1. `pub struct MyAppRegistry;` marker type.
+// 2. `impl __sdk_seal::Sealed for MyAppRegistry`.
+// 3. `impl ShapeRegistryProvider for MyAppRegistry` whose `REGISTRY`
+//    const is a `&'static [RegisteredShape]` aggregating one entry per
+//    shape, with each entry populated from the shape's `ConstrainedTypeShape`
+//    associated items.
+//
+// Application code consults the registry via:
+//
+// ```text
+// pipeline::shape_iri_registry::lookup_shape_in::<MyAppRegistry>(iri)
+// ```
+//
+// The trait-based, const-aggregated registry is foundation's no_std-safe
+// + zero-`unsafe` realization of ADR-057's wiki-committed registry surface.
+
+struct RegisterShapeInput {
+    registry_name: Ident,
+    shapes: Vec<syn::Type>,
+}
+
+impl Parse for RegisterShapeInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let registry_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let mut shapes: Vec<syn::Type> = Vec::new();
+        let first: syn::Type = input.parse()?;
+        shapes.push(first);
+        while input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                break;
+            }
+            let next: syn::Type = input.parse()?;
+            shapes.push(next);
+        }
+        if shapes.is_empty() {
+            return Err(syn::Error::new(
+                registry_name.span(),
+                "register_shape! requires at least one shape after the registry name",
+            ));
+        }
+        Ok(Self {
+            registry_name,
+            shapes,
+        })
+    }
+}
+
+/// `register_shape!` — wiki ADR-057 shape-IRI registration. Emits a
+/// marker type + `ShapeRegistryProvider` impl whose `REGISTRY` const
+/// carries one `RegisteredShape` entry per shape, populated from each
+/// shape's `ConstrainedTypeShape` associated items.
+#[proc_macro]
+pub fn register_shape(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as RegisterShapeInput);
+    let RegisterShapeInput {
+        registry_name,
+        shapes,
+    } = parsed;
+
+    let entries: Vec<proc_macro2::TokenStream> = shapes
+        .iter()
+        .map(|shape| {
+            quote! {
+                ::uor_foundation::pipeline::shape_iri_registry::RegisteredShape {
+                    iri: <#shape as ::uor_foundation::pipeline::ConstrainedTypeShape>::IRI,
+                    site_count: <#shape as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT,
+                    constraints: <#shape as ::uor_foundation::pipeline::ConstrainedTypeShape>::CONSTRAINTS,
+                    cycle_size: <#shape as ::uor_foundation::pipeline::ConstrainedTypeShape>::CYCLE_SIZE,
+                }
+            }
+        })
+        .collect();
+
+    let registry_const = Ident::new(
+        &format!("{}_SHAPES", to_screaming_snake(&registry_name.to_string())),
+        registry_name.span(),
+    );
+
+    let expansion = quote! {
+        /// ADR-057 application shape registry. Const-aggregated through the
+        /// SDK `register_shape!` macro; consulted by `ψ_1` NerveResolver via
+        /// `lookup_shape_in::<#registry_name>(iri)` during `Term::Recurse`
+        /// expansion.
+        #[derive(::core::fmt::Debug, ::core::clone::Clone, ::core::marker::Copy, ::core::default::Default)]
+        pub struct #registry_name;
+
+        impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #registry_name {}
+
+        /// ADR-057 const-aggregated shape registry for [`#registry_name`].
+        pub const #registry_const:
+            &[::uor_foundation::pipeline::shape_iri_registry::RegisteredShape] = &[
+                #( #entries ),*
+            ];
+
+        impl ::uor_foundation::pipeline::shape_iri_registry::ShapeRegistryProvider for #registry_name {
+            const REGISTRY:
+                &'static [::uor_foundation::pipeline::shape_iri_registry::RegisteredShape] =
+                #registry_const;
+        }
     };
 
     expansion.into()

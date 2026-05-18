@@ -3412,3 +3412,222 @@ fn axis_macro_body_clause_const_is_emitted_with_canonical_name() {
     let _const_check: &[uor_foundation::enforcement::Term] = BODY_ARENA_BODY_CLAUSE_PROBE_AXIS;
     assert!(!_const_check.is_empty());
 }
+
+// =====================================================================
+// ADR-057 — Bounded recursive structural typing: register_shape! macro
+// + recurse:T / recurse(<bound>):T operand grammar.
+//
+// The SDK macro `register_shape!(MyRegistry, S1, S2, …)` emits a marker
+// type implementing `ShapeRegistryProvider`; foundation's
+// `lookup_shape_in::<MyRegistry>(iri)` walks the const-aggregated
+// registry. `partition_product!` / `partition_coproduct!` admit
+// `recurse:T` and `recurse(<bound>):T` operand markers that lower to
+// `ConstraintRef::Recurse { shape_iri: <T>::IRI, descent_bound: bound }`
+// at the operand's position; the parent shape's CYCLE_SIZE saturates at
+// u64::MAX per ADR-057's saturation rule.
+
+use uor_foundation_sdk::register_shape;
+
+// ── register_shape! end-to-end ─────────────────────────────────────────
+
+register_shape!(TestShapeRegistry, LeafA, LeafB);
+
+#[test]
+fn register_shape_macro_emits_shape_registry_provider_impl() {
+    use uor_foundation::pipeline::shape_iri_registry::{lookup_shape_in, ShapeRegistryProvider};
+    // The marker type implements ShapeRegistryProvider and the
+    // REGISTRY const carries both shapes.
+    let registry = <TestShapeRegistry as ShapeRegistryProvider>::REGISTRY;
+    assert_eq!(registry.len(), 2);
+
+    // Lookup by IRI finds each registered shape.
+    let leaf_a_entry = lookup_shape_in::<TestShapeRegistry>(<LeafA as ConstrainedTypeShape>::IRI)
+        .expect("LeafA is registered");
+    assert_eq!(leaf_a_entry.iri, <LeafA as ConstrainedTypeShape>::IRI);
+    assert_eq!(
+        leaf_a_entry.site_count,
+        <LeafA as ConstrainedTypeShape>::SITE_COUNT
+    );
+
+    let leaf_b_entry = lookup_shape_in::<TestShapeRegistry>(<LeafB as ConstrainedTypeShape>::IRI)
+        .expect("LeafB is registered");
+    assert_eq!(leaf_b_entry.iri, <LeafB as ConstrainedTypeShape>::IRI);
+}
+
+#[test]
+fn register_shape_macro_emits_named_const_for_registry() {
+    // The macro emits `pub const <NAME>_SHAPES: &[RegisteredShape]` for
+    // direct slice access (no trait dispatch needed for purely-const
+    // consumers).
+    let registry_slice: &[uor_foundation::pipeline::shape_iri_registry::RegisteredShape] =
+        TEST_SHAPE_REGISTRY_SHAPES;
+    assert_eq!(registry_slice.len(), 2);
+}
+
+// ── partition_product! with recurse:T operand grammar ─────────────────
+
+// A leaf shape we'll recurse on. In a real application this is the
+// recursive grammar's root shape (JsonValue, AST node, etc.).
+pub struct RecursiveLeaf;
+impl ConstrainedTypeShape for RecursiveLeaf {
+    const IRI: &'static str = "urn:test:recursive_leaf";
+    const SITE_COUNT: usize = 2;
+    const CONSTRAINTS: &'static [ConstraintRef] = &[
+        ConstraintRef::Site { position: 0 },
+        ConstraintRef::Site { position: 1 },
+    ];
+    const CYCLE_SIZE: u64 = 1;
+}
+impl uor_foundation::pipeline::__sdk_seal::Sealed for RecursiveLeaf {}
+impl uor_foundation::pipeline::IntoBindingValue for RecursiveLeaf {
+    const MAX_BYTES: usize = 0;
+    fn into_binding_bytes(
+        &self,
+        _out: &mut [u8],
+    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
+        Ok(0)
+    }
+}
+impl uor_foundation::enforcement::GroundedShape for RecursiveLeaf {}
+
+// Binary product with a `recurse(8):T` operand. Pre-v0.4.14 this raised
+// a parse error (`recurse` was not in the operand grammar); v0.4.14
+// admits it and emits `ConstraintRef::Recurse { …, descent_bound: 8 }`
+// at the operand's position instead of inlining T's CONSTRAINTS.
+partition_product!(
+    BoundedRecursiveProduct,
+    LeafA,
+    recurse(8): RecursiveLeaf
+);
+
+#[test]
+fn partition_product_admits_recurse_with_explicit_bound() {
+    let constraints = <BoundedRecursiveProduct as ConstrainedTypeShape>::CONSTRAINTS;
+    // LeafA contributes 2 inline Site constraints; RecursiveLeaf
+    // contributes 1 Recurse entry → total 3.
+    assert_eq!(constraints.len(), 3);
+    match constraints[2] {
+        ConstraintRef::Recurse {
+            shape_iri,
+            descent_bound,
+        } => {
+            assert_eq!(shape_iri, <RecursiveLeaf as ConstrainedTypeShape>::IRI);
+            assert_eq!(descent_bound, 8);
+        }
+        other => panic!("expected Recurse at index 2, got {other:?}"),
+    }
+}
+
+#[test]
+fn partition_product_with_recurse_saturates_cycle_size() {
+    // ADR-057: shapes containing a Recurse constraint saturate CYCLE_SIZE
+    // at u64::MAX (the runtime expansion resolves cardinality against the
+    // registered shape's own CYCLE_SIZE).
+    assert_eq!(
+        <BoundedRecursiveProduct as ConstrainedTypeShape>::CYCLE_SIZE,
+        u64::MAX
+    );
+}
+
+// Saturated form: `recurse:T` (no explicit bound) defaults to u32::MAX.
+partition_product!(SaturatedRecursiveProduct, LeafA, recurse: RecursiveLeaf);
+
+#[test]
+fn partition_product_admits_recurse_without_bound_defaults_to_u32_max() {
+    let constraints = <SaturatedRecursiveProduct as ConstrainedTypeShape>::CONSTRAINTS;
+    match constraints[constraints.len() - 1] {
+        ConstraintRef::Recurse { descent_bound, .. } => {
+            assert_eq!(descent_bound, u32::MAX);
+        }
+        other => panic!("expected Recurse at end, got {other:?}"),
+    }
+}
+
+// Recurse on the LEFT operand (canonicalization preserves the marker).
+partition_product!(
+    RecurseLeftProduct,
+    recurse(4): RecursiveLeaf,
+    LeafA
+);
+
+#[test]
+fn partition_product_admits_recurse_on_left_operand() {
+    let constraints = <RecurseLeftProduct as ConstrainedTypeShape>::CONSTRAINTS;
+    // Canonical ordering sorts operands; `LeafA` < `RecursiveLeaf`
+    // lexicographically, so LeafA comes first. The Recurse entry for
+    // RecursiveLeaf still appears in the array — at whichever position
+    // canonicalization places it.
+    let has_recurse = constraints.iter().any(|c| {
+        matches!(
+            c,
+            ConstraintRef::Recurse {
+                descent_bound: 4,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_recurse,
+        "expected at least one Recurse entry with descent_bound = 4"
+    );
+}
+
+// ── partition_coproduct! with recurse:T operand grammar ───────────────
+
+partition_coproduct!(
+    BoundedRecursiveCoproduct,
+    LeafA,
+    recurse(16): RecursiveLeaf
+);
+
+#[test]
+fn partition_coproduct_admits_recurse_with_explicit_bound() {
+    let constraints = <BoundedRecursiveCoproduct as ConstrainedTypeShape>::CONSTRAINTS;
+    // Coproduct CONSTRAINTS layout: [L's constraints (or 1 Recurse)] +
+    // [L tag Affine] + [R's constraints (or 1 Recurse)] + [R tag Affine].
+    // LeafA: 2 inline + 1 tag = 3 entries.
+    // RecursiveLeaf (recurse-marked): 1 Recurse + 1 tag = 2 entries.
+    // Total: 5.
+    assert_eq!(constraints.len(), 5);
+    let has_recurse = constraints.iter().any(|c| {
+        matches!(
+            c,
+            ConstraintRef::Recurse {
+                descent_bound: 16,
+                ..
+            }
+        )
+    });
+    assert!(has_recurse, "expected Recurse entry with bound 16");
+}
+
+#[test]
+fn partition_coproduct_with_recurse_saturates_cycle_size() {
+    assert_eq!(
+        <BoundedRecursiveCoproduct as ConstrainedTypeShape>::CYCLE_SIZE,
+        u64::MAX
+    );
+}
+
+// ── JsonValue-style: both operands recurse-marked at a partition_coproduct ──
+
+// Mimics ADR-057's canonical JSON example: a partition_coproduct over
+// `Null`, `Number`, `recurse:Array`, `recurse:Object`. For test simplicity
+// we use two operand cases — both recurse-marked.
+partition_coproduct!(
+    BothRecurse,
+    recurse(8): RecursiveLeaf,
+    recurse(8): RecursiveLeaf
+);
+
+#[test]
+fn partition_coproduct_admits_both_operands_recurse_marked() {
+    // CONSTRAINTS: [Recurse{L}, Affine{tag_L}, Recurse{R}, Affine{tag_R}] = 4 entries.
+    let constraints = <BothRecurse as ConstrainedTypeShape>::CONSTRAINTS;
+    assert_eq!(constraints.len(), 4);
+    let recurse_count = constraints
+        .iter()
+        .filter(|c| matches!(c, ConstraintRef::Recurse { .. }))
+        .count();
+    assert_eq!(recurse_count, 2);
+}

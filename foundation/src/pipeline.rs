@@ -5577,12 +5577,91 @@ where
     A::CONSTRAINTS.len() + B::CONSTRAINTS.len()
 }
 
+/// ADR-057 recurse-aware variant of `sdk_concat_product_constraints`.
+/// Per-operand `Option<u32>` recurse-bound parameter: `None` inlines the
+/// operand's CONSTRAINTS array as before; `Some(bound)` emits a single
+/// `ConstraintRef::Recurse { shape_iri: <T>::IRI, descent_bound: bound }`
+/// at the operand's position. Site offsets for the following operand's
+/// inline constraints account for the recurse operand's
+/// `<T>::SITE_COUNT` as if it were inlined.
+pub const fn sdk_concat_product_constraints_v2<A, B>(
+    a_recurse_bound: Option<u32>,
+    b_recurse_bound: Option<u32>,
+) -> [ConstraintRef; 2 * crate::enforcement::NERVE_CONSTRAINTS_CAP]
+where
+    A: ConstrainedTypeShape,
+    B: ConstrainedTypeShape,
+{
+    let mut out =
+        [ConstraintRef::Site { position: u32::MAX }; 2 * crate::enforcement::NERVE_CONSTRAINTS_CAP];
+    let offset = A::SITE_COUNT as u32;
+    let mut i: usize = 0;
+    // A's contribution: single Recurse entry or inlined constraints.
+    match a_recurse_bound {
+        Some(bound) => {
+            out[0] = ConstraintRef::Recurse {
+                shape_iri: A::IRI,
+                descent_bound: bound,
+            };
+            i = 1;
+        }
+        None => {
+            let left = A::CONSTRAINTS;
+            while i < left.len() {
+                out[i] = left[i];
+                i += 1;
+            }
+        }
+    }
+    // B's contribution: single Recurse entry or inlined-and-shifted constraints.
+    match b_recurse_bound {
+        Some(bound) => {
+            out[i] = ConstraintRef::Recurse {
+                shape_iri: B::IRI,
+                descent_bound: bound,
+            };
+        }
+        None => {
+            let right = B::CONSTRAINTS;
+            let mut j: usize = 0;
+            while j < right.len() {
+                out[i + j] = shift_constraint(right[j], offset);
+                j += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Companion length helper for `sdk_concat_product_constraints_v2`.
+pub const fn sdk_product_constraints_v2_len<A, B>(a_recurse: bool, b_recurse: bool) -> usize
+where
+    A: ConstrainedTypeShape,
+    B: ConstrainedTypeShape,
+{
+    let a_len = if a_recurse { 1 } else { A::CONSTRAINTS.len() };
+    let b_len = if b_recurse { 1 } else { B::CONSTRAINTS.len() };
+    a_len + b_len
+}
+
 /// ADR-057: bounded recursive structural typing — foundation shape-IRI
 /// registry module. Mirrors the architectural pattern of the
 /// observable-IRI registry per ADR-038/049 and the substitution-axis
 /// catalog per ADR-007/030: a closed catalog of shape IRIs admissible
-/// as `ConstraintRef::Recurse` targets, collected at link time and
-/// consulted by ψ_1's NerveResolver at evaluation time.
+/// as `ConstraintRef::Recurse` targets, consulted by ψ_1's NerveResolver
+/// when expanding recursive references at evaluation time.
+/// # Architecture
+/// Foundation is `#![no_std]` with zero dependencies and zero `unsafe`,
+/// so the registry uses **const-aggregation through a sealed trait**
+/// rather than a mutable global or link-section symbol resolution.
+/// Applications declare their shape registry as a single type via the
+/// SDK `register_shape!(Shape1, Shape2, …)` macro per crate; the type
+/// implements [`ShapeRegistryProvider`] with the const-aggregated slice.
+/// ψ_1 NerveResolver consults the registry through [`lookup_shape_in`].
+/// Foundation's built-in [`lookup_shape`] consults a foundation-owned
+/// static registry — currently empty; standard-library Layer-3 sub-crates
+/// per ADR-031 publishing canonical recursive-grammar shapes register
+/// through this path in future foundation-curated additions.
 pub mod shape_iri_registry {
     use super::ConstraintRef;
 
@@ -5604,25 +5683,78 @@ pub mod shape_iri_registry {
         pub cycle_size: u64,
     }
 
-    /// Foundation's built-in shape registry. Currently empty — applications
-    /// supply their `RegisteredShape` entries via `register_shape!` per ADR-057.
-    /// Future foundation-provided shapes (canonical JSON, AST, etc.) will
-    /// be appended here.
+    /// ADR-057: sealed trait carrying a crate's registered-shape slice
+    /// at the const-aggregation surface. The SDK `register_shape!` macro
+    /// emits an `impl ShapeRegistryProvider` on a marker type whose
+    /// `REGISTRY` const is the list of registered shapes.
+    /// Sealed via [`super::__sdk_seal::Sealed`] per ADR-022 D1; only
+    /// the SDK `register_shape!` macro emits impls (plus foundation's
+    /// [`EmptyShapeRegistry`] default).
+    pub trait ShapeRegistryProvider: super::__sdk_seal::Sealed {
+        /// The crate's registered-shape slice. Walked by
+        /// [`lookup_shape_in`] when ψ_1 NerveResolver expands
+        /// `ConstraintRef::Recurse` references at evaluation time.
+        const REGISTRY: &'static [RegisteredShape];
+    }
+
+    /// ADR-057: the empty-registry default, used by applications that
+    /// don't carry recursive shapes. Foundation provides this as the
+    /// baseline `ShapeRegistryProvider` impl; applications with
+    /// recursive shapes use the SDK `register_shape!` macro to declare
+    /// their own marker type with a non-empty `REGISTRY`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct EmptyShapeRegistry;
+    impl super::__sdk_seal::Sealed for EmptyShapeRegistry {}
+    impl ShapeRegistryProvider for EmptyShapeRegistry {
+        const REGISTRY: &'static [RegisteredShape] = &[];
+    }
+
+    /// Foundation's built-in shape registry. Currently empty —
+    /// standard-library Layer-3 sub-crates per ADR-031 publishing
+    /// canonical recursive-grammar shapes (canonical JSON, AST, etc.)
+    /// register through this path in future foundation-curated additions.
     static FOUNDATION_REGISTRY: &[RegisteredShape] = &[];
 
-    /// ADR-057: look up a registered shape by IRI. Walks the foundation
-    /// registry plus any application-provided entries injected via
-    /// `register_shape!`. Returns `None` if the IRI is not present.
+    /// ADR-057: look up a registered shape by IRI in the
+    /// foundation-built-in registry. Returns `None` if the IRI is
+    /// not present; applications consulting their own application-
+    /// registered shapes use [`lookup_shape_in`] generic over their
+    /// `ShapeRegistryProvider`-implementing marker type.
     /// Called by ψ_1's NerveResolver during `ConstraintRef::Recurse`
-    /// evaluation; called by the verifier-side validation per ADR-019.
+    /// evaluation when no application registry is threaded through.
     #[must_use]
     pub fn lookup_shape(iri: &str) -> Option<&'static RegisteredShape> {
-        // Foundation-built-in registry — linear scan; the registry is
-        // small (handful of canonical shapes per standard-library
-        // sub-crate publishing them).
+        lookup_in_slice(FOUNDATION_REGISTRY, iri)
+    }
+
+    /// ADR-057: look up a registered shape by IRI in an application's
+    /// registry plus the foundation-built-in registry. Walks the
+    /// application's `R::REGISTRY` first, then falls back to the
+    /// foundation registry; returns `None` if the IRI is in neither.
+    /// Called by ψ_1's NerveResolver during `ConstraintRef::Recurse`
+    /// evaluation when an application registry is threaded through
+    /// (per `pipeline::run_route`'s registry-parameterized path).
+    #[must_use]
+    pub fn lookup_shape_in<R: ShapeRegistryProvider>(
+        iri: &str,
+    ) -> Option<&'static RegisteredShape> {
+        if let Some(entry) = lookup_in_slice(R::REGISTRY, iri) {
+            return Some(entry);
+        }
+        lookup_in_slice(FOUNDATION_REGISTRY, iri)
+    }
+
+    /// Linear-scan helper used by both [`lookup_shape`] and
+    /// [`lookup_shape_in`]. Registry slices are expected to be small
+    /// (a handful of canonical shapes per standard-library sub-crate
+    /// or per application), so linear scan dominates startup cost.
+    fn lookup_in_slice(
+        slice: &'static [RegisteredShape],
+        iri: &str,
+    ) -> Option<&'static RegisteredShape> {
         let mut i = 0;
-        while i < FOUNDATION_REGISTRY.len() {
-            let entry = &FOUNDATION_REGISTRY[i];
+        while i < slice.len() {
+            let entry = &slice[i];
             if iri_eq(entry.iri, iri) {
                 return Some(entry);
             }
@@ -5633,24 +5765,6 @@ pub mod shape_iri_registry {
 
     fn iri_eq(a: &str, b: &str) -> bool {
         a.as_bytes() == b.as_bytes()
-    }
-
-    /// ADR-057: SDK-facing entry point for shape registration. The
-    /// `register_shape!` SDK macro emits a call to this function at
-    /// crate initialization time. Foundation's MVP registry is
-    /// link-section-collected via the SDK macro; this entry exists for
-    /// future imperative-registration paths (test harnesses, dynamic
-    /// loaders).
-    /// Doc-hidden: not part of the application-author surface per ADR-022
-    /// D1's seal-by-naming-convention pattern. The `register_shape!`
-    /// SDK macro is the sanctioned entry point.
-    #[doc(hidden)]
-    pub fn __register_shape(_shape: &'static RegisteredShape) {
-        // MVP: no-op. v0.4.13 ships the registry surface; the
-        // link-section-based collection mechanism extends the
-        // FOUNDATION_REGISTRY in a follow-up release. Applications
-        // requiring registration today consult the wiki ADR-057 for
-        // the deferred-to-runtime evaluation discipline.
     }
 }
 

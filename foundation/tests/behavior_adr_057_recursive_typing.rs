@@ -131,9 +131,11 @@ fn shape_iri_registry_registered_shape_carries_canonical_fields() {
 
 #[test]
 fn shape_iri_registry_lookup_returns_none_for_unregistered_iri() {
-    // The MVP foundation registry is empty (applications register via
-    // the SDK `register_shape!` macro in a future release). Lookup of any
-    // IRI should return None.
+    // Foundation's built-in registry is empty by default (standard-library
+    // Layer-3 sub-crates per ADR-031 publishing canonical shapes register
+    // through this path in future foundation-curated additions; the trait-
+    // based `ShapeRegistryProvider` path admits application registries
+    // independently). An unregistered IRI returns `None`.
     assert!(shape_iri_registry::lookup_shape("urn:nonexistent:shape").is_none());
 }
 
@@ -182,4 +184,79 @@ fn fold_constraint_ref_emits_discriminant_byte_10_for_recurse() {
         Some(10),
         "ADR-057 Recurse must emit discriminant byte 10"
     );
+}
+
+// ── End-to-end: register_shape! + lookup_shape_in ──────────────────────
+//
+// ADR-057 commits the const-aggregated `ShapeRegistryProvider` surface.
+// `register_shape!(MyRegistry, Shape1, Shape2, …)` from `uor-foundation-sdk`
+// emits a marker type implementing `ShapeRegistryProvider`; foundation's
+// `lookup_shape_in::<MyRegistry>(iri)` walks the const-aggregated registry.
+// This test exercises the registration path WITHOUT going through the SDK
+// macro (since this test file lives in the foundation crate and can't
+// invoke proc-macros from `uor-foundation-sdk`). The end-to-end path is
+// validated in `uor-foundation-sdk/tests/smoke.rs`'s
+// `register_shape_macro_*` tests.
+
+use uor_foundation::pipeline::shape_iri_registry::{EmptyShapeRegistry, ShapeRegistryProvider};
+use uor_foundation::pipeline::{__sdk_seal, shape_iri_registry::lookup_shape_in};
+
+/// Hand-rolled marker type mirroring what `register_shape!(TestRegistry, …)`
+/// would emit from the SDK macro. The implementation is identical at the
+/// trait surface; foundation's lookup_shape_in operates on it the same way.
+struct TestRegistry;
+impl __sdk_seal::Sealed for TestRegistry {}
+impl ShapeRegistryProvider for TestRegistry {
+    const REGISTRY: &'static [RegisteredShape] = &[
+        RegisteredShape {
+            iri: "urn:test:json_value",
+            site_count: 4,
+            constraints: &[],
+            cycle_size: u64::MAX,
+        },
+        RegisteredShape {
+            iri: "urn:test:xml_element",
+            site_count: 8,
+            constraints: &[],
+            cycle_size: u64::MAX,
+        },
+    ];
+}
+
+#[test]
+fn empty_shape_registry_default_provides_empty_registry_slice() {
+    assert_eq!(
+        <EmptyShapeRegistry as ShapeRegistryProvider>::REGISTRY.len(),
+        0
+    );
+}
+
+#[test]
+fn lookup_shape_in_finds_application_registered_shape() {
+    let entry = lookup_shape_in::<TestRegistry>("urn:test:json_value")
+        .expect("registered JSON shape is found");
+    assert_eq!(entry.iri, "urn:test:json_value");
+    assert_eq!(entry.site_count, 4);
+    assert_eq!(entry.cycle_size, u64::MAX);
+}
+
+#[test]
+fn lookup_shape_in_falls_back_to_foundation_registry_when_app_misses() {
+    // The application registry only has json_value and xml_element. A
+    // missing IRI returns None (foundation's built-in registry is also
+    // empty in v0.4.14; future stdlib-canonical shapes go there).
+    assert!(lookup_shape_in::<TestRegistry>("urn:test:nonexistent").is_none());
+}
+
+#[test]
+fn lookup_shape_in_finds_second_entry() {
+    let entry = lookup_shape_in::<TestRegistry>("urn:test:xml_element")
+        .expect("registered XML shape is found");
+    assert_eq!(entry.iri, "urn:test:xml_element");
+    assert_eq!(entry.site_count, 8);
+}
+
+#[test]
+fn empty_registry_provider_returns_none_via_lookup_shape_in() {
+    assert!(lookup_shape_in::<EmptyShapeRegistry>("any-iri").is_none());
 }
