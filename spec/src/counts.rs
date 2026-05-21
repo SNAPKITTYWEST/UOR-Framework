@@ -226,7 +226,12 @@ pub const SHACL_TESTS: usize = 285;
 /// `docs/orphan-closure/classification_report.md` agrees with
 /// `classify_all` and that the `CLASSIFICATION_*` constants in this
 /// file match the live counts.
-pub const CONFORMANCE_CHECKS: usize = 545;
+/// ADR-059: +1 `ontology/inventory/convergence_codomain_stratification`
+/// — pins the four-level Hopf convergence tower {R,C,H,O} at division-algebra
+/// dimensions {1,2,4,8} as the operator-geometry codomain stratification of
+/// κ-derivation (ADR-058), guarding the characteristic identities, Hopf fiber
+/// spheres, and persistent residual Betti signatures the ADR makes normative.
+pub const CONFORMANCE_CHECKS: usize = 546;
 
 /// Number of amendments applied to the base ontology.
 pub const AMENDMENTS: usize = 95;

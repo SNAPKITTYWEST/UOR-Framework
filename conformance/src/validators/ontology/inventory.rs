@@ -130,6 +130,8 @@ pub fn validate(artifacts: &Path) -> Result<ConformanceReport> {
     validate_reduction_completion_vocabulary(&mut report);
     // Amendment 66: Convergence Tower
     validate_convergence_tower_vocabulary(&mut report);
+    // ADR-059: convergence-tower codomain stratification of κ-derivation
+    validate_convergence_codomain_stratification(&mut report);
     // Amendment 67: Division Algebras
     validate_division_algebras_vocabulary(&mut report);
     // Amendment 68: Interaction Algebra
@@ -4224,6 +4226,132 @@ fn validate_convergence_tower_vocabulary(report: &mut ConformanceReport) {
         report.push(TestResult::pass(
             validator,
             "All 8 EC_ convergence tower identities present with correct verificationDomains",
+        ));
+    }
+}
+
+/// ADR-059: pins the four `convergence:ConvergenceLevel` individuals as the
+/// operator-geometry-coordinate codomain stratification of κ-derivation
+/// (ADR-058). ADR-059 §4 commits the Hopf convergence tower (R / C / H / O at
+/// division-algebra dimensions {1, 2, 4, 8}) as the coarse codomain
+/// stratification; this validator guards the exact normative values the ADR
+/// makes load-bearing — algebra dimension, characteristic identity, Hopf fiber
+/// sphere, and the persistent residual Betti signature (β_0 = 1 and
+/// β_{2^k − 1} = 1 at each level). Without this guard, a regression in the
+/// ontology-generated tower would silently break ADR-059's codomain commitment.
+fn validate_convergence_codomain_stratification(report: &mut ConformanceReport) {
+    let ontology = uor_ontology::Ontology::full();
+    let validator = "ontology/inventory/convergence_codomain_stratification";
+
+    // (level IRI, algebra_dimension, characteristic_identity, fiber IRI,
+    //  betti_signature). The four normed division algebras R/C/H/O per
+    //  ADR-059 §4; the persistent Betti at index 2^k − 1 encodes the Hopf
+    //  fibration's residual β = 1 at each level.
+    let levels: &[(&str, i64, &str, &str, &str)] = &[
+        (
+            "https://uor.foundation/convergence/L0_State",
+            1,
+            "existence",
+            "https://uor.foundation/convergence/hopf_S0",
+            "[1]",
+        ),
+        (
+            "https://uor.foundation/convergence/L1_Memory",
+            2,
+            "feedback",
+            "https://uor.foundation/convergence/hopf_S1",
+            "[1,1]",
+        ),
+        (
+            "https://uor.foundation/convergence/L2_Agency",
+            4,
+            "choice",
+            "https://uor.foundation/convergence/hopf_S3",
+            "[1,0,0,1]",
+        ),
+        (
+            "https://uor.foundation/convergence/L3_Self",
+            8,
+            "self-reference",
+            "https://uor.foundation/convergence/hopf_S7",
+            "[1,0,0,0,0,0,0,1]",
+        ),
+    ];
+
+    let dim_prop = "https://uor.foundation/convergence/algebraDimension";
+    let betti_prop = "https://uor.foundation/convergence/bettiSignature";
+    let fiber_prop = "https://uor.foundation/convergence/fiberType";
+    let identity_prop = "https://uor.foundation/convergence/characteristicIdentity";
+    let mut all_valid = true;
+
+    for (iri, dim, identity, fiber, betti) in levels {
+        match ontology.find_individual(iri) {
+            Some(ind) => {
+                let prop_eq = |key: &str, expect: &IndividualValue| {
+                    ind.properties.iter().any(|(k, v)| *k == key && v == expect)
+                };
+                if !prop_eq(dim_prop, &IndividualValue::Int(*dim)) {
+                    report.push(TestResult::fail(
+                        validator,
+                        format!("{iri} algebraDimension is not {dim} (ADR-059 §4 tower)"),
+                    ));
+                    all_valid = false;
+                }
+                if !prop_eq(identity_prop, &IndividualValue::Str(identity)) {
+                    report.push(TestResult::fail(
+                        validator,
+                        format!("{iri} characteristicIdentity is not \"{identity}\""),
+                    ));
+                    all_valid = false;
+                }
+                if !prop_eq(fiber_prop, &IndividualValue::IriRef(fiber)) {
+                    report.push(TestResult::fail(
+                        validator,
+                        format!("{iri} fiberType is not {fiber}"),
+                    ));
+                    all_valid = false;
+                }
+                if !prop_eq(betti_prop, &IndividualValue::Str(betti)) {
+                    report.push(TestResult::fail(
+                        validator,
+                        format!("{iri} bettiSignature is not {betti} (persistent β_{{2^k-1}} = 1)"),
+                    ));
+                    all_valid = false;
+                }
+            }
+            None => {
+                report.push(TestResult::fail(
+                    validator,
+                    format!("ConvergenceLevel {iri} not found (ADR-059 codomain stratification)"),
+                ));
+                all_valid = false;
+            }
+        }
+    }
+
+    // Exactly four levels — the four normed division algebras, no more.
+    let level_count = ontology
+        .find_namespace("convergence")
+        .map(|ns| {
+            ns.individuals
+                .iter()
+                .filter(|i| i.type_ == "https://uor.foundation/convergence/ConvergenceLevel")
+                .count()
+        })
+        .unwrap_or(0);
+    if level_count != 4 {
+        report.push(TestResult::fail(
+            validator,
+            format!("expected exactly 4 ConvergenceLevel individuals, found {level_count}"),
+        ));
+        all_valid = false;
+    }
+
+    if all_valid {
+        report.push(TestResult::pass(
+            validator,
+            "ADR-059: Hopf convergence tower {R,C,H,O} at dims {1,2,4,8} carries the \
+             committed codomain stratification (identity, fiber sphere, persistent Betti)",
         ));
     }
 }
