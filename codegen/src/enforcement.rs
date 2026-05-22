@@ -1805,14 +1805,14 @@ fn generate_term_ast(f: &mut RustFile) {
         "rust",
     );
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
-    f.line("pub struct TermArena<const CAP: usize> {");
+    f.line("pub struct TermArena<'a, const INLINE_BYTES: usize, const CAP: usize> {");
     f.indented_doc_comment("Node storage. `None` slots are unused.");
-    f.line("    nodes: [Option<Term>; CAP],");
+    f.line("    nodes: [Option<Term<'a, INLINE_BYTES>>; CAP],");
     f.indented_doc_comment("Number of allocated nodes.");
     f.line("    len: u32,");
     f.line("}");
     f.blank();
-    f.line("impl<const CAP: usize> TermArena<CAP> {");
+    f.line("impl<'a, const INLINE_BYTES: usize, const CAP: usize> TermArena<'a, INLINE_BYTES, CAP> {");
     f.indented_doc_comment("Creates an empty arena.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
@@ -1831,7 +1831,7 @@ fn generate_term_ast(f: &mut RustFile) {
     f.indented_doc_comment("");
     f.indented_doc_comment("Returns `None` if the arena is full.");
     f.line("    #[must_use]");
-    f.line("    pub fn push(&mut self, term: Term) -> Option<u32> {");
+    f.line("    pub fn push(&mut self, term: Term<'a, INLINE_BYTES>) -> Option<u32> {");
     f.line("        let idx = self.len;");
     f.line("        if (idx as usize) >= CAP {");
     f.line("            return None;");
@@ -1846,7 +1846,7 @@ fn generate_term_ast(f: &mut RustFile) {
     );
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn get(&self, index: u32) -> Option<&Term> {");
+    f.line("    pub fn get(&self, index: u32) -> Option<&Term<'a, INLINE_BYTES>> {");
     f.line("        self.nodes.get(index as usize).and_then(|slot| slot.as_ref())");
     f.line("    }");
     f.blank();
@@ -1871,7 +1871,7 @@ fn generate_term_ast(f: &mut RustFile) {
     f.indented_doc_comment("`TermList::len` to walk the children of an Application/Match node.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn as_slice(&self) -> &[Option<Term>] {");
+    f.line("    pub fn as_slice(&self) -> &[Option<Term<'a, INLINE_BYTES>>] {");
     f.line("        &self.nodes[..self.len as usize]");
     f.line("    }");
     f.blank();
@@ -1889,8 +1889,8 @@ fn generate_term_ast(f: &mut RustFile) {
     f.indented_doc_comment("output).");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn from_slice(slice: &'static [Term]) -> Self {");
-    f.line("        let mut nodes: [Option<Term>; CAP] = [None; CAP];");
+    f.line("    pub const fn from_slice(slice: &'a [Term<'a, INLINE_BYTES>]) -> Self {");
+    f.line("        let mut nodes: [Option<Term<'a, INLINE_BYTES>>; CAP] = [None; CAP];");
     f.line("        let mut i = 0usize;");
     f.line("        while i < slice.len() && i < CAP {");
     f.line("            nodes[i] = Some(slice[i]);");
@@ -1905,7 +1905,7 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl<const CAP: usize> Default for TermArena<CAP> {");
+    f.line("impl<'a, const INLINE_BYTES: usize, const CAP: usize> Default for TermArena<'a, INLINE_BYTES, CAP> {");
     f.line("    fn default() -> Self {");
     f.line("        Self::new()");
     f.line("    }");
@@ -1939,15 +1939,18 @@ fn generate_term_ast(f: &mut RustFile) {
          let proj = Term::Project { operand_index: 0, target: WittLevel::W8 };",
         "rust",
     );
-    // ADR-051: `Term::Literal` carries a `TermValue` (a fixed-capacity
-    // 4096-byte buffer) so wide-Witt literals (W128+) are natively
-    // representable without `Concat` composition. Other Term variants
-    // are 8-32 bytes, so the size difference triggers
-    // `clippy::large_enum_variant` — the trade-off is accepted per ADR-051
-    // (rejected alternative 2 forbids a separate `LiteralWide` variant).
+    // ADR-051 + ADR-060: `Term::Literal` carries a source-polymorphic
+    // `TermValue<'a, INLINE_BYTES>` so wide-Witt literals (W128+) are natively
+    // representable without `Concat` composition, and the literal's carrier
+    // width is the foundation-derived inline width (no contrived 4096 cap).
+    // The `Term` enum gains the lifetime and const-generic parameters per
+    // ADR-060 (1), instantiated at the application boundary; only the
+    // `Literal` variant uses them (the carrier), the others are 8-32 bytes —
+    // the size difference triggers `clippy::large_enum_variant`, accepted per
+    // ADR-051 (rejected alternative 2 forbids a separate `LiteralWide` variant).
     f.line("#[allow(clippy::large_enum_variant)]");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
-    f.line("pub enum Term {");
+    f.line("pub enum Term<'a, const INLINE_BYTES: usize> {");
     f.indented_doc_comment("Integer literal with Witt level annotation. Per ADR-051 the value");
     f.indented_doc_comment(
         "carrier is a `TermValue` byte sequence whose length matches the declared",
@@ -1957,10 +1960,11 @@ fn generate_term_ast(f: &mut RustFile) {
     );
     f.indented_doc_comment("to construct a literal from a `u64` value (the narrow form).");
     f.line("    Literal {");
-    f.line("        /// The literal value as a byte sequence (ADR-051). Length equals");
-    f.line("        /// `level.witt_length() / 8`. Wider widths (W128, W256, …) are");
-    f.line("        /// natively representable without `Concat` composition.");
-    f.line("        value: crate::pipeline::TermValue,");
+    f.line("        /// The literal value as a source-polymorphic carrier (ADR-051 +");
+    f.line("        /// ADR-060). Inline length equals `level.witt_length() / 8`. Wider");
+    f.line("        /// widths (W128, W256, …) are natively representable without");
+    f.line("        /// `Concat` composition.");
+    f.line("        value: crate::pipeline::TermValue<'a, INLINE_BYTES>,");
     f.line("        /// The Witt level of this literal.");
     f.line("        level: WittLevel,");
     f.line("    },");

@@ -4714,37 +4714,120 @@ fn emit_prism_model(f: &mut RustFile) {
     // `HasherProjection`) delegates evaluation to the application's
     // selected axis dispatcher per the substitution-axis-realized verb
     // form.
-    f.doc_comment("Maximum byte width any single `TermValue` carries during evaluation.");
-    f.doc_comment("");
-    f.doc_comment("Foundation-fixed at the maximum of the input/output buffer ceilings so a");
-    f.doc_comment("TermValue can carry the catamorphism's evaluation result (per ADR-028) and");
-    f.doc_comment("the input bytes a Variable/AxisInvocation consumes (per ADR-023). On stable");
-    f.doc_comment(
-        "Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`",
-    );
-    f.doc_comment(
-        "as a `const` expression in array-length position without `generic_const_exprs`,",
-    );
-    f.doc_comment(
-        "so foundation pins the value at the architectural maximum (currently 4096 — the",
-    );
-    f.doc_comment("symmetric value the input/output ceilings already commit to).");
-    f.doc_comment("");
-    f.doc_comment("Stack usage during the catamorphism's recursive descent scales as");
-    f.doc_comment("`tree_depth × TERM_VALUE_MAX_BYTES`. ADR-024's compile-time inlining bounds");
-    f.doc_comment("tree depth by the source's grammar tree depth (verb fragments are inlined at");
-    f.doc_comment(
-        "compile time, no cross-fragment runtime recursion), keeping stack usage finite.",
-    );
-    f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::TERM_VALUE_MAX_BYTES`] via");
-    f.doc_comment("[`DefaultHostBounds`]. Applications declaring a custom `HostBounds`");
-    f.doc_comment("read `<MyBounds as HostBounds>::TERM_VALUE_MAX_BYTES` instead.");
-    f.line(
-        "pub const TERM_VALUE_MAX_BYTES: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::TERM_VALUE_MAX_BYTES;",
-    );
+    // ── ADR-060: source-polymorphic carrier-width derivation surface ──────
+    f.doc_comment("ADR-060: foundation-fixed upper bound on a `Hasher`'s ASCII identifier");
+    f.doc_comment("width, used in the κ-label inline-width derivation");
+    f.doc_comment("([`carrier_inline_bytes`]). The κ-label ASCII form is");
+    f.doc_comment("`identifier ++ \":\" ++ hex(digest)`; the hex doubling of the digest");
+    f.doc_comment("dominates, but the identifier term is included so the derived inline");
+    f.doc_comment("width admits the full κ-label for every conforming `Hasher`. This is a");
+    f.doc_comment("wire-format-adjacent constant (ADR-018 carve-out): a single shared");
+    f.doc_comment("upper bound, not an application-policy capacity.");
+    f.line("pub const HASHER_IDENTIFIER_BYTES: usize = 32;");
     f.blank();
+    f.doc_comment("ADR-060: foundation-fixed per-site wire width for the ψ-stage");
+    f.doc_comment("structural serializations (SimplicialComplex / ChainComplex / …).");
+    f.line("pub const SITE_DESCRIPTOR_BYTES: usize = 8;");
+    f.blank();
+    f.doc_comment("ADR-060: foundation-fixed per-constraint wire width for the ψ-stage");
+    f.doc_comment("structural serializations.");
+    f.line("pub const CONSTRAINT_DESCRIPTOR_BYTES: usize = 16;");
+    f.blank();
+    f.doc_comment("ADR-060: foundation-fixed per-Betti-dimension wire width for the");
+    f.doc_comment("homology/cohomology ψ-stage serializations.");
+    f.line("pub const BETTI_ELEMENT_BYTES: usize = 8;");
+    f.blank();
+    f.doc_comment("ADR-060: foundation-fixed per-stage wire-format header width shared by");
+    f.doc_comment("the ψ-stage structural serializations (stage tag + element count).");
+    f.line("pub const PSI_STAGE_HEADER_BYTES: usize = 16;");
+    f.blank();
+    f.doc_comment("ADR-060: const-fn maximum of three `usize` values. Used by");
+    f.doc_comment("[`carrier_inline_bytes`]; admissible in array-length position on stable");
+    f.doc_comment("Rust because it is a plain `const fn` (not `generic_const_exprs`).");
+    f.line("#[must_use]");
+    f.line("pub const fn max3(a: usize, b: usize, c: usize) -> usize {");
+    f.line("    let ab = if a > b { a } else { b };");
+    f.line("    if ab > c { ab } else { c }");
+    f.line("}");
+    f.blank();
+    f.doc_comment("ADR-060: foundation-derived inline-carrier width for `TermValue::Inline`,");
+    f.doc_comment("computed from the application's `HostBounds` primitives — never declared.");
+    f.doc_comment("");
+    f.doc_comment("The inline carrier admits every value class that flows inline: an integer");
+    f.doc_comment("literal at the application's maximum Witt level");
+    f.doc_comment("(`WITT_LEVEL_MAX_BITS / 8` bytes), a cryptographic digest at the maximum");
+    f.doc_comment("fingerprint width (`FINGERPRINT_MAX_BYTES`), and the κ-label ASCII");
+    f.doc_comment("serialization (`HASHER_IDENTIFIER_BYTES + 1 + 2 × FINGERPRINT_MAX_BYTES` —");
+    f.doc_comment("the hex-encoded digest doubles the fingerprint width). The derived width");
+    f.doc_comment("is the maximum over all three; larger structural / unbounded payloads flow");
+    f.doc_comment("as `TermValue::Borrowed` / `TermValue::Stream` with no carrier-side ceiling.");
+    f.doc_comment("");
+    f.doc_comment("Applications instantiate carrier-bearing types at");
+    f.doc_comment("`carrier_inline_bytes::<MyBounds>()` (a concrete `const` at the");
+    f.doc_comment("application boundary, where `MyBounds` is concrete — stable Rust, no");
+    f.doc_comment("`generic_const_exprs`).");
+    f.line("#[must_use]");
+    f.line("pub const fn carrier_inline_bytes<B: crate::HostBounds>() -> usize {");
+    f.line("    let witt_bytes = B::WITT_LEVEL_MAX_BITS as usize / 8;");
+    f.line("    let kappa_bytes = HASHER_IDENTIFIER_BYTES + 1 + 2 * B::FINGERPRINT_MAX_BYTES;");
+    f.line("    max3(witt_bytes, B::FINGERPRINT_MAX_BYTES, kappa_bytes)");
+    f.line("}");
+    f.blank();
+    // ADR-060: per-ψ-stage carrier-width helpers. Foundation's own resolvers
+    // are the `Null*` resolver-absent baselines (they return
+    // `Err(RESOLVER_ABSENT)` and allocate no buffer), so the catamorphism
+    // itself does not size per-stage scratch. These const fns are the
+    // app-facing helpers an application's resolver impl uses to size its
+    // resolver-owned scratch (the `Borrowed` carrier's backing). Each width is
+    // an application-declared structural count × a foundation-fixed per-element
+    // wire width — never a contrived literal.
+    let psi_stage_carriers: &[(&str, &str)] = &[
+        (
+            "nerve_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::NERVE_SITES_MAX * SITE_DESCRIPTOR_BYTES + B::NERVE_CONSTRAINTS_MAX * CONSTRAINT_DESCRIPTOR_BYTES",
+        ),
+        (
+            "chain_complex_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
+        ),
+        (
+            "homology_groups_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
+        ),
+        (
+            "cochain_complex_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
+        ),
+        (
+            "cohomology_groups_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
+        ),
+        (
+            "postnikov_tower_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
+        ),
+        (
+            "homotopy_groups_carrier_bytes",
+            "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
+        ),
+        (
+            "k_invariants_carrier_bytes",
+            "carrier_inline_bytes::<B>()",
+        ),
+    ];
+    for (fn_name, body) in psi_stage_carriers {
+        f.doc_comment(&format!(
+            "ADR-060: app-facing carrier-width helper for the ψ-stage backing `{fn_name}`."
+        ));
+        f.doc_comment("Structural-element-count × foundation-fixed per-element wire width.");
+        f.line("#[must_use]");
+        f.line(&format!(
+            "pub const fn {fn_name}<B: crate::HostBounds>() -> usize {{"
+        ));
+        f.line(&format!("    {body}"));
+        f.line("}");
+        f.blank();
+    }
     f.doc_comment("Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to");
     f.doc_comment("mark `recurse(measure, base, |self| step)`'s self-identifier reference.");
     f.doc_comment("When the catamorphism encounters `Term::Variable { name_index: <this> }`");
@@ -4799,89 +4882,197 @@ fn emit_prism_model(f: &mut RustFile) {
          <crate::DefaultHostBounds as crate::HostBounds>::UNFOLD_ITERATIONS_MAX;",
     );
     f.blank();
-    f.doc_comment("Wiki ADR-029: a single Term variant's evaluated value, carried as a");
-    f.doc_comment("fixed-capacity byte buffer with an active-prefix length. The");
-    f.doc_comment("catamorphism produces a `TermValue` per variant, propagated up the");
-    f.doc_comment("term tree by the per-variant fold rules.");
-    f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
-    f.line("pub struct TermValue {");
-    f.indented_doc_comment("Fixed-capacity byte buffer (zero-padded beyond `len`).");
-    f.line("    bytes: [u8; TERM_VALUE_MAX_BYTES],");
-    f.indented_doc_comment(
-        "Active prefix length. `u16` admits the architectural ceiling (4096 < 65536).",
-    );
-    f.line("    len: u16,");
+    // ── ADR-060: ChunkSource — unbounded chunk-emitting payload source ────
+    f.doc_comment("ADR-060: a chunk-emitting source for unbounded `TermValue` payloads");
+    f.doc_comment("(tensor-data sections, large signing payloads, multi-GB messages). The");
+    f.doc_comment("`Stream` carrier references a `&dyn ChunkSource`; its carrier width is the");
+    f.doc_comment("dyn-trait descriptor size — payload-independent, with no byte-width ceiling.");
+    f.doc_comment("");
+    f.doc_comment("The σ-projection at ψ_9 folds `Stream` chunks directly into the `Hasher`");
+    f.doc_comment("via `Hasher::fold_bytes`; structural fold-rules read the chunks as a flat");
+    f.doc_comment("byte sequence via [`ChunkSource::for_each_chunk`]. Peak resident memory is");
+    f.doc_comment("`carrier_inline_bytes::<B>()` plus the source's internal state — never the");
+    f.doc_comment("full canonical byte sequence.");
+    f.line("pub trait ChunkSource: core::fmt::Debug {");
+    f.indented_doc_comment("Fold each chunk into the closure in canonical order. The total folded");
+    f.indented_doc_comment("byte count is unbounded; each `&[u8]` slice is valid only for the");
+    f.indented_doc_comment("duration of the call (not retained).");
+    f.line("    fn for_each_chunk(&self, f: &mut dyn FnMut(&[u8]));");
+    f.indented_doc_comment("Total byte count if statically known, else `None`.");
+    f.line("    fn total_bytes(&self) -> Option<usize> {");
+    f.line("        None");
+    f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl TermValue {");
-    f.indented_doc_comment("Construct an empty `TermValue` (length zero).");
+
+    f.doc_comment("Wiki ADR-029 + ADR-060: a single Term variant's evaluated value, carried");
+    f.doc_comment("as a **source-polymorphic** carrier const-generic over its inline width.");
+    f.doc_comment("");
+    f.doc_comment("ADR-060 replaces the pre-0.5.0 fixed-4096-byte buffer with three variants:");
+    f.doc_comment("");
+    f.doc_comment("- `Inline` — a stack buffer of `INLINE_BYTES` (foundation-derived via");
+    f.doc_comment("  [`carrier_inline_bytes`]) carrying derived structural content: integer");
+    f.doc_comment("  literals at any admitted Witt level, cryptographic digests at the");
+    f.doc_comment("  application's hasher output width, the κ-label ASCII form, and");
+    f.doc_comment("  primitive-op single-value outputs.");
+    f.doc_comment("- `Borrowed` — a slice into an upstream byte source (input bytes, a");
+    f.doc_comment("  sibling ψ-stage's scratch, an axis-kernel output region). Its carrier");
+    f.doc_comment("  width is `size_of::<&[u8]>()`, independent of payload size.");
+    f.doc_comment("- `Stream` — a chunk-emitting source for unbounded payloads, no ceiling.");
+    f.doc_comment("");
+    f.doc_comment("`INLINE_BYTES` is a free const-generic parameter; the application");
+    f.doc_comment("instantiates it at the boundary via `carrier_inline_bytes::<MyBounds>()`");
+    f.doc_comment("(per the min-const-generics pattern, stable Rust, no `generic_const_exprs`).");
+    f.line("#[derive(Debug, Clone, Copy)]");
+    f.line("pub enum TermValue<'a, const INLINE_BYTES: usize> {");
+    f.indented_doc_comment("Stack-allocated inline buffer (zero-padded beyond `len`).");
+    f.line("    Inline {");
+    f.indented_doc_comment("Fixed-capacity inline byte buffer.");
+    f.line("        bytes: [u8; INLINE_BYTES],");
+    f.indented_doc_comment("Active prefix length (`<= INLINE_BYTES`).");
+    f.line("        len: usize,");
+    f.line("    },");
+    f.indented_doc_comment("Borrowed slice into an upstream byte source — no byte-width ceiling.");
+    f.line("    Borrowed(&'a [u8]),");
+    f.indented_doc_comment("Chunk-emitting source for unbounded payloads — no byte-width ceiling.");
+    f.line("    Stream(&'a dyn ChunkSource),");
+    f.line("}");
+    f.blank();
+    // ADR-060: TermValue carries `&dyn ChunkSource`, which is not `PartialEq`,
+    // so we implement equality manually (content equality for materializable
+    // carriers; pointer identity for `Stream`).
+    f.line("impl<'a, const INLINE_BYTES: usize> PartialEq for TermValue<'a, INLINE_BYTES> {");
+    f.line("    fn eq(&self, other: &Self) -> bool {");
+    f.line("        match (self, other) {");
+    f.line("            (TermValue::Stream(a), TermValue::Stream(b)) => core::ptr::eq(");
+    f.line("                (*a as *const dyn ChunkSource).cast::<u8>(),");
+    f.line("                (*b as *const dyn ChunkSource).cast::<u8>(),");
+    f.line("            ),");
+    f.line("            (TermValue::Stream(_), _) | (_, TermValue::Stream(_)) => false,");
+    f.line("            _ => self.as_slice() == other.as_slice(),");
+    f.line("        }");
+    f.line("    }");
+    f.line("}");
+    f.line("impl<'a, const INLINE_BYTES: usize> Eq for TermValue<'a, INLINE_BYTES> {}");
+    f.blank();
+    f.line("impl<'a, const INLINE_BYTES: usize> TermValue<'a, INLINE_BYTES> {");
+    f.indented_doc_comment("Construct an empty inline `TermValue` (length zero).");
     f.line("    #[must_use]");
     f.line("    pub const fn empty() -> Self {");
-    f.line("        Self { bytes: [0u8; TERM_VALUE_MAX_BYTES], len: 0 }");
+    f.line("        TermValue::Inline { bytes: [0u8; INLINE_BYTES], len: 0 }");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment(
-        "Construct a `TermValue` from a slice; copies up to `TERM_VALUE_MAX_BYTES` bytes.",
-    );
+    f.indented_doc_comment("ADR-060: construct an `Inline` `TermValue` by copying up to");
+    f.indented_doc_comment("`INLINE_BYTES` bytes from `bytes`. For payloads exceeding the inline");
+    f.indented_doc_comment("width use [`TermValue::Borrowed`] / [`TermValue::Stream`] instead.");
     f.line("    #[must_use]");
-    f.line("    pub const fn from_slice(bytes: &[u8]) -> Self {");
-    f.line("        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
-    f.line("        let copy_len = if bytes.len() > TERM_VALUE_MAX_BYTES {");
-    f.line("            TERM_VALUE_MAX_BYTES");
-    f.line("        } else { bytes.len() };");
+    f.line("    pub const fn inline_from_slice(bytes: &[u8]) -> Self {");
+    f.line("        let mut buf = [0u8; INLINE_BYTES];");
+    f.line("        let copy_len = if bytes.len() > INLINE_BYTES { INLINE_BYTES } else { bytes.len() };");
     f.line("        let mut i = 0;");
     f.line("        while i < copy_len {");
     f.line("            buf[i] = bytes[i];");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        Self { bytes: buf, len: copy_len as u16 }");
+    f.line("        TermValue::Inline { bytes: buf, len: copy_len }");
     f.line("    }");
     f.blank();
-    // ADR-051 narrow-form construction helper: `from_u64_be(value, width)`
-    // packs a u64 as a big-endian byte sequence of the declared width,
-    // matching what `literal_u64` emits.
+    f.indented_doc_comment("Construct a zero-copy `Borrowed` `TermValue` referencing `bytes`.");
+    f.line("    #[must_use]");
+    f.line("    pub const fn borrowed(bytes: &'a [u8]) -> Self {");
+    f.line("        TermValue::Borrowed(bytes)");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Construct a `Stream` `TermValue` over an unbounded chunk source.");
+    f.line("    #[must_use]");
+    f.line("    pub const fn stream(source: &'a dyn ChunkSource) -> Self {");
+    f.line("        TermValue::Stream(source)");
+    f.line("    }");
+    f.blank();
     f.indented_doc_comment(
-        "ADR-051: construct a `TermValue` from a u64 value at a declared byte width.",
+        "ADR-051: construct an `Inline` `TermValue` from a u64 at a declared byte width.",
     );
-    f.indented_doc_comment(
-        "The high (8 - width) bytes of the u64 are discarded; the low `width` bytes are",
-    );
-    f.indented_doc_comment("written into the value buffer in big-endian order.");
     f.line("    #[must_use]");
     f.line("    pub const fn from_u64_be(value: u64, width: usize) -> Self {");
     f.line("        let w = if width > 8 { 8 } else { width };");
     f.line("        let be = value.to_be_bytes();");
-    f.line("        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("        let mut buf = [0u8; INLINE_BYTES];");
+    f.line("        let cap = if w > INLINE_BYTES { INLINE_BYTES } else { w };");
     f.line("        let mut i = 0;");
-    f.line("        while i < w {");
+    f.line("        while i < cap {");
     f.line("            buf[i] = be[8 - w + i];");
     f.line("            i += 1;");
     f.line("        }");
-    f.line("        Self { bytes: buf, len: w as u16 }");
+    f.line("        TermValue::Inline { bytes: buf, len: cap }");
     f.line("    }");
     f.blank();
-    // ADR-051 helper used by `literal_u64`: const constructor from an
-    // already-prepared big-endian byte buffer with the desired width.
     f.indented_doc_comment(
-        "ADR-051 helper: const-constructor from a prepared big-endian byte buffer.",
+        "ADR-060: const-constructor from a prepared inline buffer of width `INLINE_BYTES`.",
     );
-    f.indented_doc_comment(
-        "`len` MUST be `<= TERM_VALUE_MAX_BYTES`; the function copies the first `len`",
-    );
-    f.indented_doc_comment("bytes of `bytes` and records `len` as the active prefix.");
     f.line("    #[must_use]");
-    f.line("    pub const fn from_slice_const(bytes: &[u8; TERM_VALUE_MAX_BYTES], len: usize) -> Self {");
-    f.line("        let l = if len > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { len };");
-    f.line("        Self { bytes: *bytes, len: l as u16 }");
+    f.line("    pub const fn from_inline_const(bytes: &[u8; INLINE_BYTES], len: usize) -> Self {");
+    f.line("        let l = if len > INLINE_BYTES { INLINE_BYTES } else { len };");
+    f.line("        TermValue::Inline { bytes: *bytes, len: l }");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("Returns the active byte prefix.");
+    f.indented_doc_comment("Returns the active byte prefix for materializable carriers");
+    f.indented_doc_comment("(`Inline` / `Borrowed`), or `None` for `Stream` (which has no single");
+    f.indented_doc_comment("contiguous slice — read it via [`TermValue::for_each_chunk`]).");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn bytes(&self) -> &[u8] {");
-    f.line("        let l = self.len as usize;");
-    f.line("        let (head, _) = self.bytes.split_at(l);");
-    f.line("        head");
+    f.line("    pub fn as_slice(&self) -> Option<&[u8]> {");
+    f.line("        match self {");
+    f.line("            TermValue::Inline { bytes, len } => Some(&bytes[..*len]),");
+    f.line("            TermValue::Borrowed(s) => Some(s),");
+    f.line("            TermValue::Stream(_) => None,");
+    f.line("        }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Returns the active byte prefix for `Inline` / `Borrowed`, or the empty");
+    f.indented_doc_comment("slice for `Stream`. Structural fold-rules that never produce `Stream`");
+    f.indented_doc_comment("use this; `Stream`-aware consumers use [`TermValue::for_each_chunk`].");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn bytes(&self) -> &[u8] {");
+    f.line("        match self {");
+    f.line("            TermValue::Inline { bytes, len } => &bytes[..*len],");
+    f.line("            TermValue::Borrowed(s) => s,");
+    f.line("            TermValue::Stream(_) => &[],");
+    f.line("        }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("ADR-060: fold every byte of the carrier into `f` in canonical order,");
+    f.indented_doc_comment("dispatching on the variant — `Inline` / `Borrowed` emit a single chunk,");
+    f.indented_doc_comment("`Stream` delegates to [`ChunkSource::for_each_chunk`]. This is the");
+    f.indented_doc_comment("universal reader the σ-projection folds through `Hasher::fold_bytes`.");
+    f.line("    pub fn for_each_chunk(&self, f: &mut dyn FnMut(&[u8])) {");
+    f.line("        match self {");
+    f.line("            TermValue::Inline { bytes, len } => f(&bytes[..*len]),");
+    f.line("            TermValue::Borrowed(s) => f(s),");
+    f.line("            TermValue::Stream(src) => src.for_each_chunk(f),");
+    f.line("        }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Total byte length if known: `Inline`/`Borrowed` always; `Stream` only");
+    f.indented_doc_comment("when its source reports [`ChunkSource::total_bytes`].");
+    f.line("    #[must_use]");
+    f.line("    pub fn len_hint(&self) -> Option<usize> {");
+    f.line("        match self {");
+    f.line("            TermValue::Inline { len, .. } => Some(*len),");
+    f.line("            TermValue::Borrowed(s) => Some(s.len()),");
+    f.line("            TermValue::Stream(src) => src.total_bytes(),");
+    f.line("        }");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("ADR-060: opt-in, `alloc`-gated materialization into an owned buffer —");
+    f.indented_doc_comment("the only allocation surface, per caller. Folds every chunk into a");
+    f.indented_doc_comment("`Vec<u8>` (works for all three variants, including `Stream`).");
+    f.line("    #[cfg(feature = \"alloc\")]");
+    f.line("    #[must_use]");
+    f.line("    pub fn to_vec(&self) -> alloc::vec::Vec<u8> {");
+    f.line("        let mut out = alloc::vec::Vec::new();");
+    f.line("        self.for_each_chunk(&mut |chunk| out.extend_from_slice(chunk));");
+    f.line("        out");
     f.line("    }");
     f.line("}");
     f.blank();
@@ -4898,11 +5089,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("byte width (`level.witt_length() / 8`). For widths > 8 bytes, the high bytes");
     f.doc_comment("are zero-padded.");
     f.line("#[must_use]");
-    f.line("pub const fn literal_u64(value: u64, level: crate::WittLevel) -> crate::enforcement::Term {");
+    f.line("pub const fn literal_u64<const INLINE_BYTES: usize>(value: u64, level: crate::WittLevel) -> crate::enforcement::Term<'static, INLINE_BYTES> {");
     f.line("    let mut width = (level.witt_length() / 8) as usize;");
     f.line("    if width == 0 { width = 1; }");
+    f.line("    // ADR-060: literals fit inline by construction (carrier_inline_bytes >=");
+    f.line("    // WITT_LEVEL_MAX_BITS/8); clamp defensively so const eval never indexes");
+    f.line("    // past the derived inline width.");
+    f.line("    if width > INLINE_BYTES { width = INLINE_BYTES; }");
     f.line("    let be = value.to_be_bytes();");
-    f.line("    let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    let mut buf = [0u8; INLINE_BYTES];");
     f.line("    // Pack the u64's big-endian bytes into the low `min(width, 8)` bytes");
     f.line("    // of the result, right-aligned. Widths > 8 zero-pad the high portion.");
     f.line("    let take = if width > 8 { 8 } else { width };");
@@ -4912,7 +5107,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        i += 1;");
     f.line("    }");
     f.line("    crate::enforcement::Term::Literal {");
-    f.line("        value: TermValue::from_slice_const(&buf, width),");
+    f.line("        value: TermValue::from_inline_const(&buf, width),");
     f.line("        level,");
     f.line("    }");
     f.line("}");
@@ -4921,12 +5116,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("ADR-051: construct a `Term::Literal` from raw bytes at a declared Witt level.");
     f.doc_comment("");
     f.doc_comment("`bytes` MUST have exactly `level.witt_length() / 8` bytes; mismatched lengths");
-    f.doc_comment("are silently truncated/padded by `TermValue::from_slice_const`. Use this for");
-    f.doc_comment("wide-Witt literals (W128+) that don't fit in a u64.");
+    f.doc_comment("are silently truncated/padded by `TermValue::inline_from_slice`. Use this for");
+    f.doc_comment("wide-Witt literals (W128+) that don't fit in a u64 (they fit the");
+    f.doc_comment("foundation-derived inline width per ADR-060).");
     f.line("#[must_use]");
-    f.line("pub const fn literal_bytes(bytes: &[u8], level: crate::WittLevel) -> crate::enforcement::Term {");
+    f.line("pub const fn literal_bytes<const INLINE_BYTES: usize>(bytes: &[u8], level: crate::WittLevel) -> crate::enforcement::Term<'static, INLINE_BYTES> {");
     f.line("    crate::enforcement::Term::Literal {");
-    f.line("        value: TermValue::from_slice(bytes),");
+    f.line("        value: TermValue::inline_from_slice(bytes),");
     f.line("        level,");
     f.line("    }");
     f.line("}");
