@@ -2464,11 +2464,16 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// re-derivation.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, Tag = T>(
-    pub &'a crate::enforcement::Grounded<T, Tag>,
-);
+pub struct InhabitanceCertificateView<
+    'a,
+    T: crate::enforcement::GroundedShape,
+    const INLINE_BYTES: usize,
+    Tag = T,
+>(pub &'a crate::enforcement::Grounded<T, INLINE_BYTES, Tag>);
 
-impl<'a, T: crate::enforcement::GroundedShape, Tag> InhabitanceCertificateView<'a, T, Tag> {
+impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag>
+    InhabitanceCertificateView<'a, T, INLINE_BYTES, Tag>
+{
     /// The κ-label — the homotopy-classification structural witness at
     /// ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's
     /// output (exposed via `Grounded::output_bytes`) wrapped in the
@@ -7906,8 +7911,8 @@ pub fn run_incremental_completeness<
 /// Returns `GenericImpossibilityWitness` on grounding failure: unresolved
 /// variables, or any variable reference whose name index is absent from
 /// `unit.bindings()`.
-pub fn run_grounding_aware<H: crate::enforcement::Hasher>(
-    unit: &CompileUnit,
+pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>(
+    unit: &CompileUnit<'_, INLINE_BYTES>,
     level: WittLevel,
 ) -> Result<Validated<GroundingCertificate>, GenericImpossibilityWitness> {
     let witt_bits = level.witt_length() as u16;
@@ -8103,7 +8108,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
         grounding,
         bindings,
         outcome.witt_bits,
@@ -8431,13 +8436,13 @@ impl PeerInput {
 /// v0.2.2 Phase F: outcome of a single `InteractionDriver::step` call.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum StepResult<T: crate::enforcement::GroundedShape> {
+pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {
     /// The step was absorbed; the driver is ready for another peer input.
     Continue,
     /// The step produced an intermediate grounded output.
-    Output(Grounded<T>),
+    Output(Grounded<T, INLINE_BYTES>),
     /// The convergence predicate is satisfied; interaction is complete.
-    Converged(Grounded<T>),
+    Converged(Grounded<T, INLINE_BYTES>),
     /// v0.2.2 Phase T.1: the commutator norm failed to decrease for
     /// `INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is
     /// non-convergent and the driver is no longer advanceable.
@@ -8486,6 +8491,7 @@ pub struct StreamDriver<
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
     H: crate::enforcement::Hasher,
+    const INLINE_BYTES: usize,
 > {
     rewrite_steps: u64,
     landauer_nats: u64,
@@ -8503,7 +8509,8 @@ impl<
         T: crate::enforcement::GroundedShape,
         P: crate::enforcement::ValidationPhase,
         H: crate::enforcement::Hasher,
-    > StreamDriver<T, P, H>
+        const INLINE_BYTES: usize,
+    > StreamDriver<T, P, H, INLINE_BYTES>
 {
     /// Crate-internal constructor. Callable only from `pipeline::run_stream`.
     #[inline]
@@ -8559,9 +8566,10 @@ impl<
         T: crate::enforcement::GroundedShape + ConstrainedTypeShape,
         P: crate::enforcement::ValidationPhase,
         H: crate::enforcement::Hasher,
-    > Iterator for StreamDriver<T, P, H>
+        const INLINE_BYTES: usize,
+    > Iterator for StreamDriver<T, P, H, INLINE_BYTES>
 {
-    type Item = Result<Grounded<T>, PipelineFailure>;
+    type Item = Result<Grounded<T, INLINE_BYTES>, PipelineFailure>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.terminated || self.productivity_countdown == 0 {
             self.terminated = true;
@@ -8599,7 +8607,7 @@ impl<
             content_fingerprint,
         ));
         let bindings = empty_bindings_table();
-        Some(Ok(Grounded::<T>::new_internal(
+        Some(Ok(Grounded::<T, INLINE_BYTES>::new_internal(
             grounding,
             bindings,
             32, // default witt level for stream output
@@ -8619,6 +8627,7 @@ pub struct InteractionDriver<
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
     H: crate::enforcement::Hasher,
+    const INLINE_BYTES: usize,
 > {
     commutator_acc: [u64; 4],
     peer_step_count: u64,
@@ -8649,7 +8658,8 @@ impl<
         T: crate::enforcement::GroundedShape,
         P: crate::enforcement::ValidationPhase,
         H: crate::enforcement::Hasher,
-    > InteractionDriver<T, P, H>
+        const INLINE_BYTES: usize,
+    > InteractionDriver<T, P, H, INLINE_BYTES>
 {
     /// Crate-internal constructor. Callable only from `pipeline::run_interactive`.
     #[inline]
@@ -8693,7 +8703,7 @@ impl<
     ///   non-decreasing for `INTERACTION_DIVERGENCE_BUDGET` consecutive steps.
     /// * **Continue** otherwise.
     #[must_use]
-    pub fn step(&mut self, input: PeerInput) -> StepResult<T>
+    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES>
     where
         T: ConstrainedTypeShape,
     {
@@ -8740,7 +8750,7 @@ impl<
                 content_fingerprint,
             ));
             let bindings = empty_bindings_table();
-            return StepResult::Converged(Grounded::<T>::new_internal(
+            return StepResult::Converged(Grounded::<T, INLINE_BYTES>::new_internal(
                 grounding,
                 bindings,
                 32,
@@ -8791,7 +8801,7 @@ impl<
     /// Returns a `PipelineFailure::ShapeViolation` if the driver has
     /// not converged, or `PipelineFailure::ShapeMismatch` if the source
     /// declaration's result_type_iri does not match `T::IRI`.
-    pub fn finalize(self) -> Result<Grounded<T>, PipelineFailure>
+    pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
     where
         T: ConstrainedTypeShape,
     {
@@ -8835,7 +8845,7 @@ impl<
             content_fingerprint,
         ));
         let bindings = empty_bindings_table();
-        Ok(Grounded::<T>::new_internal(
+        Ok(Grounded::<T, INLINE_BYTES>::new_internal(
             grounding,
             bindings,
             32,
@@ -8885,9 +8895,9 @@ impl<
 ///     .expect("partition admits");
 /// # let _ = grounded;
 /// ```
-pub fn run_parallel<T, P, H>(
+pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(
     unit: Validated<ParallelDeclaration, P>,
-) -> Result<Grounded<T>, PipelineFailure>
+) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -8979,7 +8989,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
         grounding,
         bindings,
         32,
@@ -8996,7 +9006,9 @@ where
 /// from the previous step's, and the iterator terminates when the
 /// countdown reaches zero.
 #[must_use]
-pub fn run_stream<T, P, H>(unit: Validated<StreamDeclaration, P>) -> StreamDriver<T, P, H>
+pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(
+    unit: Validated<StreamDeclaration, P>,
+) -> StreamDriver<T, P, H, INLINE_BYTES>
 where
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -9013,9 +9025,9 @@ where
 /// `convergence_seed()`. Advance with `step(PeerInput)` until
 /// `is_converged()` returns `true`, then call `finalize()`.
 #[must_use]
-pub fn run_interactive<T, P, H>(
+pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(
     unit: Validated<InteractionDeclaration, P>,
-) -> InteractionDriver<T, P, H>
+) -> InteractionDriver<T, P, H, INLINE_BYTES>
 where
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -9160,9 +9172,9 @@ pub const fn validate_parallel_const<'a, T: ConstrainedTypeShape>(
 /// v0.2.2 Phase A: the produced `StreamDeclaration<'a>` retains the
 /// builder's seed/step term slices and productivity-witness IRI.
 #[must_use]
-pub const fn validate_stream_const<'a, T: ConstrainedTypeShape>(
-    builder: &StreamDeclarationBuilder<'a>,
-) -> Validated<StreamDeclaration<'a>, CompileTime> {
+pub const fn validate_stream_const<'a, const INLINE_BYTES: usize, T: ConstrainedTypeShape>(
+    builder: &StreamDeclarationBuilder<'a, INLINE_BYTES>,
+) -> Validated<StreamDeclaration<'a, INLINE_BYTES>, CompileTime> {
     let bound = builder.productivity_bound_const();
     Validated::new(StreamDeclaration::new_full::<T>(
         bound,
@@ -9384,7 +9396,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
         grounding,
         bindings,
         level_bits,

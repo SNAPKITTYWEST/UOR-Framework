@@ -268,9 +268,9 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("v0.2.2 Phase A: the produced `StreamDeclaration<'a>` retains the");
     f.doc_comment("builder's seed/step term slices and productivity-witness IRI.");
     f.line("#[must_use]");
-    f.line("pub const fn validate_stream_const<'a, T: ConstrainedTypeShape>(");
-    f.line("    builder: &StreamDeclarationBuilder<'a>,");
-    f.line(") -> Validated<StreamDeclaration<'a>, CompileTime> {");
+    f.line("pub const fn validate_stream_const<'a, const INLINE_BYTES: usize, T: ConstrainedTypeShape>(");
+    f.line("    builder: &StreamDeclarationBuilder<'a, INLINE_BYTES>,");
+    f.line(") -> Validated<StreamDeclaration<'a, INLINE_BYTES>, CompileTime> {");
     f.line("    let bound = builder.productivity_bound_const();");
     f.line("    Validated::new(StreamDeclaration::new_full::<T>(");
     f.line("        bound,");
@@ -517,7 +517,7 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.line("        GroundingCertificate::with_level_and_fingerprint_const(level_bits, content_fingerprint),");
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        level_bits,");
@@ -822,13 +822,13 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("v0.2.2 Phase F: outcome of a single `InteractionDriver::step` call.");
     f.line("#[derive(Debug, Clone)]");
     f.line("#[non_exhaustive]");
-    f.line("pub enum StepResult<T: crate::enforcement::GroundedShape> {");
+    f.line("pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {");
     f.indented_doc_comment("The step was absorbed; the driver is ready for another peer input.");
     f.line("    Continue,");
     f.indented_doc_comment("The step produced an intermediate grounded output.");
-    f.line("    Output(Grounded<T>),");
+    f.line("    Output(Grounded<T, INLINE_BYTES>),");
     f.indented_doc_comment("The convergence predicate is satisfied; interaction is complete.");
-    f.line("    Converged(Grounded<T>),");
+    f.line("    Converged(Grounded<T, INLINE_BYTES>),");
     f.indented_doc_comment("v0.2.2 Phase T.1: the commutator norm failed to decrease for");
     f.indented_doc_comment(
         "`INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is",
@@ -878,7 +878,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`next()` decrements the countdown and yields a `Grounded` whose");
     f.doc_comment("`unit_address` differs from the previous step's.");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct StreamDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher> {");
+    f.line("pub struct StreamDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> {");
     f.line("    rewrite_steps: u64,");
     f.line("    landauer_nats: u64,");
     f.line("    productivity_countdown: u64,");
@@ -891,7 +891,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher> StreamDriver<T, P, H> {");
+    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> StreamDriver<T, P, H, INLINE_BYTES> {");
     f.indented_doc_comment(
         "Crate-internal constructor. Callable only from `pipeline::run_stream`.",
     );
@@ -939,8 +939,8 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("    pub const fn is_terminated(&self) -> bool { self.terminated }");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape + ConstrainedTypeShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher> Iterator for StreamDriver<T, P, H> {");
-    f.line("    type Item = Result<Grounded<T>, PipelineFailure>;");
+    f.line("impl<T: crate::enforcement::GroundedShape + ConstrainedTypeShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> Iterator for StreamDriver<T, P, H, INLINE_BYTES> {");
+    f.line("    type Item = Result<Grounded<T, INLINE_BYTES>, PipelineFailure>;");
     f.line("    fn next(&mut self) -> Option<Self::Item> {");
     f.line("        if self.terminated || self.productivity_countdown == 0 {");
     f.line("            self.terminated = true;");
@@ -983,7 +983,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("            GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("        );");
     f.line("        let bindings = empty_bindings_table();");
-    f.line("        Some(Ok(Grounded::<T>::new_internal(");
+    f.line("        Some(Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("            grounding,");
     f.line("            bindings,");
     f.line("            32, // default witt level for stream output");
@@ -1001,7 +1001,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`commutator_acc` accumulator via XOR; convergence is signalled when");
     f.doc_comment("a peer input arrives with `peer_id == 0` (the closing handshake).");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct InteractionDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher> {");
+    f.line("pub struct InteractionDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> {");
     f.line("    commutator_acc: [u64; 4],");
     f.line("    peer_step_count: u64,");
     f.line("    converged: bool,");
@@ -1031,7 +1031,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`InteractionDeclaration` level not supported in this release.");
     f.line("pub const INTERACTION_DIVERGENCE_BUDGET: u32 = 16;");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher> InteractionDriver<T, P, H> {");
+    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> InteractionDriver<T, P, H, INLINE_BYTES> {");
     f.indented_doc_comment(
         "Crate-internal constructor. Callable only from `pipeline::run_interactive`.",
     );
@@ -1091,7 +1091,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     );
     f.indented_doc_comment("* **Continue** otherwise.");
     f.line("    #[must_use]");
-    f.line("    pub fn step(&mut self, input: PeerInput) -> StepResult<T>");
+    f.line("    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES>");
     f.line("    where");
     f.line("        T: ConstrainedTypeShape,");
     f.line("    {");
@@ -1139,7 +1139,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("                GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("            );");
     f.line("            let bindings = empty_bindings_table();");
-    f.line("            return StepResult::Converged(Grounded::<T>::new_internal(");
+    f.line("            return StepResult::Converged(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("                grounding,");
     f.line("                bindings,");
     f.line("                32,");
@@ -1187,7 +1187,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("Returns a `PipelineFailure::ShapeViolation` if the driver has");
     f.indented_doc_comment("not converged, or `PipelineFailure::ShapeMismatch` if the source");
     f.indented_doc_comment("declaration's result_type_iri does not match `T::IRI`.");
-    f.line("    pub fn finalize(self) -> Result<Grounded<T>, PipelineFailure>");
+    f.line("    pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("    where");
     f.line("        T: ConstrainedTypeShape,");
     f.line("    {");
@@ -1235,7 +1235,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("            GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("        );");
     f.line("        let bindings = empty_bindings_table();");
-    f.line("        Ok(Grounded::<T>::new_internal(");
+    f.line("        Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("            grounding,");
     f.line("            bindings,");
     f.line("            32,");
@@ -1298,9 +1298,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // already `#[must_use]` — no extra attribute needed. The must-use
     // discipline is enforced on run_stream/run_interactive where the
     // returned driver struct is not inherently must_use.
-    f.line("pub fn run_parallel<T, P, H>(");
+    f.line("pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<ParallelDeclaration, P>,");
-    f.line(") -> Result<Grounded<T>, PipelineFailure>");
+    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
@@ -1399,7 +1399,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     );
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        32,");
@@ -1421,9 +1421,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // Phase M.3: `#[must_use]` — dropping the StreamDriver silently discards
     // the iterator without pulling any items.
     f.line("#[must_use]");
-    f.line("pub fn run_stream<T, P, H>(");
+    f.line("pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<StreamDeclaration, P>,");
-    f.line(") -> StreamDriver<T, P, H>");
+    f.line(") -> StreamDriver<T, P, H, INLINE_BYTES>");
     f.line("where");
     f.line("    T: crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
@@ -1445,9 +1445,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // Phase M.3: `#[must_use]` — dropping the InteractionDriver discards all
     // peer state and convergence progress.
     f.line("#[must_use]");
-    f.line("pub fn run_interactive<T, P, H>(");
+    f.line("pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<InteractionDeclaration, P>,");
-    f.line(") -> InteractionDriver<T, P, H>");
+    f.line(") -> InteractionDriver<T, P, H, INLINE_BYTES>");
     f.line("where");
     f.line("    T: crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
@@ -3201,13 +3201,13 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line("#[repr(transparent)]");
     f.line("#[derive(Debug, Clone, Copy)]");
     f.line(
-        "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, Tag = T>(",
+        "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag = T>(",
     );
-    f.line("    pub &'a crate::enforcement::Grounded<T, Tag>,");
+    f.line("    pub &'a crate::enforcement::Grounded<T, INLINE_BYTES, Tag>,");
     f.line(");");
     f.blank();
     f.line(
-        "impl<'a, T: crate::enforcement::GroundedShape, Tag> InhabitanceCertificateView<'a, T, Tag> {",
+        "impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> InhabitanceCertificateView<'a, T, INLINE_BYTES, Tag> {",
     );
     f.indented_doc_comment("The κ-label — the homotopy-classification structural witness at");
     f.indented_doc_comment("ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's");
@@ -7865,8 +7865,8 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("/// Returns `GenericImpossibilityWitness` on grounding failure: unresolved");
     f.line("/// variables, or any variable reference whose name index is absent from");
     f.line("/// `unit.bindings()`.");
-    f.line("pub fn run_grounding_aware<H: crate::enforcement::Hasher>(");
-    f.line("    unit: &CompileUnit,");
+    f.line("pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>(");
+    f.line("    unit: &CompileUnit<'_, INLINE_BYTES>,");
     f.line("    level: WittLevel,");
     f.line(") -> Result<Validated<GroundingCertificate>, GenericImpossibilityWitness> {");
     f.line("    let witt_bits = level.witt_length() as u16;");
@@ -8099,7 +8099,7 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        GroundingCertificate::with_level_and_fingerprint_const(witt_bits, content_fingerprint),");
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        outcome.witt_bits,");

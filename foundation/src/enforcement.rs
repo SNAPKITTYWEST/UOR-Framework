@@ -814,7 +814,7 @@ where
 ///     }
 /// }
 /// ```
-pub trait Sinking {
+pub trait Sinking<const INLINE_BYTES: usize> {
     /// The ring-side shape `T` carried by the `Grounded<T>` being projected.
     /// Sealed via `GroundedShape` — downstream cannot forge an admissible Source.
     type Source: GroundedShape;
@@ -831,24 +831,26 @@ pub trait Sinking {
     /// Project a grounded ring value to the host output. The `&Grounded<Source>`
     /// input is unforgeable (Grounded is sealed per §2) — no raw data can be
     /// laundered through this contract.
-    fn project(&self, grounded: &Grounded<Self::Source>) -> Self::Output;
+    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;
 }
 
 /// Target §4.6: extension trait tying `EmitEffect<H>` (ontology-declarative)
 /// to `Sinking` (Rust-operational). Emit-effect implementations carry a
 /// specific `Sinking` impl; the emit operation threads a sealed
 /// `Grounded<Source>` through the projection.
-pub trait EmitThrough<H: crate::HostTypes>: crate::bridge::boundary::EmitEffect<H> {
+pub trait EmitThrough<const INLINE_BYTES: usize, H: crate::HostTypes>:
+    crate::bridge::boundary::EmitEffect<H>
+{
     /// The `Sinking` implementation this emit-effect routes through.
-    type Sinking: Sinking;
+    type Sinking: Sinking<INLINE_BYTES>;
 
     /// Emit a grounded value through this effect's bound `Sinking`. The
     /// input type is the sealed `Grounded<Source>` of the bound `Sinking`;
     /// nothing else is admissible.
     fn emit(
         &self,
-        grounded: &Grounded<<Self::Sinking as Sinking>::Source>,
-    ) -> <Self::Sinking as Sinking>::Output;
+        grounded: &Grounded<<Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,
+    ) -> <Self::Sinking as Sinking<INLINE_BYTES>>::Output;
 }
 
 /// v0.2.2 W13: sealed marker trait for the validation phase at which a
@@ -3787,7 +3789,7 @@ impl<'a> ParallelDeclarationBuilder<'a> {
     }
 }
 
-impl<'a> StreamDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> StreamDeclarationBuilder<'a, INLINE_BYTES> {
     /// v0.2.2 canonical: productivity bound is 1 if a `productivityWitness`
     /// IRI is declared (the stream attests termination via a `proof:Proof`
     /// individual), 0 otherwise. The witness's IRI points to the termination
@@ -5976,7 +5978,7 @@ pub(crate) mod ontology_target_sealed {
     impl Sealed for super::PartitionProductWitness {}
     impl Sealed for super::PartitionCoproductWitness {}
     impl Sealed for super::CartesianProductWitness {}
-    impl Sealed for super::CompileUnit<'_> {}
+    impl<const INLINE_BYTES: usize> Sealed for super::CompileUnit<'_, INLINE_BYTES> {}
 }
 
 impl OntologyTarget for GroundingCertificate {}

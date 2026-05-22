@@ -784,7 +784,7 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
          }",
         "no_run",
     );
-    f.line("pub trait Sinking {");
+    f.line("pub trait Sinking<const INLINE_BYTES: usize> {");
     f.indented_doc_comment(
         "The ring-side shape `T` carried by the `Grounded<T>` being projected.\n\
          Sealed via `GroundedShape` — downstream cannot forge an admissible Source.",
@@ -809,7 +809,7 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
          input is unforgeable (Grounded is sealed per §2) — no raw data can be\n\
          laundered through this contract.",
     );
-    f.line("    fn project(&self, grounded: &Grounded<Self::Source>) -> Self::Output;");
+    f.line("    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;");
     f.line("}");
     f.blank();
 
@@ -821,9 +821,9 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
     f.doc_comment("to `Sinking` (Rust-operational). Emit-effect implementations carry a");
     f.doc_comment("specific `Sinking` impl; the emit operation threads a sealed");
     f.doc_comment("`Grounded<Source>` through the projection.");
-    f.line("pub trait EmitThrough<H: crate::HostTypes>: crate::bridge::boundary::EmitEffect<H> {");
+    f.line("pub trait EmitThrough<const INLINE_BYTES: usize, H: crate::HostTypes>: crate::bridge::boundary::EmitEffect<H> {");
     f.indented_doc_comment("The `Sinking` implementation this emit-effect routes through.");
-    f.line("    type Sinking: Sinking;");
+    f.line("    type Sinking: Sinking<INLINE_BYTES>;");
     f.blank();
     f.indented_doc_comment(
         "Emit a grounded value through this effect's bound `Sinking`. The\n\
@@ -832,8 +832,8 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
     );
     f.line("    fn emit(");
     f.line("        &self,");
-    f.line("        grounded: &Grounded<<Self::Sinking as Sinking>::Source>,");
-    f.line("    ) -> <Self::Sinking as Sinking>::Output;");
+    f.line("        grounded: &Grounded<<Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,");
+    f.line("    ) -> <Self::Sinking as Sinking<INLINE_BYTES>>::Output;");
     f.line("}");
     f.blank();
 }
@@ -3050,7 +3050,7 @@ fn generate_builders(f: &mut RustFile) {
     f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl<'a> StreamDeclarationBuilder<'a> {");
+    f.line("impl<'a, const INLINE_BYTES: usize> StreamDeclarationBuilder<'a, INLINE_BYTES> {");
     f.indented_doc_comment("v0.2.2 canonical: productivity bound is 1 if a `productivityWitness`");
     f.indented_doc_comment("IRI is declared (the stream attests termination via a `proof:Proof`");
     f.indented_doc_comment("individual), 0 otherwise. The witness's IRI points to the termination");
@@ -4651,7 +4651,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("    impl Sealed for super::PartitionProductWitness {}");
     f.line("    impl Sealed for super::PartitionCoproductWitness {}");
     f.line("    impl Sealed for super::CartesianProductWitness {}");
-    f.line("    impl Sealed for super::CompileUnit<'_> {}");
+    f.line("    impl<const INLINE_BYTES: usize> Sealed for super::CompileUnit<'_, INLINE_BYTES> {}");
     f.line("}");
     f.blank();
     for (name, _) in &all_shims {
