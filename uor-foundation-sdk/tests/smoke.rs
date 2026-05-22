@@ -259,7 +259,7 @@ fn coproduct_shape_supports_affine_operand() {
 //
 // The test verifies the macro emits the four binding impls (D1 +
 // D4 + D5) and that the parsed term arena is the value-level slice
-// returned by `<Route as FoundationClosed>::arena_slice()`.
+// returned by `<Route as FoundationClosed<SMOKE_IB>>::arena_slice()`.
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher, Term};
 use uor_foundation::{DefaultHostTypes, HostBounds, PrimitiveOp};
@@ -324,7 +324,7 @@ prism_model! {
 
 #[test]
 fn prism_model_macro_emits_term_arena_for_simple_addition() {
-    let arena = <AddTwoLiteralsRoute as FoundationClosed>::arena_slice();
+    let arena = <AddTwoLiteralsRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `add(2, 3)` → [Literal(2), Literal(3), Application{Add, [0..2]}]
     assert_eq!(
         arena.len(),
@@ -364,7 +364,7 @@ prism_model! {
 
 #[test]
 fn prism_model_macro_recognises_input_variable_and_unary_op() {
-    let arena = <VariableThenSuccRoute as FoundationClosed>::arena_slice();
+    let arena = <VariableThenSuccRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `succ(input)` → [Variable(0), Application{Succ, [0..1]}]
     assert_eq!(arena.len(), 2);
     match arena[0] {
@@ -502,7 +502,7 @@ prism_model! {
 
 #[test]
 fn prism_model_inlines_verb_fragment_for_local_verb_call() {
-    let arena = <VerbInvokingRoute as FoundationClosed>::arena_slice();
+    let arena = <VerbInvokingRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // After ADR-024 reconciliation, the route's arena is fully flat:
     // the verb's fragment is inlined at compile time. `smoke_succ(input)`
     // builds:
@@ -576,7 +576,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_lift_term_for_g4_lift_form() {
-    let arena = <LiftToW16Route as FoundationClosed>::arena_slice();
+    let arena = <LiftToW16Route as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `lift::<W16>(input)` → [Variable, Lift { operand: 0, target: W16 }]
     assert_eq!(arena.len(), 2);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
@@ -610,7 +610,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_project_term_for_g5_project_form() {
-    let arena = <ProjectToW8Route as FoundationClosed>::arena_slice();
+    let arena = <ProjectToW8Route as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert_eq!(arena.len(), 2);
     match arena[1] {
         Term::Project {
@@ -640,7 +640,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_term_arena_for_g10_let_binding() {
-    let arena = <LetBindingRoute as FoundationClosed>::arena_slice();
+    let arena = <LetBindingRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `let two = 2; add(two, 3)` → [Literal(2), Literal(3), Application(Add, [0..2])]
     // The let-binding doesn't emit its own Term node; references to
     // `two` resolve to the Literal(2) root via the binding scope (G10).
@@ -681,7 +681,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_try_term_for_g9_postfix_question() {
-    let arena = <TryPropagateRoute as FoundationClosed>::arena_slice();
+    let arena = <TryPropagateRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `succ(input)?` → [Variable, Application(Succ), Try{body=1, handler=u32::MAX}]
     assert_eq!(arena.len(), 3);
     match arena[2] {
@@ -711,7 +711,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_recurse_term_for_g7_form() {
-    let arena = <RecurseRoute as FoundationClosed>::arena_slice();
+    let arena = <RecurseRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // The arena ends with Term::Recurse pointing at the measure, base, and step roots.
     let last = arena.last().expect("non-empty arena");
     assert!(matches!(last, Term::Recurse { .. }));
@@ -732,7 +732,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_unfold_term_for_g8_form() {
-    let arena = <UnfoldRoute as FoundationClosed>::arena_slice();
+    let arena = <UnfoldRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert!(matches!(arena.last(), Some(Term::Unfold { .. })));
 }
 
@@ -751,7 +751,7 @@ prism_model! {
 
 #[test]
 fn prism_model_unrolls_fold_n_for_const_count_below_threshold() {
-    let arena = <FoldNUnrolledRoute as FoundationClosed>::arena_slice();
+    let arena = <FoldNUnrolledRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // fold_n(3, input, |state, idx| add(state, idx)) unrolls into:
     //   iter 0: add(input, 0)
     //   iter 1: add(<iter 0 result>, 1)
@@ -801,7 +801,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_match_term_for_g6_form() {
-    let arena = <MatchRoute as FoundationClosed>::arena_slice();
+    let arena = <MatchRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     let last = arena.last().expect("non-empty arena");
     match last {
         Term::Match { arms, .. } => {
@@ -853,7 +853,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_parallel_term_for_g13_form() {
-    let arena = <ParallelComposeRoute as FoundationClosed>::arena_slice();
+    let arena = <ParallelComposeRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // `parallel(succ(input), pred(input))` lowers to a binary
     // Application(Or, [succ(input), pred(input)]) — the partition-product
     // structural combine per ADR-026 G13.
@@ -882,7 +882,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_tree_fold_pairwise_chain_for_g15_form() {
-    let arena = <TreeFoldRoute as FoundationClosed>::arena_slice();
+    let arena = <TreeFoldRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // tree_fold(add, [1, 2, 3, 4]) → balanced tree of depth 2:
     //   add(add(1, 2), add(3, 4))
     // Three Application(Add) entries (two leaf-level + one root).
@@ -1083,7 +1083,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_chained_project_field_terms() {
-    let arena = <ChainedFieldRoute as FoundationClosed>::arena_slice();
+    let arena = <ChainedFieldRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     // Expected: [Variable(0), ProjectField(outer), ProjectField(lhs)]
     assert_eq!(arena.len(), 3);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
@@ -1669,7 +1669,7 @@ prism_model! {
 
 #[test]
 fn prism_model_emits_chained_positional_project_field_terms() {
-    let arena = <ChainedPosRoute as FoundationClosed>::arena_slice();
+    let arena = <ChainedPosRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert_eq!(arena.len(), 3);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
     assert!(matches!(
@@ -2333,71 +2333,71 @@ fn prism_model_arenas_carry_zero_psi_residuals_per_adr_035() {
     let arenas: &[(&'static str, &'static [Term])] = &[
         (
             "AddTwoLiterals",
-            <AddTwoLiteralsRoute as FoundationClosed>::arena_slice(),
+            <AddTwoLiteralsRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "VariableThenSucc",
-            <VariableThenSuccRoute as FoundationClosed>::arena_slice(),
+            <VariableThenSuccRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "VerbInvokingModel",
-            <VerbInvokingRoute as FoundationClosed>::arena_slice(),
+            <VerbInvokingRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "LiftToW16Model",
-            <LiftToW16Route as FoundationClosed>::arena_slice(),
+            <LiftToW16Route as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "ProjectToW8Model",
-            <ProjectToW8Route as FoundationClosed>::arena_slice(),
+            <ProjectToW8Route as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "LetBindingModel",
-            <LetBindingRoute as FoundationClosed>::arena_slice(),
+            <LetBindingRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "TryPropagateModel",
-            <TryPropagateRoute as FoundationClosed>::arena_slice(),
+            <TryPropagateRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "RecurseModel",
-            <RecurseRoute as FoundationClosed>::arena_slice(),
+            <RecurseRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "UnfoldModel",
-            <UnfoldRoute as FoundationClosed>::arena_slice(),
+            <UnfoldRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "FoldNUnrolledModel",
-            <FoldNUnrolledRoute as FoundationClosed>::arena_slice(),
+            <FoldNUnrolledRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "MatchModel",
-            <MatchRoute as FoundationClosed>::arena_slice(),
+            <MatchRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "ParallelComposeModel",
-            <ParallelComposeRoute as FoundationClosed>::arena_slice(),
+            <ParallelComposeRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "TreeFoldModel",
-            <TreeFoldRoute as FoundationClosed>::arena_slice(),
+            <TreeFoldRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "ChainedFieldModel",
-            <ChainedFieldRoute as FoundationClosed>::arena_slice(),
+            <ChainedFieldRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "ChainedPosModel",
-            <ChainedPosRoute as FoundationClosed>::arena_slice(),
+            <ChainedPosRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "KInvariantInferenceModel",
-            <KInvariantInferenceRoute as FoundationClosed>::arena_slice(),
+            <KInvariantInferenceRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
         (
             "HomologyInferenceModel",
-            <HomologyInferenceRoute as FoundationClosed>::arena_slice(),
+            <HomologyInferenceRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
         ),
     ];
     for (name, arena) in arenas {
@@ -3369,7 +3369,7 @@ prism_model! {
 
 #[test]
 fn prism_model_macro_admits_div_call_form() {
-    let arena = <DivRoute as FoundationClosed>::arena_slice();
+    let arena = <DivRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert_eq!(arena.len(), 3);
     match arena[2] {
         Term::Application { operator, args } => {
@@ -3383,7 +3383,7 @@ fn prism_model_macro_admits_div_call_form() {
 
 #[test]
 fn prism_model_macro_admits_raw_mod_call_form() {
-    let arena = <ModRoute as FoundationClosed>::arena_slice();
+    let arena = <ModRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert_eq!(arena.len(), 3);
     match arena[2] {
         Term::Application { operator, .. } => {
@@ -3395,7 +3395,7 @@ fn prism_model_macro_admits_raw_mod_call_form() {
 
 #[test]
 fn prism_model_macro_admits_pow_call_form() {
-    let arena = <PowRoute as FoundationClosed>::arena_slice();
+    let arena = <PowRoute as FoundationClosed<SMOKE_IB>>::arena_slice();
     assert_eq!(arena.len(), 3);
     match arena[2] {
         Term::Application { operator, .. } => {

@@ -5226,23 +5226,39 @@ pub fn verb(input: TokenStream) -> TokenStream {
         fn_name.span(),
     );
     let accessor_name = Ident::new(&format!("{}_term_arena", fn_name), fn_name.span());
+    // ADR-060: a generic-`INLINE_BYTES` `&'static` term slice cannot be
+    // returned by a generic `const fn` via rvalue static promotion (the
+    // promoted array's type depends on the const-generic parameter). The
+    // stable idiom is a zero-sized holder type with an **associated const**,
+    // which is `'static` by construction. The verb's const fn / accessor read
+    // that associated const.
+    let frag_holder = Ident::new(
+        &format!("__VerbFrag_{}", to_screaming_snake(&fn_name.to_string())),
+        fn_name.span(),
+    );
 
     let expansion = quote! {
-        // Const term-tree fragment, fully-const, ready for the verb's
-        // accessor or for `prism_model!` to splice into a route arena
-        // at compile time per wiki ADR-024. The const is `pub` so
-        // `prism_model!` invocations in downstream crates (after
-        // `use_verbs!` re-export) can name it when emitting calls to
-        // foundation's `inline_verb_fragment` const-fn helper.
-        // ADR-060: a verb is model-independent, but its term-tree carries the
-        // source-polymorphic carrier `Term<'static, INLINE_BYTES>`, whose
-        // inline width is the consuming model's `carrier_inline_bytes::<B>()`.
-        // So the fragment is a `const fn` generic over `INLINE_BYTES`; the
-        // consuming `prism_model!` route calls it at its own derived width.
+        // ADR-024 + ADR-060: the verb's term-tree fragment, held as an
+        // associated const on a const-generic holder type so the
+        // `&'static [Term<'static, INLINE_BYTES>]` slice is well-formed for any
+        // consuming model's foundation-derived inline carrier width. A verb is
+        // model-independent; the consuming `prism_model!` route reads the
+        // fragment at its own `carrier_inline_bytes::<B>()` width.
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        #fn_vis struct #frag_holder<const INLINE_BYTES: usize>;
+        #[allow(dead_code)]
+        impl<const INLINE_BYTES: usize> #frag_holder<INLINE_BYTES> {
+            #fn_vis const TERMS: &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] =
+                #verb_fragment_expr;
+        }
+
+        // `VERB_TERMS_<NAME>` const fn — names the fragment for `prism_model!`
+        // splices (after `use_verbs!` re-export) and the verb's own accessor.
         #[allow(non_snake_case, dead_code)]
         #fn_vis const fn #const_name<const INLINE_BYTES: usize>(
         ) -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
-            #verb_fragment_expr
+            #frag_holder::<INLINE_BYTES>::TERMS
         }
 
         // Public accessor for the verb's term-tree fragment. Per
@@ -5250,7 +5266,7 @@ pub fn verb(input: TokenStream) -> TokenStream {
         // runtime is implementation-owned.
         #fn_vis const fn #accessor_name<const INLINE_BYTES: usize>(
         ) -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
-            #const_name::<INLINE_BYTES>()
+            #frag_holder::<INLINE_BYTES>::TERMS
         }
 
         // Marker `pub fn name(_: InputTy) -> OutputTy` so the verb
