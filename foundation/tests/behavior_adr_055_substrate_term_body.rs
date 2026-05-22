@@ -123,7 +123,7 @@ fn axis_invocation_fold_rule_uses_dispatch_kernel_when_body_empty() {
     ];
     let result = evaluate_term_tree::<ProbeHasher, NullResolverTuple, N>(
         &arena,
-        &[0x42u8],
+        uor_foundation::pipeline::TermValue::borrowed(&[0x42u8]),
         &NullResolverTuple,
     )
     .expect("AxisInvocation primitive-fast-path evaluates");

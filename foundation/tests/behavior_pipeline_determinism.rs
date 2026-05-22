@@ -40,9 +40,9 @@ fn build(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N>, Co
 
 #[test]
 fn pipeline_run_equal_inputs_produce_equal_grounded() {
-    let a: Grounded<ConstrainedTypeInput, N> =
+    let a: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("a");
-    let b: Grounded<ConstrainedTypeInput, N> =
+    let b: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("b");
     assert_eq!(a.witt_level_bits(), b.witt_level_bits());
     assert_eq!(a.unit_address(), b.unit_address());
@@ -52,9 +52,9 @@ fn pipeline_run_equal_inputs_produce_equal_grounded() {
 
 #[test]
 fn pipeline_run_differing_budgets_differ_on_fingerprint() {
-    let a: Grounded<ConstrainedTypeInput, N> =
+    let a: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("a");
-    let b: Grounded<ConstrainedTypeInput, N> =
+    let b: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 200)).expect("b");
     assert_ne!(
         a.content_fingerprint(),
@@ -70,9 +70,9 @@ fn pipeline_run_differing_budgets_differ_on_fingerprint() {
 
 #[test]
 fn pipeline_run_differing_witt_levels_differ_on_witt_bits() {
-    let a: Grounded<ConstrainedTypeInput, N> =
+    let a: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W8, 100)).expect("a");
-    let b: Grounded<ConstrainedTypeInput, N> =
+    let b: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("b");
     assert_ne!(a.witt_level_bits(), b.witt_level_bits());
     assert_ne!(a.content_fingerprint(), b.content_fingerprint());
@@ -83,9 +83,9 @@ fn pipeline_run_differing_witt_levels_differ_on_witt_bits() {
 #[test]
 fn pipeline_run_const_equal_inputs_produce_equal_grounded() {
     let unit = build(WittLevel::W16, 77);
-    let a: Grounded<ConstrainedTypeInput, N> =
+    let a: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit).expect("a");
-    let b: Grounded<ConstrainedTypeInput, N> =
+    let b: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit).expect("b");
     assert_eq!(a.content_fingerprint(), b.content_fingerprint());
     assert_eq!(a.uor_time(), b.uor_time());
@@ -102,10 +102,10 @@ fn pipeline_run_and_run_const_agree_for_same_unit() {
     // run takes Validated<_, P> by value; clone the validated wrapper via
     // re-building to avoid Phase mismatch.
     let unit_for_run = build(WittLevel::W16, 55);
-    let a: Grounded<ConstrainedTypeInput, N> =
+    let a: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
             .expect("const");
-    let b: Grounded<ConstrainedTypeInput, N> =
+    let b: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_for_run).expect("runtime");
     assert_eq!(
         a.content_fingerprint(),
@@ -134,9 +134,9 @@ fn pipeline_run_parallel_different_site_counts_produce_different_witnesses() {
         validated_runtime(ParallelDeclaration::new_with_partition::<
             ConstrainedTypeInput,
         >(PARTITION_7, DISJOINTNESS_WITNESS));
-    let g_3: Grounded<ConstrainedTypeInput, N> =
+    let g_3: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_3).expect("3");
-    let g_7: Grounded<ConstrainedTypeInput, N> =
+    let g_7: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_7).expect("7");
     assert_ne!(
         g_3.unit_address(),

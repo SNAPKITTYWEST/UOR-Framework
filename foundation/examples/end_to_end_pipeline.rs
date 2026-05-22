@@ -3,8 +3,8 @@
 //! Full flow:
 //! 1. `CompileUnitBuilder::new()` with all 5 required fields
 //! 2. `builder.validate()` → `Validated<CompileUnit<'a>, Runtime>`
-//! 3. `pipeline::run::<T, _, H>(unit)` → `Grounded<T>`
-//! 4. Inspect the `BaseMetric` accessors on `Grounded<T>`: `triad()`, `betti()`,
+//! 3. `pipeline::run::<T, _, H>(unit)` → `Grounded<'static, T>`
+//! 4. Inspect the `BaseMetric` accessors on `Grounded<'static, T>`: `triad()`, `betti()`,
 //!    `sigma()`, `d_delta()`, `residual()`, `uor_time()`.
 //!
 //! Run with: `cargo run --example end_to_end_pipeline -p uor-foundation`
@@ -34,7 +34,7 @@ fn main() {
     let unit: Validated<_> = builder.validate().expect("unit is well-formed");
 
     // Step 3: run through the pipeline.
-    let grounded: Grounded<ConstrainedTypeInput, N> =
+    let grounded: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
 
     // Step 4: inspect the BaseMetric accessors.

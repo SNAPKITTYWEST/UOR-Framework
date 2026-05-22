@@ -1,6 +1,6 @@
 //! Behavioral contract for the route output payload (wiki ADR-028 + ADR-060).
 //!
-//! Per ADR-028, `Grounded<T>` carries the catamorphism's evaluation
+//! Per ADR-028, `Grounded<'static, T>` carries the catamorphism's evaluation
 //! result as an output payload alongside the metadata fingerprint.
 //! ADR-060 removed the foundation-fixed 4096-byte `ROUTE_OUTPUT_BUFFER_BYTES`
 //! / `ROUTE_INPUT_BUFFER_BYTES` ceilings: the carrier is now
@@ -53,7 +53,7 @@ fn grounded_output_bytes_accessor_is_public() {
     // unpopulated, so the accessor returns the empty prefix here. Either way the
     // returned slice must fit within the application's inline carrier width.
     let unit = build_unit();
-    let grounded: Grounded<ConstrainedTypeInput, N> =
+    let grounded: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
             .expect("fixture: run_const succeeds");
     let out = grounded.output_bytes();

@@ -1,16 +1,16 @@
-//! Behavioral contract for `Grounded<T>` and `Certified<C>` accessors.
+//! Behavioral contract for `Grounded<'static, T>` and `Certified<C>` accessors.
 //!
 //! Contract (target §1.7, §2, §4.6):
 //!
-//! - `Grounded<T>` carries six sealed `observable:BaseMetric` accessors
+//! - `Grounded<'static, T>` carries six sealed `observable:BaseMetric` accessors
 //!   (`d_delta`, `sigma`, `jacobian`, `betti`, `euler`, `residual`) that
 //!   return foundation-minted sealed newtypes, not raw primitives.
-//! - `Grounded<T>::uor_time()` returns a populated `UorTime` with non-zero
+//! - `Grounded<'static, T>::uor_time()` returns a populated `UorTime` with non-zero
 //!   counters after a real `pipeline::run` (zero would indicate a stub).
-//! - `Grounded<T>::triad()` is content-deterministic: two witnesses minted
+//! - `Grounded<'static, T>::triad()` is content-deterministic: two witnesses minted
 //!   from the same inputs return equal Triads.
 //! - `Certified<C>::uor_time()` exists and returns a `UorTime`.
-//! - `Grounded<T>::certificate()` returns a `Validated<GroundingCertificate>`
+//! - `Grounded<'static, T>::certificate()` returns a `Validated<GroundingCertificate>`
 //!   with matching witt_bits.
 //! - Two Grounded values minted from the same inputs share every accessor
 //!   value (content-determinism).
@@ -41,7 +41,7 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N
     validate_compile_unit_const(&builder).expect("fixture: validates")
 }
 
-fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput, N> {
+fn ground(level: WittLevel, budget: u64) -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
     run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
         .expect("fixture: run_const succeeds")

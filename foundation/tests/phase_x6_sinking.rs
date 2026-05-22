@@ -2,8 +2,8 @@
 //!
 //! Verifies that the `Sinking` trait enforces at the Rust type level what
 //! the target doc declares as the outbound-boundary guarantee: input must
-//! be `Grounded<T>`; cannot launder unverified data outward. The input
-//! type is structurally unforgeable — `Grounded<T>` is sealed per §2 and
+//! be `Grounded<'static, T>`; cannot launder unverified data outward. The input
+//! type is structurally unforgeable — `Grounded<'static, T>` is sealed per §2 and
 //! only `pipeline::run` mints it — so no Rust syntax expresses a bypass.
 //!
 //! Coverage:
@@ -33,7 +33,7 @@ use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn grounded_probe() -> Grounded<ConstrainedTypeInput, N> {
+fn grounded_probe() -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = CompileUnitBuilder::new()
         .root_term(ROOT_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -123,7 +123,7 @@ impl Sinking<N> for AddressToStringSink {
     type ProjectionMap = Utf8ProjectionMap;
     type Output = String;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {
+    fn project(&self, grounded: &Grounded<'_, ConstrainedTypeInput, N>) -> String {
         format!("address={:?}", grounded.unit_address())
     }
 }
@@ -135,7 +135,7 @@ impl Sinking<N> for FingerprintToBytesSink {
     type ProjectionMap = BinaryProjectionMap;
     type Output = Vec<u8>;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> Vec<u8> {
+    fn project(&self, grounded: &Grounded<'_, ConstrainedTypeInput, N>) -> Vec<u8> {
         grounded.content_fingerprint().as_bytes().to_vec()
     }
 }
@@ -177,7 +177,7 @@ fn sinking_is_content_deterministic() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Type-level contract: Sinking::project accepts ONLY &Grounded<Source>.
+// Type-level contract: Sinking::project accepts ONLY &Grounded<'static, Source>.
 // The compile_fail doctest below proves raw primitives are rejected.
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -194,11 +194,11 @@ fn sinking_is_content_deterministic() {
 ///     type Source = ConstrainedTypeInput;
 ///     type ProjectionMap = BinaryProjectionMap;
 ///     type Output = Vec<u8>;
-///     fn project(&self, grounded: &Grounded<ConstrainedTypeInput, 97>) -> Vec<u8> {
+///     fn project(&self, grounded: &Grounded<'_, ConstrainedTypeInput, 97>) -> Vec<u8> {
 ///         Vec::new()
 ///     }
 /// }
-/// // This fails to compile: 0i64 is not &Grounded<ConstrainedTypeInput, 97>.
+/// // This fails to compile: 0i64 is not &Grounded<'static, ConstrainedTypeInput, 97>.
 /// let _ = RawSink.project(&0i64);
 /// ```
 #[allow(dead_code)]

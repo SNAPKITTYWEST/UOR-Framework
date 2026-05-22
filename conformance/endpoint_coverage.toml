@@ -454,18 +454,21 @@ behavior = "behavior_host_bounds"
 symbols = ["PrismModel", "FoundationClosed"]
 behavior = "behavior_prism_model"
 
-# ─── Mapping: IntoBindingValue (wiki ADR-023) ──────────────────────────
+# ─── Mapping: IntoBindingValue (wiki ADR-023, amended by ADR-060) ──────
 # ADR-023 closes the architectural gap ADR-022 left open: how does an
 # `M::Input` value supplied at runtime flow into the `CompileUnit`
-# binding table? Foundation declares `IntoBindingValue` as the trait
-# every `M::Input` must implement. `pipeline::run_route` calls
-# `into_binding_bytes` to fill a buffer (sized by the foundation-fixed
-# `ROUTE_INPUT_BUFFER_BYTES` ceiling per stable-Rust 1.83 stable
-# const-generic limits), hashes the result through the application's
-# selected `Hasher`, and constructs a transient `Binding` for the
-# route's input slot (`Term::Variable { name_index: 0 }` per ADR-022
-# D3 G2). The trait is sealed via the same `__sdk_seal::Sealed`
-# supertrait as `FoundationClosed` and `PrismModel`.
+# binding table? Foundation declares `IntoBindingValue<'a>` as the trait
+# every `M::Input` must implement. ADR-060 makes it source-polymorphic:
+# `as_binding_value` returns a `TermValue<'a>` carrier (Inline / Borrowed /
+# Stream) with no `MAX_BYTES` ceiling. `pipeline::run_route` folds the
+# carrier through the application's selected `Hasher` (chunk-by-chunk for
+# `Stream`) to derive the input's content address — arbitrarily large
+# inputs flow natively — and constructs a transient `Binding` for the
+# route's input slot (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2).
+# The trait is sealed via the same `__sdk_seal::Sealed` supertrait as
+# `FoundationClosed` and `PrismModel`. Exercised by
+# behavior_adr_060_large_input_grounded (a multi-KB Borrowed + multi-MiB
+# Stream input flowing through `forward`/`run_route`).
 [coverage.into_binding_value]
 symbols = ["IntoBindingValue"]
 behavior = "behavior_into_binding_value"

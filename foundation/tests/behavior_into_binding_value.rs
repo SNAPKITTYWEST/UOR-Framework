@@ -1,30 +1,28 @@
 //! Behavioral contract for the `IntoBindingValue` developer surface.
 //!
-//! Per the UOR-Framework wiki ADR-023, foundation declares
-//! `IntoBindingValue` as the trait every `M::Input` must implement so
-//! a runtime input value can flow into the `CompileUnit` binding
-//! table. `pipeline::run_route` calls `into_binding_bytes` to fill a
-//! buffer, hashes the result through the application's selected
-//! `Hasher`, and constructs a transient `Binding` for the route's
-//! input slot (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2).
-//! ADR-060 removed the foundation-fixed `ROUTE_INPUT_BUFFER_BYTES`
-//! ceiling: the carrier is source-polymorphic and its inline width is
-//! derived from the application's `HostBounds` via
-//! `pipeline::carrier_inline_bytes::<B>()`.
+//! Per the UOR-Framework wiki ADR-023 (amended by ADR-060), foundation
+//! declares `IntoBindingValue<'a>` as the trait every `M::Input` must
+//! implement so a runtime input value can flow into the `CompileUnit`
+//! binding table. `pipeline::run_route` calls `as_binding_value` to obtain
+//! a source-polymorphic `TermValue` carrier (Inline / Borrowed / Stream),
+//! folds it through the application's selected `Hasher` (chunk-by-chunk for
+//! `Stream`), and constructs a transient `Binding` for the route's input
+//! slot (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2). ADR-060
+//! removed the foundation-fixed `ROUTE_INPUT_BUFFER_BYTES` ceiling and the
+//! `MAX_BYTES` cap: there is no input byte-width limit.
 //!
 //! This test pins:
 //!
 //! 1. `IntoBindingValue` is reachable through `pipeline::*`.
-//! 2. The trait carries the `MAX_BYTES` associated constant and the
-//!    `into_binding_bytes(&self, &mut [u8])` method.
+//! 2. The trait's `as_binding_value` method returns a source-polymorphic
+//!    `TermValue` carrier (no `MAX_BYTES` ceiling).
 //! 3. The trait is sealed via `__sdk_seal::Sealed` (same supertrait
 //!    as `FoundationClosed` and `PrismModel`).
 //! 4. Foundation's identity-route impl on `ConstrainedTypeInput`
-//!    declares `MAX_BYTES = 0` and `into_binding_bytes` returns
-//!    `Ok(0)` (no bytes written).
+//!    returns the empty carrier (no bytes).
 //! 5. `pipeline::carrier_inline_bytes::<B>()` derives the inline-carrier
 //!    width from the application's `HostBounds` (ADR-060).
-//! 6. `PrismModel::Input` carries the `IntoBindingValue` bound.
+//! 6. `PrismModel::Input` carries the `IntoBindingValue<'a>` bound.
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher};
 use uor_foundation::pipeline::{ConstrainedTypeShape, IntoBindingValue, PrismModel};
@@ -50,7 +48,7 @@ impl Hasher for TestHasher {
 
 #[test]
 fn into_binding_value_surface_resolves_at_crate_root() {
-    fn _accepts<T: IntoBindingValue>() {}
+    fn _accepts<'a, T: IntoBindingValue<'a>>() {}
     _accepts::<ConstrainedTypeInput>();
     // Pin the surface behaviorally: the foundation-sanctioned input
     // shape is reachable as a real type (observable through
@@ -64,23 +62,19 @@ fn into_binding_value_surface_resolves_at_crate_root() {
 }
 
 #[test]
-fn into_binding_value_carries_max_bytes_associated_constant() {
-    // ADR-023 specifies `const MAX_BYTES: usize` on the trait. The
-    // foundation-sanctioned identity-route impl declares MAX_BYTES = 0
-    // (the empty shape carries no bytes).
-    assert_eq!(<ConstrainedTypeInput as IntoBindingValue>::MAX_BYTES, 0);
+fn into_binding_value_as_binding_value_returns_source_polymorphic_carrier() {
+    // ADR-023 amended by ADR-060: the trait surface is `as_binding_value`
+    // returning a source-polymorphic `TermValue` carrier — there is no
+    // `MAX_BYTES` ceiling. The foundation-sanctioned identity-route impl
+    // returns the empty carrier (the empty shape carries no bytes).
+    let value = ConstrainedTypeInput::default();
+    let carrier: uor_foundation::pipeline::TermValue<'_, N> = value.as_binding_value::<N>();
+    assert!(carrier.bytes().is_empty());
 }
 
-#[test]
-fn into_binding_value_into_binding_bytes_signature_pins() {
-    // Pin the method shape: takes &self + &mut [u8], returns
-    // Result<usize, ShapeViolation>. Identity input writes zero bytes.
-    let value = ConstrainedTypeInput::default();
-    let mut buf = [0u8; 16];
-    let result = value.into_binding_bytes(&mut buf);
-    let _: Result<usize, uor_foundation::enforcement::ShapeViolation> = result;
-    assert_eq!(value.into_binding_bytes(&mut buf), Ok(0));
-}
+// The uncapped large-input → `Grounded` proof (a multi-KB `Borrowed` input
+// and a multi-MB `Stream` input flowing through `prism_model!`/`run_route`)
+// lives in `behavior_adr_060_large_input_grounded.rs`.
 
 #[test]
 fn carrier_inline_bytes_is_host_bounds_derived() {
@@ -94,8 +88,8 @@ fn carrier_inline_bytes_is_host_bounds_derived() {
         uor_foundation::pipeline::carrier_inline_bytes::<ReferenceHostBounds>(),
         N
     );
-    // A buffer of `N` bytes is non-empty so a `&mut [u8]` of that size
-    // is a valid call-site for `into_binding_bytes`.
+    // `N` is the foundation-derived inline-carrier width every
+    // `TermValue::Inline` is sized to for this `HostBounds`.
     let buf = [0u8; N];
     assert_eq!(buf.len(), N);
 }
@@ -106,20 +100,20 @@ fn prism_model_input_bound_includes_into_binding_value() {
     // `ConstrainedTypeShape + IntoBindingValue`. The parametric check
     // pins the bound: any `M: PrismModel<…>` has `M::Input:
     // IntoBindingValue`.
-    fn _input_implements_into_binding<H, B, A, M, const INLINE_BYTES: usize>()
+    fn _input_implements_into_binding<'a, H, B, A, M, const INLINE_BYTES: usize>()
     where
         H: HostTypes,
         B: HostBounds,
         A: Hasher,
-        M: PrismModel<H, B, A, INLINE_BYTES>,
+        M: PrismModel<'a, H, B, A, INLINE_BYTES>,
     {
-        fn _check<T: IntoBindingValue>() {}
+        fn _check<'a, T: IntoBindingValue<'a>>() {}
         _check::<M::Input>();
     }
     // Identity route via the foundation-sanctioned impl.
     struct IdentityModel;
     impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
-    impl PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
+    impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ConstrainedTypeInput;
@@ -127,7 +121,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
         fn forward(
             input: Self::Input,
         ) -> Result<
-            uor_foundation::enforcement::Grounded<Self::Output, N>,
+            uor_foundation::enforcement::Grounded<'a, Self::Output, N>,
             uor_foundation::PipelineFailure,
         > {
             uor_foundation::pipeline::run_route::<
@@ -155,6 +149,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
 
     // The ConstrainedTypeShape bound is preserved.
     let iri = <<IdentityModel as PrismModel<
+        'static,
         DefaultHostTypes,
         ReferenceHostBounds,
         TestHasher,
@@ -169,7 +164,11 @@ fn into_binding_value_is_sealed_via_sdk_seal() {
     // ADR-023). External crates cannot impl `IntoBindingValue` without
     // first naming the doc-hidden seal — the same architectural
     // pattern foundation uses for `FoundationClosed` and `PrismModel`.
-    fn _accepts_sealed<T: IntoBindingValue + uor_foundation::pipeline::__sdk_seal::Sealed>() {}
+    fn _accepts_sealed<
+        'a,
+        T: IntoBindingValue<'a> + uor_foundation::pipeline::__sdk_seal::Sealed,
+    >() {
+    }
     _accepts_sealed::<ConstrainedTypeInput>();
     // Behavioral assertion: the seal supertrait's qualified name
     // includes `__sdk_seal::Sealed` exactly, exercising that the

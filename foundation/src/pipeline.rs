@@ -1566,7 +1566,7 @@ pub trait NerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1597,7 +1597,7 @@ pub trait ChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement:
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1628,7 +1628,7 @@ pub trait HomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1659,7 +1659,7 @@ pub trait CochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcemen
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1690,7 +1690,7 @@ pub trait CohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforceme
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1721,7 +1721,7 @@ pub trait PostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Ha
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1752,7 +1752,7 @@ pub trait HomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1783,7 +1783,7 @@ pub trait KInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::H
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
     fn resolve<'a>(
-        &'a self,
+        &self,
         input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
@@ -1907,7 +1907,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INL
     for NullNerveResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -1944,7 +1944,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResol
     for NullChainComplexResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -1981,7 +1981,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     HomologyGroupResolver<INLINE_BYTES, H> for NullHomologyGroupResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2018,7 +2018,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     CochainComplexResolver<INLINE_BYTES, H> for NullCochainComplexResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2055,7 +2055,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     CohomologyGroupResolver<INLINE_BYTES, H> for NullCohomologyGroupResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2092,7 +2092,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver
     for NullPostnikovResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2129,7 +2129,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     HomotopyGroupResolver<INLINE_BYTES, H> for NullHomotopyGroupResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2166,7 +2166,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolve
     for NullKInvariantResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2190,7 +2190,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INL
     for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2223,7 +2223,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResol
     for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2256,7 +2256,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     HomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2289,7 +2289,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     CochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2322,7 +2322,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     CohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2355,7 +2355,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver
     for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2388,7 +2388,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
     HomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2421,7 +2421,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolve
     for NullResolverTuple
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
     {
@@ -2469,7 +2469,7 @@ pub struct InhabitanceCertificateView<
     T: crate::enforcement::GroundedShape,
     const INLINE_BYTES: usize,
     Tag = T,
->(pub &'a crate::enforcement::Grounded<T, INLINE_BYTES, Tag>);
+>(pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>);
 
 impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag>
     InhabitanceCertificateView<'a, T, INLINE_BYTES, Tag>
@@ -2576,8 +2576,8 @@ pub trait WitnessTupleSource {
     fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;
 }
 
-impl<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource
-    for crate::enforcement::Grounded<T, INLINE_BYTES, Tag>
+impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource
+    for crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>
 {
     fn binding_count(&self) -> usize {
         self.iter_bindings().count()
@@ -3327,20 +3327,27 @@ pub trait FoundationClosed<const INLINE_BYTES: usize>: __sdk_seal::Sealed {
 }
 
 /// Trait — `ConstrainedTypeShape` impls used as a `PrismModel::Input`
-/// MUST implement this trait so [`run_route`] can serialize the
-/// runtime input value into the `CompileUnit` binding table per wiki
-/// ADR-023.
-/// # Implementation contract
-/// [`into_binding_bytes`] writes the canonical content-addressable byte
-/// sequence for the value into the caller-provided buffer and returns
-/// the written length. The serialization MUST be deterministic — two
-/// values that compare equal MUST produce byte sequences that compare
-/// equal — so the input's content fingerprint is a function of the
+/// MUST implement this trait so [`run_route`] can flow the runtime input
+/// value into the `CompileUnit` binding table per wiki ADR-023.
+/// # Implementation contract (ADR-060 source-polymorphic)
+/// [`as_binding_value`] returns the value's canonical content-addressable
+/// bytes as a source-polymorphic [`crate::pipeline::TermValue`] carrier:
+/// `Inline` for small values within the foundation-derived inline width,
+/// `Borrowed` for larger in-memory values (zero-copy slice into the
+/// `'a`-lived input data), or `Stream` for unbounded sources. ADR-060
+/// principle (3): there is no carrier-side fixed allocation that depends
+/// on payload size, so there is no input byte-width ceiling — [`run_route`]
+/// folds the carrier through the selected `Hasher` (chunk-by-chunk for
+/// `Stream`) to derive the input's content address. The carrier MUST be
+/// deterministic — two values that compare equal yield byte sequences that
+/// compare equal — so the input's content fingerprint is a function of the
 /// value alone.
-/// [`MAX_BYTES`] is the maximum byte length any value of this shape can
-/// produce. [`run_route`] uses it to size the on-stack buffer and
-/// rejects inputs whose declared `MAX_BYTES` exceeds the foundation
-/// ceiling [`INLINE_BYTES`].
+/// The trait's lifetime `'a` is the lifetime of the borrowed input data:
+/// a borrowing-handle input (`Handle<'a>` carrying `&'a [u8]` or
+/// `&'a dyn ChunkSource`) returns a carrier valid for `'a`, which the
+/// catamorphism propagates into the [`crate::enforcement::Grounded`]`<'a>`
+/// output (ADR-028 amended by ADR-060). Inline-only inputs (e.g. the
+/// identity input) are valid for every `'a`.
 /// # Sealing
 /// Sealed via [`__sdk_seal::Sealed`] (the same supertrait as
 /// [`FoundationClosed`] and [`PrismModel`]): foundation sanctions the
@@ -3350,26 +3357,17 @@ pub trait FoundationClosed<const INLINE_BYTES: usize>: __sdk_seal::Sealed {
 /// `ConstrainedTypeShape` impl. Application authors implementing a
 /// custom `ConstrainedTypeShape` use the `prism_model!` macro's input
 /// declaration to obtain the impl.
-pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
-    /// Maximum byte length any value of this shape can produce when
-    /// serialized via [`into_binding_bytes`]. Used by [`run_route`] to
-    /// size the on-stack buffer and reject inputs that would overflow.
-    const MAX_BYTES: usize;
-
-    /// Serialize this input value into the binding-table form. `out` is a
-    /// fixed-capacity buffer the call-site provides; the implementation
-    /// writes the canonical content-addressable byte sequence and returns
-    /// the written length.
-    /// # Errors
-    /// Returns [`crate::enforcement::ShapeViolation`] when the canonical
-    /// serialization cannot be produced (e.g., a coproduct tag is out of
-    /// range, a constraint cannot be witnessed) or when `out.len()` is
-    /// smaller than the bytes the value requires.
+pub trait IntoBindingValue<'a>: ConstrainedTypeShape + __sdk_seal::Sealed {
+    /// Return this input value's canonical content-addressable bytes as a
+    /// source-polymorphic [`crate::pipeline::TermValue`] carrier (ADR-060).
+    /// `Inline` for values within the derived inline width, `Borrowed` for
+    /// larger in-memory values (zero-copy), or `Stream` for unbounded
+    /// sources. The carrier borrows the input's `'a`-lived data; for an
+    /// Inline-only input it owns its bytes and is valid for any `'a`.
     #[allow(clippy::wrong_self_convention)]
-    fn into_binding_bytes(
+    fn as_binding_value<const INLINE_BYTES: usize>(
         &self,
-        out: &mut [u8],
-    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation>;
+    ) -> crate::pipeline::TermValue<'a, INLINE_BYTES>;
 }
 
 /// Foundation-fixed threshold for the closure-body grammar `fold_n`'s
@@ -3420,6 +3418,7 @@ pub const FOLD_UNROLL_THRESHOLD: usize = 8;
 /// `Route` associated type aliases) and the value-level `TermArena` slice
 /// [`run_route`] traverses (per ADR-022 D2 + D3 + D5).
 pub trait PrismModel<
+    'a,
     H,
     B,
     A,
@@ -3435,15 +3434,18 @@ pub trait PrismModel<
 {
     /// Input feature type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary.
-    /// Per wiki ADR-023, `Input` is also bound by [`IntoBindingValue`] so
-    /// [`run_route`] can serialize the runtime input value into the
+    /// Per wiki ADR-023 (amended by ADR-060), `Input` is also bound by
+    /// [`IntoBindingValue`]`<'a>` so [`run_route`] can flow the runtime
+    /// input value (as a source-polymorphic `TermValue` carrier) into the
     /// `CompileUnit` binding table for `Term::Variable { name_index: 0 }`
-    /// (the route's input-parameter slot per ADR-022 D3 G2).
-    type Input: ConstrainedTypeShape + IntoBindingValue;
+    /// (the route's input-parameter slot per ADR-022 D3 G2). The lifetime
+    /// `'a` is the borrowed-input-data lifetime the carrier (and the
+    /// resulting `Grounded<'a>` output) propagates.
+    type Input: ConstrainedTypeShape + IntoBindingValue<'a>;
 
     /// Output label type — a [`ConstrainedTypeShape`] impl declared in
     /// foundation vocabulary that is also a [`crate::enforcement::GroundedShape`].
-    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape + IntoBindingValue;
+    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape + IntoBindingValue<'a>;
 
     /// Type-level witness of the term tree mapping `Input` to `Output`.
     /// Bound by [`FoundationClosed`]: the `prism_model!` macro emits the
@@ -3464,7 +3466,7 @@ pub trait PrismModel<
     /// detect contradiction along the route.
     fn forward(
         input: Self::Input,
-    ) -> Result<crate::enforcement::Grounded<Self::Output, INLINE_BYTES>, PipelineFailure>;
+    ) -> Result<crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES>, PipelineFailure>;
 }
 
 /// Higher-level catamorphism entry point — wiki ADR-022 D5.
@@ -3478,16 +3480,16 @@ pub trait PrismModel<
 /// wiki commits to.
 /// # Errors
 /// Returns [`PipelineFailure`] from the underlying [`run`] call.
-pub fn run_route<H, B, A, M, R, C, const INLINE_BYTES: usize>(
+pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize>(
     input: M::Input,
     resolvers: &R,
     commitment: &C,
-) -> Result<crate::enforcement::Grounded<M::Output, INLINE_BYTES>, PipelineFailure>
+) -> Result<crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES>, PipelineFailure>
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
-    M: PrismModel<H, B, A, INLINE_BYTES, R, C>,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
+    M: PrismModel<'a, H, B, A, INLINE_BYTES, R, C>,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -3508,41 +3510,29 @@ where
     // build a `Validated<CompileUnit, FinalPhase>` whose root_term is
     // exactly that arena, and dispatch to `run` (the catamorphism).
     let arena_slice = <M::Route as FoundationClosed<INLINE_BYTES>>::arena_slice();
-    // ADR-023: serialize the runtime input value into a transient
-    // `Binding` for the route's input-parameter slot
-    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer
-    // ceiling is the foundation-side `INLINE_BYTES`
-    // (stable-Rust equivalent of nightly's
-    // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).
-    let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;
-    if max_bytes > INLINE_BYTES {
-        // Per ADR-023: inputs whose declared MAX_BYTES exceeds the
-        // foundation-side ceiling are rejected — the canonical content
-        // address cannot be derived without a buffer big enough for
-        // the value's full byte sequence.
-        return Err(PipelineFailure::ShapeViolation {
-            report: crate::enforcement::ShapeViolation {
-                shape_iri: "https://uor.foundation/pipeline/RouteInputBufferShape",
-                constraint_iri: "https://uor.foundation/pipeline/RouteInputBufferShape/maxBytes",
-                property_iri: "https://uor.foundation/pipeline/inputMaxBytes",
-                expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
-                min_count: 0,
-                max_count: INLINE_BYTES as u32,
-                kind: crate::ViolationKind::ValueCheck,
-            },
-        });
-    }
-    let mut buf = [0u8; INLINE_BYTES];
-    let written = input
-        .into_binding_bytes(&mut buf[..max_bytes])
-        .map_err(|report| PipelineFailure::ShapeViolation { report })?;
-    // Hash the canonical bytes through the application's selected
-    // `Hasher` (substitution axis A). The fold output is truncated to
-    // u64 for the `Binding.content_address` carrier, matching the
-    // `to_binding_entry` convention foundation already uses for static
-    // bindings (`ContentAddress::from_u64_fingerprint`).
+    // ADR-023 (amended by ADR-060): flow the runtime input value into a
+    // transient `Binding` for the route's input-parameter slot
+    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2) as a
+    // source-polymorphic carrier. Per ADR-060 principle (3) there is no
+    // carrier-side fixed allocation that depends on payload size: the
+    // input carrier is `Inline` (small values), `Borrowed` (large in-memory
+    // values, zero-copy), or `Stream` (unbounded). There is NO input
+    // byte-width ceiling and no rejection by size — the content address is
+    // derived by folding the carrier through the selected `Hasher`
+    // chunk-by-chunk, so arbitrarily large inputs flow natively.
+    let input_value = input.as_binding_value::<INLINE_BYTES>();
+    // Stream-fold the input carrier through the application's selected
+    // `Hasher` (substitution axis A). `for_each_chunk` visits `Inline` and
+    // `Borrowed` carriers in a single chunk and `Stream` carriers
+    // chunk-by-chunk; peak resident memory is the chunk size, never the
+    // full canonical sequence. The fold output is truncated to u64 for the
+    // `Binding.content_address` carrier, matching the `to_binding_entry`
+    // convention foundation uses for static bindings.
     let mut hasher = <A as crate::enforcement::Hasher>::initial();
-    hasher = hasher.fold_bytes(&buf[..written]);
+    input_value.for_each_chunk(&mut |chunk| {
+        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())
+            .fold_bytes(chunk);
+    });
     let digest = hasher.finalize();
     let content_address: u64 = u64::from_be_bytes([
         digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
@@ -3582,28 +3572,15 @@ where
         .result_type::<M::Output>()
         .validate()
         .map_err(|report| PipelineFailure::ShapeViolation { report })?;
-    // ADR-028: reject Output shapes that would overflow the foundation
-    // ceiling. Parallel to ADR-023's input-side check, but checked
-    // against the Output-side `IntoBindingValue::MAX_BYTES`.
-    let out_max = <M::Output as IntoBindingValue>::MAX_BYTES;
-    if out_max > INLINE_BYTES {
-        return Err(PipelineFailure::ShapeViolation {
-            report: crate::enforcement::ShapeViolation {
-                shape_iri: "https://uor.foundation/pipeline/RouteOutputBufferShape",
-                constraint_iri: "https://uor.foundation/pipeline/RouteOutputBufferShape/maxBytes",
-                property_iri: "https://uor.foundation/pipeline/outputMaxBytes",
-                expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
-                min_count: 0,
-                max_count: INLINE_BYTES as u32,
-                kind: crate::ViolationKind::ValueCheck,
-            },
-        });
-    }
-    // ADR-029: evaluate the route's Term tree as a structural fold.
-    // The catamorphism's output bytes flow into the Grounded's
-    // output payload (ADR-028).
-    let evaluation =
-        evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, &buf[..written], resolvers)?;
+    // ADR-028 (amended by ADR-060): there is no output byte-width
+    // ceiling. The route's evaluated output is a source-polymorphic
+    // `TermValue` (Inline κ-label for content-addressing routes; Borrowed/
+    // Stream for structural/unbounded outputs) carried by `Grounded<'a>`.
+    // ADR-029: evaluate the route's Term tree as a structural fold; the
+    // catamorphism's output carrier flows into the Grounded's output
+    // payload (ADR-028). The input carrier threads `'a` so a Borrowed/
+    // Stream output borrows the same input data the `Grounded<'a>` carries.
+    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, input_value, resolvers)?;
     // Wiki ADR-048: post-resolver typed-bandwidth admission. The
     // catamorphism evaluates the model's `C: TypedCommitment` on the
     // κ-label byte sequence (the route's evaluated output, which for the
@@ -3627,8 +3604,14 @@ where
             },
         });
     }
-    let grounded = run::<M::Output, _, A, INLINE_BYTES>(unit)?;
-    Ok(grounded.with_output_bytes(evaluation.bytes()))
+    // `run` grounds the unit with an empty output carrier (valid for any
+    // lifetime); the annotation coerces its `Grounded<'static>` to
+    // `Grounded<'a>` (TermValue is covariant in its lifetime) so the
+    // evaluated output carrier (which borrows the route's `'a` input data)
+    // can be attached via `with_output`.
+    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES> =
+        run::<M::Output, _, A, INLINE_BYTES>(unit)?;
+    Ok(grounded.with_output(evaluation))
 }
 
 /// ADR-060: foundation-fixed upper bound on a `Hasher`'s ASCII identifier
@@ -4097,10 +4080,15 @@ pub const fn literal_bytes<const INLINE_BYTES: usize>(
 /// # Errors
 /// Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds
 /// index, level mismatch, exhausted match without wildcard arm, etc.).
-pub fn evaluate_term_tree<'a, A, R, const INLINE_BYTES: usize>(
+pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
-    input_bytes: &'a [u8],
-    resolvers: &'a R,
+    input: TermValue<'a, INLINE_BYTES>,
+    // ADR-060: the resolver borrow `'r` is decoupled from the value/output
+    // lifetime `'a` — resolvers are consulted only during evaluation, so a
+    // locally-constructed resolver tuple (e.g. the `prism_model!`-emitted
+    // `forward` body's) can drive an evaluation whose output carrier escapes
+    // with the route input's `'a`.
+    resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
@@ -4115,37 +4103,30 @@ where
         + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,
 {
     if arena.is_empty() {
-        // ADR-060: identity route — output is the input bytes by reference
-        // (zero-copy `Borrowed`, no inline-width ceiling so arbitrarily large
-        // inputs pass through).
-        return Ok(TermValue::borrowed(input_bytes));
+        // ADR-060: identity route — output IS the input carrier itself
+        // (Inline/Borrowed/Stream, no inline-width ceiling so arbitrarily
+        // large inputs pass through unchanged).
+        return Ok(input);
     }
     // Canonical convention: the root term is the last entry in the
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
     evaluate_term_at::<A, R, INLINE_BYTES>(
-        arena,
-        root_idx,
-        input_bytes,
-        None,
-        None,
-        None,
-        None,
-        resolvers,
+        arena, root_idx, input, None, None, None, None, resolvers,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn evaluate_term_at<'a, 'b, A, R, const INLINE_BYTES: usize>(
+fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     idx: usize,
-    input_bytes: &'a [u8],
+    input: TermValue<'a, INLINE_BYTES>,
     recurse_value: Option<&'b [u8]>,
     recurse_idx_value: Option<&'b [u8]>,
     unfold_value: Option<&'b [u8]>,
     first_admit_idx_value: Option<&'b [u8]>,
-    resolvers: &'a R,
+    resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
@@ -4210,7 +4191,9 @@ where
                     first_admit_idx_value.unwrap_or(&[]),
                 ));
             }
-            Ok(TermValue::borrowed(input_bytes))
+            // ADR-022 D3 G2 + ADR-060: name_index = 0 returns the route
+            // input carrier itself (Inline/Borrowed/Stream) — no copy, no cap.
+            Ok(input)
         }
         crate::enforcement::Term::Application { operator, args } => {
             let start = args.start as usize;
@@ -4220,7 +4203,7 @@ where
                 operator,
                 start,
                 len,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4235,7 +4218,7 @@ where
             let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 operand_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4271,7 +4254,7 @@ where
             let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 operand_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4298,7 +4281,7 @@ where
             let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 scrutinee_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4320,7 +4303,7 @@ where
                     return evaluate_term_at::<A, R, INLINE_BYTES>(
                         arena,
                         body_idx,
-                        input_bytes,
+                        input,
                         recurse_value,
                         recurse_idx_value,
                         unfold_value,
@@ -4331,7 +4314,7 @@ where
                 let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     pattern_idx,
-                    input_bytes,
+                    input,
                     recurse_value,
                     recurse_idx_value,
                     unfold_value,
@@ -4342,7 +4325,7 @@ where
                     return evaluate_term_at::<A, R, INLINE_BYTES>(
                         arena,
                         body_idx,
-                        input_bytes,
+                        input,
                         recurse_value,
                         recurse_idx_value,
                         unfold_value,
@@ -4384,7 +4367,7 @@ where
             let measure = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 measure_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4395,7 +4378,7 @@ where
             let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 base_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4427,7 +4410,7 @@ where
                 let next = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     step_index as usize,
-                    input_bytes,
+                    input,
                     Some(&current_buf[..current_len]),
                     Some(&descent_bytes[..]),
                     unfold_value,
@@ -4465,7 +4448,7 @@ where
             let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 seed_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4484,7 +4467,7 @@ where
                 let next = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     step_index as usize,
-                    input_bytes,
+                    input,
                     recurse_value,
                     recurse_idx_value,
                     Some(&state_buf[..state_len]),
@@ -4518,7 +4501,7 @@ where
             match evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 body_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4533,7 +4516,7 @@ where
                         evaluate_term_at::<A, R, INLINE_BYTES>(
                             arena,
                             handler_index as usize,
-                            input_bytes,
+                            input,
                             recurse_value,
                             recurse_idx_value,
                             unfold_value,
@@ -4551,7 +4534,7 @@ where
         } => {
             // ADR-055: read the axis's SubstrateTermBody::body_arena() via
             // `AxisTuple::body_arena_at`. When non-empty, recursively fold
-            // the body with the evaluated kernel input bound as input_bytes;
+            // the body with the evaluated kernel input bound as input;
             // when empty (primitive-fast-path interpretation), dispatch the
             // kernel function directly per the optional fast-path per ADR-055.
             //
@@ -4564,7 +4547,7 @@ where
             let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 input_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4573,7 +4556,35 @@ where
             )?;
             let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);
             if body.is_empty() {
-                // Primitive fast-path: dispatch the kernel function directly.
+                if axis_index == 0 && kernel_id == 0 {
+                    // ADR-060: the canonical σ-projection / hash axis (axis 0,
+                    // kernel 0) folds the operand carrier through the `Hasher`
+                    // chunk-by-chunk via `for_each_chunk`, so a `Stream` or
+                    // large `Borrowed` operand of arbitrary size folds without
+                    // materialization. (The `v.bytes()` dispatch path would see
+                    // an empty slice for a `Stream` operand.) The digest is
+                    // always Inline — its width is bounded by the application's
+                    // fingerprint width, ≤ the derived inline width.
+                    let mut hasher = <A as crate::enforcement::Hasher>::initial();
+                    v.for_each_chunk(&mut |chunk| {
+                        hasher = core::mem::replace(
+                            &mut hasher,
+                            <A as crate::enforcement::Hasher>::initial(),
+                        )
+                        .fold_bytes(chunk);
+                    });
+                    let digest = hasher.finalize();
+                    let n_max = <A as crate::enforcement::Hasher>::OUTPUT_BYTES;
+                    let width = if n_max > INLINE_BYTES {
+                        INLINE_BYTES
+                    } else {
+                        n_max
+                    };
+                    return Ok(TermValue::inline_from_slice(&digest[..width]));
+                }
+                // Primitive fast-path: dispatch the kernel function directly on
+                // the bounded operand bytes (user-declared axes operate on
+                // bounded values; `v.bytes()` yields the Inline/Borrowed slice).
                 let mut out = [0u8; INLINE_BYTES];
                 let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(
                     axis_index,
@@ -4595,13 +4606,14 @@ where
                 // body with the evaluated kernel input bound in scope. The
                 // body's root term is by convention the last entry in the arena.
                 let root = body.len() - 1;
-                // ADR-060: the kernel input `v.bytes()` is a local borrow, so the
-                // recursively-folded body result is materialized into an owned
-                // `Inline` carrier (it cannot outlive the local `v`).
+                // The evaluated kernel input carrier `v` is threaded as the
+                // body's input; the recursively-folded body result is
+                // materialized into an owned `Inline` carrier so it does not
+                // borrow the body arena's transient scope.
                 let folded = evaluate_term_at::<A, R, INLINE_BYTES>(
                     body,
                     root,
-                    v.bytes(),
+                    v,
                     recurse_value,
                     recurse_idx_value,
                     unfold_value,
@@ -4620,7 +4632,7 @@ where
             let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 source_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4660,7 +4672,7 @@ where
             let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 domain_size_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4688,7 +4700,7 @@ where
                 let pred_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     predicate_index as usize,
-                    input_bytes,
+                    input,
                     recurse_value,
                     recurse_idx_value,
                     unfold_value,
@@ -4738,7 +4750,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 value_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4762,7 +4774,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 simplicial_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4786,7 +4798,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 chain_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4810,7 +4822,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 chain_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4834,7 +4846,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 cochain_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4858,7 +4870,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 simplicial_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4882,7 +4894,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 postnikov_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4906,7 +4918,7 @@ where
             let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 homotopy_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4928,7 +4940,7 @@ where
             let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 homology_index as usize,
-                input_bytes,
+                input,
                 recurse_value,
                 recurse_idx_value,
                 unfold_value,
@@ -4941,17 +4953,17 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_primitive_op<'a, 'b, A, R, const INLINE_BYTES: usize>(
+fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     operator: crate::PrimitiveOp,
     args_start: usize,
     args_len: usize,
-    input_bytes: &'a [u8],
+    input: TermValue<'a, INLINE_BYTES>,
     recurse_value: Option<&'b [u8]>,
     recurse_idx_value: Option<&'b [u8]>,
     unfold_value: Option<&'b [u8]>,
     first_admit_idx_value: Option<&'b [u8]>,
-    resolvers: &'a R,
+    resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
@@ -5004,7 +5016,7 @@ where
         let v = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start,
-            input_bytes,
+            input,
             recurse_value,
             recurse_idx_value,
             unfold_value,
@@ -5038,7 +5050,7 @@ where
         let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start,
-            input_bytes,
+            input,
             recurse_value,
             recurse_idx_value,
             unfold_value,
@@ -5048,7 +5060,7 @@ where
         let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start + 1,
-            input_bytes,
+            input,
             recurse_value,
             recurse_idx_value,
             unfold_value,
@@ -5537,15 +5549,13 @@ impl<const INLINE_BYTES: usize> FoundationClosed<INLINE_BYTES> for ConstrainedTy
         &[]
     }
 }
-impl IntoBindingValue for ConstrainedTypeInput {
-    const MAX_BYTES: usize = 0;
-    fn into_binding_bytes(
+impl<'a> IntoBindingValue<'a> for ConstrainedTypeInput {
+    fn as_binding_value<const INLINE_BYTES: usize>(
         &self,
-        _out: &mut [u8],
-    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation> {
+    ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
         // Identity input carries no bytes — the empty shape's canonical
-        // serialization is the empty byte sequence.
-        Ok(0)
+        // carrier is the empty Inline carrier (valid for any lifetime).
+        crate::pipeline::TermValue::empty()
     }
 }
 
@@ -6048,7 +6058,6 @@ pub mod shape_iri_registry {
 pub mod witt_domain {
     use super::{ConstrainedTypeShape, ConstraintRef, PartitionProductFields};
     use crate::enforcement::GroundedShape;
-    use crate::enforcement::ShapeViolation;
     use crate::pipeline::__sdk_seal;
     use crate::pipeline::IntoBindingValue;
 
@@ -6063,10 +6072,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 256u64;
     }
     impl __sdk_seal::Sealed for W8 {}
-    impl IntoBindingValue for W8 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W8 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W8 {}
@@ -6086,10 +6096,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 65536u64;
     }
     impl __sdk_seal::Sealed for W16 {}
-    impl IntoBindingValue for W16 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W16 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W16 {}
@@ -6109,10 +6120,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 16777216u64;
     }
     impl __sdk_seal::Sealed for W24 {}
-    impl IntoBindingValue for W24 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W24 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W24 {}
@@ -6132,10 +6144,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 4294967296u64;
     }
     impl __sdk_seal::Sealed for W32 {}
-    impl IntoBindingValue for W32 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W32 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W32 {}
@@ -6155,10 +6168,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 1099511627776u64;
     }
     impl __sdk_seal::Sealed for W40 {}
-    impl IntoBindingValue for W40 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W40 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W40 {}
@@ -6178,10 +6192,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 281474976710656u64;
     }
     impl __sdk_seal::Sealed for W48 {}
-    impl IntoBindingValue for W48 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W48 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W48 {}
@@ -6201,10 +6216,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = 72057594037927936u64;
     }
     impl __sdk_seal::Sealed for W56 {}
-    impl IntoBindingValue for W56 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W56 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W56 {}
@@ -6224,10 +6240,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W64 {}
-    impl IntoBindingValue for W64 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W64 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W64 {}
@@ -6247,10 +6264,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W72 {}
-    impl IntoBindingValue for W72 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W72 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W72 {}
@@ -6270,10 +6288,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W80 {}
-    impl IntoBindingValue for W80 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W80 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W80 {}
@@ -6293,10 +6312,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W88 {}
-    impl IntoBindingValue for W88 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W88 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W88 {}
@@ -6316,10 +6336,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W96 {}
-    impl IntoBindingValue for W96 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W96 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W96 {}
@@ -6339,10 +6360,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W104 {}
-    impl IntoBindingValue for W104 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W104 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W104 {}
@@ -6362,10 +6384,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W112 {}
-    impl IntoBindingValue for W112 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W112 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W112 {}
@@ -6385,10 +6408,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W120 {}
-    impl IntoBindingValue for W120 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W120 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W120 {}
@@ -6408,10 +6432,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W128 {}
-    impl IntoBindingValue for W128 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W128 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W128 {}
@@ -6431,10 +6456,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W160 {}
-    impl IntoBindingValue for W160 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W160 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W160 {}
@@ -6454,10 +6480,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W192 {}
-    impl IntoBindingValue for W192 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W192 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W192 {}
@@ -6477,10 +6504,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W224 {}
-    impl IntoBindingValue for W224 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W224 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W224 {}
@@ -6500,10 +6528,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W256 {}
-    impl IntoBindingValue for W256 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W256 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W256 {}
@@ -6523,10 +6552,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W384 {}
-    impl IntoBindingValue for W384 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W384 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W384 {}
@@ -6546,10 +6576,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W448 {}
-    impl IntoBindingValue for W448 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W448 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W448 {}
@@ -6569,10 +6600,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W512 {}
-    impl IntoBindingValue for W512 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W512 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W512 {}
@@ -6592,10 +6624,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W520 {}
-    impl IntoBindingValue for W520 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W520 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W520 {}
@@ -6615,10 +6648,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W528 {}
-    impl IntoBindingValue for W528 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W528 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W528 {}
@@ -6638,10 +6672,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W1024 {}
-    impl IntoBindingValue for W1024 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W1024 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W1024 {}
@@ -6661,10 +6696,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W2048 {}
-    impl IntoBindingValue for W2048 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W2048 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W2048 {}
@@ -6684,10 +6720,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W4096 {}
-    impl IntoBindingValue for W4096 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W4096 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W4096 {}
@@ -6707,10 +6744,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W8192 {}
-    impl IntoBindingValue for W8192 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W8192 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W8192 {}
@@ -6730,10 +6768,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W12288 {}
-    impl IntoBindingValue for W12288 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W12288 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W12288 {}
@@ -6753,10 +6792,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W16384 {}
-    impl IntoBindingValue for W16384 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W16384 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W16384 {}
@@ -6776,10 +6816,11 @@ pub mod witt_domain {
         const CYCLE_SIZE: u64 = u64::MAX;
     }
     impl __sdk_seal::Sealed for W32768 {}
-    impl IntoBindingValue for W32768 {
-        const MAX_BYTES: usize = 0;
-        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {
-            Ok(0)
+    impl<'a> IntoBindingValue<'a> for W32768 {
+        fn as_binding_value<const INLINE_BYTES: usize>(
+            &self,
+        ) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+            crate::pipeline::TermValue::empty()
         }
     }
     impl GroundedShape for W32768 {}
@@ -8074,7 +8115,7 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 /// ```
 pub fn run<T, P, H, const INLINE_BYTES: usize>(
     unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -8470,9 +8511,9 @@ pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: us
     /// The step was absorbed; the driver is ready for another peer input.
     Continue,
     /// The step produced an intermediate grounded output.
-    Output(Grounded<T, INLINE_BYTES>),
+    Output(Grounded<'static, T, INLINE_BYTES>),
     /// The convergence predicate is satisfied; interaction is complete.
-    Converged(Grounded<T, INLINE_BYTES>),
+    Converged(Grounded<'static, T, INLINE_BYTES>),
     /// v0.2.2 Phase T.1: the commutator norm failed to decrease for
     /// `INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is
     /// non-convergent and the driver is no longer advanceable.
@@ -8599,7 +8640,7 @@ impl<
         const INLINE_BYTES: usize,
     > Iterator for StreamDriver<T, P, H, INLINE_BYTES>
 {
-    type Item = Result<Grounded<T, INLINE_BYTES>, PipelineFailure>;
+    type Item = Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.terminated || self.productivity_countdown == 0 {
             self.terminated = true;
@@ -8831,7 +8872,7 @@ impl<
     /// Returns a `PipelineFailure::ShapeViolation` if the driver has
     /// not converged, or `PipelineFailure::ShapeMismatch` if the source
     /// declaration's result_type_iri does not match `T::IRI`.
-    pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
+    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
     where
         T: ConstrainedTypeShape,
     {
@@ -8930,7 +8971,7 @@ impl<
 /// ```
 pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(
     unit: Validated<ParallelDeclaration, P>,
-) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -9385,7 +9426,7 @@ where
 /// failure from the reduction stage executor.
 pub fn run_const<T, M, H, const INLINE_BYTES: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     // Phase C.2 (target §6): const-eval admits only those grounding-map kinds

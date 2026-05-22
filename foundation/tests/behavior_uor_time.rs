@@ -47,7 +47,7 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N
     validate_compile_unit_const(&builder).expect("fixture: fully-specified builder validates")
 }
 
-fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput, N> {
+fn ground(level: WittLevel, budget: u64) -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
     run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
         .expect("fixture: run_const must succeed for vacuous input")

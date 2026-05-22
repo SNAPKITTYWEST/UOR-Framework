@@ -103,7 +103,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ),
         (
             "InteractionDriver::finalize",
-            "pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>",
+            "pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>",
         ),
     ];
 

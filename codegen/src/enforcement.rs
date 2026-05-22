@@ -814,7 +814,7 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
          laundered through this contract.",
     );
     f.line(
-        "    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;",
+        "    fn project(&self, grounded: &Grounded<'_, Self::Source, INLINE_BYTES>) -> Self::Output;",
     );
     f.line("}");
     f.blank();
@@ -838,7 +838,7 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
     );
     f.line("    fn emit(");
     f.line("        &self,");
-    f.line("        grounded: &Grounded<<Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,");
+    f.line("        grounded: &Grounded<'_, <Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,");
     f.line("    ) -> <Self::Sinking as Sinking<INLINE_BYTES>>::Output;");
     f.line("}");
     f.blank();
@@ -2080,7 +2080,7 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("        /// Arena index of the source expression's term tree.");
     f.line("        source_index: u32,");
     f.line("        /// Byte offset into the source's evaluated bytes (proc-");
-    f.line("        /// macro-computed from factor MAX_BYTES).");
+    f.line("        /// macro-computed from the partition-product factor widths).");
     f.line("        byte_offset: u32,");
     f.line("        /// Length of the projected slice in bytes.");
     f.line("        byte_length: u32,");
@@ -6327,7 +6327,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("`<https://uor.foundation/cert/witness>`,");
     f.doc_comment("`<https://uor.foundation/cert/searchTrace>`.");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {");
+    f.line("pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {");
     f.indented_doc_comment("The validated grounding certificate this wrapper carries.");
     f.line("    validated: Validated<GroundingCertificate>,");
     f.indented_doc_comment("The compile-time-materialized bindings table.");
@@ -6369,15 +6369,18 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("`H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`");
     f.indented_doc_comment("so the verify path can re-derive the source certificate.");
     f.line("    content_fingerprint: ContentFingerprint,");
-    f.indented_doc_comment("Wiki ADR-028: output-value payload — the catamorphism's evaluation");
-    f.indented_doc_comment("result populated by `pipeline::run_route` per ADR-029's per-variant");
-    f.indented_doc_comment("fold rules. Fixed-capacity stack buffer; the active prefix runs to");
-    f.indented_doc_comment("`output_len` bytes. Read via [`Grounded::output_bytes`].");
-    f.line("    output_payload: [u8; INLINE_BYTES],");
+    f.indented_doc_comment("Wiki ADR-028 (amended by ADR-060): output-value payload — the");
+    f.indented_doc_comment("catamorphism's evaluation result populated by `pipeline::run_route`");
+    f.indented_doc_comment("per ADR-029's per-variant fold rules, carried as a source-polymorphic");
+    f.indented_doc_comment("[`crate::pipeline::TermValue`] (Inline κ-label for content-addressing");
     f.indented_doc_comment(
-        "Active length of `output_payload` (the route's evaluation output length).",
+        "routes; Borrowed/Stream for structural/unbounded outputs). There is no",
     );
-    f.line("    output_len: u16,");
+    f.indented_doc_comment("fixed output buffer and no output byte-width ceiling. The lifetime");
+    f.indented_doc_comment("`'a` is the borrowed-input-data lifetime a Borrowed/Stream output");
+    f.indented_doc_comment("propagates from the route input. Read via [`Grounded::output_bytes`]");
+    f.indented_doc_comment("(contiguous) or [`Grounded::output_value`] (the carrier).");
+    f.line("    output: crate::pipeline::TermValue<'a, INLINE_BYTES>,");
     f.indented_doc_comment("Phantom type tying this `Grounded` to a specific `ConstrainedType`.");
     f.line("    _phantom: PhantomData<T>,");
     f.indented_doc_comment("Phantom domain tag (Q3). Defaults to `T` for backwards-compatible");
@@ -6386,7 +6389,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.line(
-        "impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {",
+        "impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLINE_BYTES, Tag> {",
     );
     f.indented_doc_comment("Returns the binding for the given query address, or `None` if not in");
     f.indented_doc_comment("the table. Resolves in O(log n) via binary search; for true `op:GS_5`");
@@ -6539,7 +6542,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("foundation's contract is about ring soundness, not domain semantics.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn tag<NewTag>(self) -> Grounded<T, INLINE_BYTES, NewTag> {");
+    f.line("    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, NewTag> {");
     f.line("        Grounded {");
     f.line("            validated: self.validated,");
     f.line("            bindings: self.bindings,");
@@ -6554,8 +6557,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("            jacobian_len: self.jacobian_len,");
     f.line("            betti_numbers: self.betti_numbers,");
     f.line("            content_fingerprint: self.content_fingerprint,");
-    f.line("            output_payload: self.output_payload,");
-    f.line("            output_len: self.output_len,");
+    f.line("            output: self.output,");
     f.line("            _phantom: PhantomData,");
     f.line("            _tag: PhantomData,");
     f.line("        }");
@@ -6578,8 +6580,21 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line("    pub fn output_bytes(&self) -> &[u8] {");
-    f.line("        let len = self.output_len as usize;");
-    f.line("        &self.output_payload[..len]");
+    f.line("        // Inline/Borrowed carriers expose their contiguous bytes; a Stream");
+    f.line("        // carrier has no contiguous slice (read it via `output_value()` +");
+    f.line("        // `TermValue::for_each_chunk`).");
+    f.line("        self.output.bytes()");
+    f.line("    }");
+    f.blank();
+    f.indented_doc_comment("Wiki ADR-028 (amended by ADR-060): returns the output as the");
+    f.indented_doc_comment("source-polymorphic [`crate::pipeline::TermValue`] carrier. Use this");
+    f.indented_doc_comment("(rather than [`Grounded::output_bytes`]) when the route's output may");
+    f.indented_doc_comment("be a `Stream` (unbounded) or `Borrowed` carrier — fold it via");
+    f.indented_doc_comment("[`crate::pipeline::TermValue::for_each_chunk`] for arbitrary sizes.");
+    f.line("    #[inline]");
+    f.line("    #[must_use]");
+    f.line("    pub fn output_value(&self) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {");
+    f.line("        self.output");
     f.line("    }");
     f.blank();
 
@@ -6729,38 +6744,27 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("            jacobian_len: jac_len as u16,");
     f.line("            betti_numbers: betti,");
     f.line("            content_fingerprint,");
-    f.line("            output_payload: [0u8; INLINE_BYTES],");
-    f.line("            output_len: 0,");
+    f.line("            output: crate::pipeline::TermValue::empty(),");
     f.line("            _phantom: PhantomData,");
     f.line("            _tag: PhantomData,");
     f.line("        }");
     f.line("    }");
     f.blank();
 
-    // Wiki ADR-028: crate-internal setter for the output payload.
-    f.indented_doc_comment("Wiki ADR-028: crate-internal setter for the output-value payload.");
+    // Wiki ADR-028 (amended by ADR-060): crate-internal setter for the
+    // source-polymorphic output-value carrier.
+    f.indented_doc_comment("Wiki ADR-028 (amended by ADR-060): crate-internal setter for the");
+    f.indented_doc_comment("source-polymorphic output-value carrier.");
     f.indented_doc_comment("");
     f.indented_doc_comment("Called by `pipeline::run_route` after the catamorphism evaluates the");
-    f.indented_doc_comment("Term tree per ADR-029. The bytes are copied into the on-stack");
-    f.indented_doc_comment(
-        "buffer; bytes beyond `len` are zero-padded. Returns self for chaining.",
-    );
-    f.indented_doc_comment("");
-    f.indented_doc_comment("Panics if `bytes.len() > INLINE_BYTES`.");
+    f.indented_doc_comment("Term tree per ADR-029. The carrier is stored by move — no copy, no");
+    f.indented_doc_comment("byte-width ceiling: an `Inline` κ-label, a `Borrowed` slice into the");
+    f.indented_doc_comment("route's `'a`-lived input, or a `Stream` of arbitrary size. Returns");
+    f.indented_doc_comment("self for chaining.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {");
-    f.line("        let len = bytes.len();");
-    f.line("        debug_assert!(len <= INLINE_BYTES);");
-    f.line("        let copy_len = if len > INLINE_BYTES {");
-    f.line("            INLINE_BYTES");
-    f.line("        } else { len };");
-    f.line("        let mut i = 0;");
-    f.line("        while i < copy_len {");
-    f.line("            self.output_payload[i] = bytes[i];");
-    f.line("            i += 1;");
-    f.line("        }");
-    f.line("        self.output_len = copy_len as u16;");
+    f.line("    pub(crate) fn with_output(mut self, output: crate::pipeline::TermValue<'a, INLINE_BYTES>) -> Self {");
+    f.line("        self.output = output;");
     f.line("        self");
     f.line("    }");
     f.blank();

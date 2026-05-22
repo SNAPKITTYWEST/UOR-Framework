@@ -72,7 +72,7 @@ fn main() {
         .target_domains(DOMAINS)
         .result_type::<ConstrainedTypeInput>();
     let unit: Validated<_> = builder.validate().expect("unit well-formed");
-    let grounded: Grounded<ConstrainedTypeInput, N> =
+    let grounded: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, MyFnv1aHasher, N>(unit).expect("custom hasher pipeline");
 
     println!("Content fingerprint (using custom FNV-1a):");

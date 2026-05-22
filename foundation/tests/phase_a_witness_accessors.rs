@@ -1,6 +1,6 @@
-//! Phase A witness-accessor test: verifies that `Grounded<T>` and
-//! `Certified<C>` each carry a `UorTime` and that `Grounded<T>::triad()`,
-//! `Grounded<T>::uor_time()`, and `Certified<C>::uor_time()` return
+//! Phase A witness-accessor test: verifies that `Grounded<'static, T>` and
+//! `Certified<C>` each carry a `UorTime` and that `Grounded<'static, T>::triad()`,
+//! `Grounded<'static, T>::uor_time()`, and `Certified<C>::uor_time()` return
 //! foundation-minted sealed values.
 //!
 //! The round-trip property asserts content-determinism: two pipeline runs
@@ -33,7 +33,7 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N
     validate_compile_unit_const(&builder).expect("builder fully specified")
 }
 
-fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput, N> {
+fn ground(level: WittLevel, budget: u64) -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
     run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("run succeeds")
 }
@@ -109,7 +109,7 @@ fn certified_exposes_uor_time_from_cert_iri() {
     // run_const also produces a Grounded, but its uor_time is derived from
     // the same formula, so it's equal to run's uor_time for matching inputs.
     let unit = build_unit(WittLevel::W8, 100);
-    let g_const: Grounded<ConstrainedTypeInput, N> =
+    let g_const: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
             .expect("const grounds");
     assert_eq!(
@@ -128,7 +128,7 @@ fn certified_exposes_uor_time_from_cert_iri() {
 #[test]
 fn phase_a_sealed_base_metric_newtypes_addressable() {
     // Phase A.4: the four sealed BaseMetric newtypes are in the public API
-    // surface, constructible only through the accessor on Grounded<T>.
+    // surface, constructible only through the accessor on Grounded<'static, T>.
     let g = ground(WittLevel::W8, 100);
     let _: i64 = g.d_delta().as_i64();
     let _: i64 = g.euler().as_i64();

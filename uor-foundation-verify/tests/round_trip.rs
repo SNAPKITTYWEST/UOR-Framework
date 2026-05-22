@@ -8,7 +8,7 @@
 //!
 //! ADR-021 frames Prism's V&V structure as a hylomorphism between two
 //! agents: `prism` (here: `uor-foundation`'s pipeline) is the V agent
-//! producing the catamorphism's output `Grounded<T>`; `prism-verify`
+//! producing the catamorphism's output `Grounded<'static, T>`; `prism-verify`
 //! (here: `uor-foundation-verify`) is the IV&V agent producing the
 //! anamorphism's output `Certified<GroundingCertificate>`. The trace is
 //! the artifact crossing the V/IV&V boundary. The verifier cannot cheat

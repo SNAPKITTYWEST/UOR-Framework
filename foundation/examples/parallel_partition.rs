@@ -4,7 +4,7 @@
 //! that `partition.len()` sites split into disjoint components (given by
 //! `partition[i]` = component-id-for-site-i). `run_parallel` walks the
 //! partition, folds per-component signatures into the fingerprint, and emits
-//! a `Grounded<T>` whose unit_address content-addresses the full partition.
+//! a `Grounded<'static, T>` whose unit_address content-addresses the full partition.
 //!
 //! Run with: `cargo run --example parallel_partition -p uor-foundation`
 
@@ -29,9 +29,9 @@ fn main() {
             ConstrainedTypeInput,
         >(PARTITION_432, DISJOINTNESS_WITNESS));
 
-    let g_abc: Grounded<ConstrainedTypeInput, N> =
+    let g_abc: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_abc).expect("3-3-3 admits");
-    let g_432: Grounded<ConstrainedTypeInput, N> =
+    let g_432: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_432).expect("4-3-2 admits");
 
     // Both partitions have site_count = 9 but differ in component structure —

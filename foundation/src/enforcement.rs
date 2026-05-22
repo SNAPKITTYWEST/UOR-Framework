@@ -835,7 +835,7 @@ pub trait Sinking<const INLINE_BYTES: usize> {
     /// Project a grounded ring value to the host output. The `&Grounded<Source>`
     /// input is unforgeable (Grounded is sealed per §2) — no raw data can be
     /// laundered through this contract.
-    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;
+    fn project(&self, grounded: &Grounded<'_, Self::Source, INLINE_BYTES>) -> Self::Output;
 }
 
 /// Target §4.6: extension trait tying `EmitEffect<H>` (ontology-declarative)
@@ -853,7 +853,7 @@ pub trait EmitThrough<const INLINE_BYTES: usize, H: crate::HostTypes>:
     /// nothing else is admissible.
     fn emit(
         &self,
-        grounded: &Grounded<<Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,
+        grounded: &Grounded<'_, <Self::Sinking as Sinking<INLINE_BYTES>>::Source, INLINE_BYTES>,
     ) -> <Self::Sinking as Sinking<INLINE_BYTES>>::Output;
 }
 
@@ -1916,7 +1916,7 @@ pub enum Term<'a, const INLINE_BYTES: usize> {
         /// Arena index of the source expression's term tree.
         source_index: u32,
         /// Byte offset into the source's evaluated bytes (proc-
-        /// macro-computed from factor MAX_BYTES).
+        /// macro-computed from the partition-product factor widths).
         byte_offset: u32,
         /// Length of the projected slice in bytes.
         byte_length: u32,
@@ -8895,7 +8895,7 @@ impl core::error::Error for BindingsTableError {}
 /// `<https://uor.foundation/cert/witness>`,
 /// `<https://uor.foundation/cert/searchTrace>`.
 #[derive(Debug, Clone)]
-pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
+pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     /// The validated grounding certificate this wrapper carries.
     validated: Validated<GroundingCertificate>,
     /// The compile-time-materialized bindings table.
@@ -8931,13 +8931,16 @@ pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     /// `H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`
     /// so the verify path can re-derive the source certificate.
     content_fingerprint: ContentFingerprint,
-    /// Wiki ADR-028: output-value payload — the catamorphism's evaluation
-    /// result populated by `pipeline::run_route` per ADR-029's per-variant
-    /// fold rules. Fixed-capacity stack buffer; the active prefix runs to
-    /// `output_len` bytes. Read via [`Grounded::output_bytes`].
-    output_payload: [u8; INLINE_BYTES],
-    /// Active length of `output_payload` (the route's evaluation output length).
-    output_len: u16,
+    /// Wiki ADR-028 (amended by ADR-060): output-value payload — the
+    /// catamorphism's evaluation result populated by `pipeline::run_route`
+    /// per ADR-029's per-variant fold rules, carried as a source-polymorphic
+    /// [`crate::pipeline::TermValue`] (Inline κ-label for content-addressing
+    /// routes; Borrowed/Stream for structural/unbounded outputs). There is no
+    /// fixed output buffer and no output byte-width ceiling. The lifetime
+    /// `'a` is the borrowed-input-data lifetime a Borrowed/Stream output
+    /// propagates from the route input. Read via [`Grounded::output_bytes`]
+    /// (contiguous) or [`Grounded::output_value`] (the carrier).
+    output: crate::pipeline::TermValue<'a, INLINE_BYTES>,
     /// Phantom type tying this `Grounded` to a specific `ConstrainedType`.
     _phantom: PhantomData<T>,
     /// Phantom domain tag (Q3). Defaults to `T` for backwards-compatible
@@ -8945,7 +8948,7 @@ pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     _tag: PhantomData<Tag>,
 }
 
-impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {
+impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLINE_BYTES, Tag> {
     /// Returns the binding for the given query address, or `None` if not in
     /// the table. Resolves in O(log n) via binary search; for true `op:GS_5`
     /// zero-step access, downstream code uses statically-known indices.
@@ -9075,7 +9078,7 @@ impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES,
     /// foundation's contract is about ring soundness, not domain semantics.
     #[inline]
     #[must_use]
-    pub fn tag<NewTag>(self) -> Grounded<T, INLINE_BYTES, NewTag> {
+    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, NewTag> {
         Grounded {
             validated: self.validated,
             bindings: self.bindings,
@@ -9090,8 +9093,7 @@ impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES,
             jacobian_len: self.jacobian_len,
             betti_numbers: self.betti_numbers,
             content_fingerprint: self.content_fingerprint,
-            output_payload: self.output_payload,
-            output_len: self.output_len,
+            output: self.output,
             _phantom: PhantomData,
             _tag: PhantomData,
         }
@@ -9107,8 +9109,21 @@ impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES,
     #[inline]
     #[must_use]
     pub fn output_bytes(&self) -> &[u8] {
-        let len = self.output_len as usize;
-        &self.output_payload[..len]
+        // Inline/Borrowed carriers expose their contiguous bytes; a Stream
+        // carrier has no contiguous slice (read it via `output_value()` +
+        // `TermValue::for_each_chunk`).
+        self.output.bytes()
+    }
+
+    /// Wiki ADR-028 (amended by ADR-060): returns the output as the
+    /// source-polymorphic [`crate::pipeline::TermValue`] carrier. Use this
+    /// (rather than [`Grounded::output_bytes`]) when the route's output may
+    /// be a `Stream` (unbounded) or `Borrowed` carrier — fold it via
+    /// [`crate::pipeline::TermValue::for_each_chunk`] for arbitrary sizes.
+    #[inline]
+    #[must_use]
+    pub fn output_value(&self) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {
+        self.output
     }
 
     /// Phase A.1: the foundation-internal two-clock value read at witness mint time.
@@ -9235,34 +9250,26 @@ impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES,
             jacobian_len: jac_len as u16,
             betti_numbers: betti,
             content_fingerprint,
-            output_payload: [0u8; INLINE_BYTES],
-            output_len: 0,
+            output: crate::pipeline::TermValue::empty(),
             _phantom: PhantomData,
             _tag: PhantomData,
         }
     }
 
-    /// Wiki ADR-028: crate-internal setter for the output-value payload.
+    /// Wiki ADR-028 (amended by ADR-060): crate-internal setter for the
+    /// source-polymorphic output-value carrier.
     /// Called by `pipeline::run_route` after the catamorphism evaluates the
-    /// Term tree per ADR-029. The bytes are copied into the on-stack
-    /// buffer; bytes beyond `len` are zero-padded. Returns self for chaining.
-    /// Panics if `bytes.len() > INLINE_BYTES`.
+    /// Term tree per ADR-029. The carrier is stored by move — no copy, no
+    /// byte-width ceiling: an `Inline` κ-label, a `Borrowed` slice into the
+    /// route's `'a`-lived input, or a `Stream` of arbitrary size. Returns
+    /// self for chaining.
     #[inline]
     #[must_use]
-    pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {
-        let len = bytes.len();
-        debug_assert!(len <= INLINE_BYTES);
-        let copy_len = if len > INLINE_BYTES {
-            INLINE_BYTES
-        } else {
-            len
-        };
-        let mut i = 0;
-        while i < copy_len {
-            self.output_payload[i] = bytes[i];
-            i += 1;
-        }
-        self.output_len = copy_len as u16;
+    pub(crate) fn with_output(
+        mut self,
+        output: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Self {
+        self.output = output;
         self
     }
 

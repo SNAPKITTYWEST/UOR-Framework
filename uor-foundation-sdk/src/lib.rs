@@ -165,13 +165,11 @@ pub fn product_shape(input: TokenStream) -> TokenStream {
         // `ConstrainedTypeShape` via the `output_shape!` macro and write a
         // bespoke `IntoBindingValue` impl.
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -450,13 +448,11 @@ pub fn coproduct_shape(input: TokenStream) -> TokenStream {
         // `IntoBindingValue`) for `PrismModel` (zero-sized marker;
         // canonical byte sequence is empty).
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -630,13 +626,11 @@ pub fn cartesian_product_shape(input: TokenStream) -> TokenStream {
         // `IntoBindingValue`) for `PrismModel` (zero-sized marker;
         // canonical byte sequence is empty).
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -1069,13 +1063,11 @@ fn expand_partition_product(
             }
 
             impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-            impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-                const MAX_BYTES: usize = 0;
-                fn into_binding_bytes(
+            impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+                fn as_binding_value<const INLINE_BYTES: usize>(
                     &self,
-                    _out: &mut [u8],
-                ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                    Ok(0)
+                ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                    ::uor_foundation::pipeline::TermValue::empty()
                 }
             }
             impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -1332,13 +1324,11 @@ fn expand_partition_product_named_flat(
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -1464,13 +1454,11 @@ fn expand_partition_product_helper(
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -1752,13 +1740,11 @@ fn expand_partition_coproduct_helper(
         }
 
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #name {
-            const MAX_BYTES: usize = 0;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
-                Ok(0)
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
         impl ::uor_foundation::enforcement::GroundedShape for #name {}
@@ -4836,16 +4822,17 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         // TypedCommitment per ADR-048 (EmptyCommitment default). The
         // macro-emitted `forward` body constructs both substrate instances
         // and threads them to `pipeline::run_route` per ADR-022 D5.
-        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
+        impl<'a> ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
             type Input = #input_ty;
             type Output = #output_ty;
             type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
-                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
+                    'a,
+                    <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
                     #inline_bytes,
                 >,
                 ::uor_foundation::PipelineFailure,
@@ -5063,19 +5050,16 @@ pub fn output_shape(input: TokenStream) -> TokenStream {
         // ADR-027 emissions: the four sealed-trait impls.
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #struct_name {}
         impl ::uor_foundation::enforcement::GroundedShape for #struct_name {}
-        impl ::uor_foundation::pipeline::IntoBindingValue for #struct_name {
-            const MAX_BYTES: usize =
-                <#struct_name as ::uor_foundation::pipeline::ConstrainedTypeShape>::SITE_COUNT;
-            fn into_binding_bytes(
+        impl<'a> ::uor_foundation::pipeline::IntoBindingValue<'a> for #struct_name {
+            fn as_binding_value<const INLINE_BYTES: usize>(
                 &self,
-                _out: &mut [u8],
-            ) -> ::core::result::Result<usize, ::uor_foundation::enforcement::ShapeViolation> {
+            ) -> ::uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
                 // The output shape carries the catamorphism's evaluation result, not a
-                // user-supplied input, so the input-side serialization is trivial.
-                // Applications that re-use the output shape as a downstream model's
-                // Input write a bespoke `IntoBindingValue` impl reflecting the bytes
-                // they emit at runtime.
-                Ok(0)
+                // user-supplied input, so the input-side carrier is the empty Inline
+                // carrier. Applications that re-use the output shape as a downstream
+                // model's Input write a bespoke `IntoBindingValue` impl reflecting the
+                // bytes they emit at runtime.
+                ::uor_foundation::pipeline::TermValue::empty()
             }
         }
     };

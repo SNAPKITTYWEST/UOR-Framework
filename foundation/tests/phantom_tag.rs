@@ -1,9 +1,9 @@
-//! v0.2.2 Phase B (Q3): tests for the phantom `Tag` parameter on `Grounded<T, Tag>`.
+//! v0.2.2 Phase B (Q3): tests for the phantom `Tag` parameter on `Grounded<'static, T, Tag>`.
 //!
 //! Asserts:
-//! - `Grounded<T>` defaults to `Grounded<T, T>` (so v0.2.1 call sites compile unchanged).
+//! - `Grounded<'static, T>` defaults to `Grounded<'static, T, T>` (so v0.2.1 call sites compile unchanged).
 //! - Two distinct phantom tags produce distinct Rust types — a function expecting
-//!   `Grounded<_, BlockHashTag>` does NOT accept `Grounded<_, PixelTag>`.
+//!   `Grounded<'static, _, BlockHashTag>` does NOT accept `Grounded<'static, _, PixelTag>`.
 //! - `tag::<NewTag>()` is a zero-cost coercion (asserted via `core::mem::size_of`).
 //! - The inner witness is preserved across coercion (`witt_level_bits`, `unit_address`,
 //!   `certificate` all return the same values after `tag()`).
@@ -21,7 +21,7 @@ struct PixelTag;
 // Type-level assertions
 // ─────────────────────────────────────────────────────────────────────────
 
-/// Compile-time witness that `Grounded<T>` and `Grounded<T, T>` are the same type.
+/// Compile-time witness that `Grounded<'static, T>` and `Grounded<'static, T, T>` are the same type.
 /// (The default-type-parameter `Tag = T` makes them equivalent at the type level.)
 fn _default_tag_is_self<T: uor_foundation::enforcement::GroundedShape>() {
     fn assert_same<A, B>()
@@ -31,20 +31,20 @@ fn _default_tag_is_self<T: uor_foundation::enforcement::GroundedShape>() {
     }
     trait SameAs<X> {}
     impl<X> SameAs<X> for X {}
-    assert_same::<Grounded<T, N>, Grounded<T, N, T>>();
+    assert_same::<Grounded<'static, T, N>, Grounded<'static, T, N, T>>();
 }
 
 /// Compile-time witness that two distinct tags create distinct Rust types.
 /// (If they were the same type, the function below would be a duplicate definition.)
-fn accepts_block_hash(_g: &Grounded<ConstrainedTypeInput, N, BlockHashTag>) {}
-fn accepts_pixel(_g: &Grounded<ConstrainedTypeInput, N, PixelTag>) {}
+fn accepts_block_hash(_g: &Grounded<'static, ConstrainedTypeInput, N, BlockHashTag>) {}
+fn accepts_pixel(_g: &Grounded<'static, ConstrainedTypeInput, N, PixelTag>) {}
 
 #[test]
 fn distinct_tags_are_distinct_types_at_compile_time() {
     // The fact that the two function signatures coexist without conflict is
     // already the assertion. Reference them so they're not dead code.
-    let _f1: fn(&Grounded<ConstrainedTypeInput, N, BlockHashTag>) = accepts_block_hash;
-    let _f2: fn(&Grounded<ConstrainedTypeInput, N, PixelTag>) = accepts_pixel;
+    let _f1: fn(&Grounded<'static, ConstrainedTypeInput, N, BlockHashTag>) = accepts_block_hash;
+    let _f2: fn(&Grounded<'static, ConstrainedTypeInput, N, PixelTag>) = accepts_pixel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -54,17 +54,18 @@ fn distinct_tags_are_distinct_types_at_compile_time() {
 #[test]
 fn tag_coercion_is_zero_cost() {
     // The phantom Tag parameter must not affect memory layout.
-    // sizeof Grounded<T, T> == sizeof Grounded<T, OtherTag> for any T and OtherTag.
-    let default_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N>>();
-    let block_hash_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N, BlockHashTag>>();
-    let pixel_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N, PixelTag>>();
+    // sizeof Grounded<'static, T, T> == sizeof Grounded<'static, T, OtherTag> for any T and OtherTag.
+    let default_size = core::mem::size_of::<Grounded<'static, ConstrainedTypeInput, N>>();
+    let block_hash_size =
+        core::mem::size_of::<Grounded<'static, ConstrainedTypeInput, N, BlockHashTag>>();
+    let pixel_size = core::mem::size_of::<Grounded<'static, ConstrainedTypeInput, N, PixelTag>>();
     assert_eq!(default_size, block_hash_size);
     assert_eq!(default_size, pixel_size);
 }
 
 #[test]
 fn grounded_sealed_field_count_unchanged() {
-    // Phase B adds `_tag: PhantomData<Tag>` to Grounded<T>. PhantomData is
+    // Phase B adds `_tag: PhantomData<Tag>` to Grounded<'static, T>. PhantomData is
     // zero-sized so the struct size doesn't grow. Verify by comparing against
     // a manual struct with the same non-phantom field set.
     #[allow(dead_code)]
@@ -77,7 +78,7 @@ fn grounded_sealed_field_count_unchanged() {
     // We can't make this assertion exact without inspecting Grounded's
     // private fields, but we assert that adding the Tag parameter didn't
     // somehow grow the struct beyond what the underlying fields require.
-    let g_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N>>();
+    let g_size = core::mem::size_of::<Grounded<'static, ConstrainedTypeInput, N>>();
     // Lower bound: at least 16 bytes (u128) + 2 bytes (u16) + alignment + ZST fields.
     assert!(
         g_size >= 18,
@@ -104,15 +105,15 @@ fn grounded_sealed_field_count_unchanged() {
 
 #[test]
 fn tag_method_is_in_public_api() {
-    // The `tag::<NewTag>()` method must be reachable on Grounded<T> (default
-    // tag = T) and produce a Grounded<T, NewTag>. We can't actually call it
+    // The `tag::<NewTag>()` method must be reachable on Grounded<'static, T> (default
+    // tag = T) and produce a Grounded<'static, T, NewTag>. We can't actually call it
     // without a real Grounded value, but we can assert the method's type.
     fn _coerce(
-        g: Grounded<ConstrainedTypeInput, N>,
-    ) -> Grounded<ConstrainedTypeInput, N, BlockHashTag> {
+        g: Grounded<'static, ConstrainedTypeInput, N>,
+    ) -> Grounded<'static, ConstrainedTypeInput, N, BlockHashTag> {
         g.tag::<BlockHashTag>()
     }
     let _f: fn(
-        Grounded<ConstrainedTypeInput, N>,
-    ) -> Grounded<ConstrainedTypeInput, N, BlockHashTag> = _coerce;
+        Grounded<'static, ConstrainedTypeInput, N>,
+    ) -> Grounded<'static, ConstrainedTypeInput, N, BlockHashTag> = _coerce;
 }

@@ -120,10 +120,10 @@ fn phase_e_run_const_grounded_metrics_differ_by_witt_level() {
     assert_eq!(validated_w8.inner().thermodynamic_budget(), 100);
     assert_eq!(validated_w32.inner().thermodynamic_budget(), 200);
 
-    let g_w8: Grounded<ConstrainedTypeInput, N> =
+    let g_w8: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w8)
             .expect("w8 grounds");
-    let g_w32: Grounded<ConstrainedTypeInput, N> =
+    let g_w32: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w32)
             .expect("w32 grounds");
 
@@ -167,10 +167,10 @@ fn phase_f_run_parallel_unit_address_depends_on_site_count() {
         validated_runtime(ParallelDeclaration::new_with_partition::<
             ConstrainedTypeInput,
         >(PARTITION_7, WITNESS));
-    let g_3: Grounded<ConstrainedTypeInput, N> =
+    let g_3: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_3)
             .expect("3-site parallel walks");
-    let g_7: Grounded<ConstrainedTypeInput, N> =
+    let g_7: Grounded<'static, ConstrainedTypeInput, N> =
         run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_7)
             .expect("7-site parallel walks");
     assert_ne!(g_3.unit_address(), g_7.unit_address());
@@ -228,7 +228,8 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
     assert_eq!(driver.peer_step_count(), 2);
 
     // finalize returns Ok with non-zero unit_address.
-    let final_grounded: Grounded<ConstrainedTypeInput, N> = driver.finalize().expect("converged");
+    let final_grounded: Grounded<'static, ConstrainedTypeInput, N> =
+        driver.finalize().expect("converged");
     assert_ne!(final_grounded.unit_address(), ContentAddress::zero());
     // T6.1: finalize produces a real substrate fingerprint.
     assert!(!final_grounded.content_fingerprint().is_zero());
@@ -241,7 +242,7 @@ fn phase_f_interaction_driver_finalize_rejects_unconverged() {
     let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
         run_interactive(unit);
     assert!(!driver.is_converged());
-    let result: Result<Grounded<ConstrainedTypeInput, N>, _> = driver.finalize();
+    let result: Result<Grounded<'static, ConstrainedTypeInput, N>, _> = driver.finalize();
     assert!(result.is_err(), "unconverged driver finalize must error");
 }
 
@@ -307,9 +308,9 @@ fn t5_pipeline_run_threads_constraints_into_unit_address() {
         build_compile_unit(WittLevel::W8, 100).into();
     let unit_200: Validated<CompileUnit<'static, N>> =
         build_compile_unit(WittLevel::W8, 200).into();
-    let g_100: Grounded<ConstrainedTypeInput, N> =
+    let g_100: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_100).expect("100 grounds");
-    let g_200: Grounded<ConstrainedTypeInput, N> =
+    let g_200: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_200).expect("200 grounds");
     assert_ne!(
         g_100.unit_address(),
@@ -329,7 +330,7 @@ fn t5_pipeline_run_threads_constraints_into_unit_address() {
 fn t5_grounded_derivation_replay_round_trips_via_verify_trace() {
     use uor_foundation::pipeline::run;
     let unit: Validated<CompileUnit<'static, N>> = build_compile_unit(WittLevel::W8, 100).into();
-    let grounded: Grounded<ConstrainedTypeInput, N> =
+    let grounded: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("grounds");
     let trace: uor_foundation::Trace = grounded.derivation().replay();
     let reverified =
@@ -349,10 +350,10 @@ fn t5_distinct_widths_produce_distinct_fingerprints_for_same_unit() {
     use uor_foundation::pipeline::run_const;
     use uor_foundation_test_helpers::Fnv1aHasher32;
     let validated = build_compile_unit(WittLevel::W8, 100);
-    let g_16: Grounded<ConstrainedTypeInput, N> =
+    let g_16: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated)
             .expect("16");
-    let g_32: Grounded<ConstrainedTypeInput, N> =
+    let g_32: Grounded<'static, ConstrainedTypeInput, N> =
         run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher32, N>(&validated)
             .expect("32");
     assert_eq!(g_16.content_fingerprint().width_bytes(), 16);

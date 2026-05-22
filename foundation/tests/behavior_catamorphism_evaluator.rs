@@ -31,7 +31,11 @@ fn eval_zero<'a>(
     arena: &'a [Term<'a, N>],
     input_bytes: &'a [u8],
 ) -> Result<TermValue<'a, N>, PipelineFailure> {
-    evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(arena, input_bytes, &NullResolverTuple)
+    evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+        arena,
+        TermValue::borrowed(input_bytes),
+        &NullResolverTuple,
+    )
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -61,9 +65,12 @@ impl Hasher for ZeroHasher {
 fn evaluator_surface_resolves_at_crate_root() {
     // The function exists at the foundation public path and evaluates the
     // identity (empty) route to the threaded input bytes.
-    let out =
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(&[], &[0xaa], &NullResolverTuple)
-            .expect("identity route resolves at crate root");
+    let out = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+        &[],
+        TermValue::borrowed(&[0xaa]),
+        &NullResolverTuple,
+    )
+    .expect("identity route resolves at crate root");
     assert_eq!(out.bytes(), &[0xaa][..]);
     // ADR-060 removed the fixed `TERM_VALUE_MAX_BYTES` / `ROUTE_*_BUFFER_BYTES`
     // 4096-byte ceiling in favour of the source-polymorphic `TermValue<'a, N>`
@@ -599,8 +606,11 @@ fn resolver_bound_psi_term_consults_resolver_tuple() {
         Term::Nerve { value_index: 0 },
     ];
     let input = [0x11u8, 0x22, 0x33];
-    let result =
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(&arena, &input, &NullResolverTuple);
+    let result = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+        &arena,
+        TermValue::borrowed(&input),
+        &NullResolverTuple,
+    );
     match result {
         Err(PipelineFailure::ShapeViolation { report }) => {
             assert_eq!(

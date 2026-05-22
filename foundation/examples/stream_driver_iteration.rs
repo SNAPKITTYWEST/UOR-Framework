@@ -3,7 +3,7 @@
 //!
 //! `StreamDeclaration::new::<T>(productivity_bound)` seeds an unfold-style
 //! stream with a fixed productivity budget. `run_stream` returns a `StreamDriver`
-//! implementing `Iterator<Item = Result<Grounded<T>, PipelineFailure>>`; each
+//! implementing `Iterator<Item = Result<Grounded<'static, T>, PipelineFailure>>`; each
 //! `.next()` yields the next grounded step until the budget is exhausted.
 //!
 //! Run with: `cargo run --example stream_driver_iteration -p uor-foundation`
@@ -22,7 +22,7 @@ fn main() {
     let mut step = 0u32;
     let mut last_address = None;
     for result in driver {
-        let grounded: Grounded<ConstrainedTypeInput, N> = result.expect("step succeeds");
+        let grounded: Grounded<'static, ConstrainedTypeInput, N> = result.expect("step succeeds");
         println!(
             "step {step}: unit_address={:?} witt_bits={}",
             grounded.unit_address(),

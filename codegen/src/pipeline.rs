@@ -472,7 +472,7 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("failure from the reduction stage executor.");
     f.line("pub fn run_const<T, M, H, const INLINE_BYTES: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    // Phase C.2 (target §6): const-eval admits only those grounding-map kinds");
@@ -828,9 +828,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("The step was absorbed; the driver is ready for another peer input.");
     f.line("    Continue,");
     f.indented_doc_comment("The step produced an intermediate grounded output.");
-    f.line("    Output(Grounded<T, INLINE_BYTES>),");
+    f.line("    Output(Grounded<'static, T, INLINE_BYTES>),");
     f.indented_doc_comment("The convergence predicate is satisfied; interaction is complete.");
-    f.line("    Converged(Grounded<T, INLINE_BYTES>),");
+    f.line("    Converged(Grounded<'static, T, INLINE_BYTES>),");
     f.indented_doc_comment("v0.2.2 Phase T.1: the commutator norm failed to decrease for");
     f.indented_doc_comment(
         "`INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is",
@@ -942,7 +942,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.line("impl<T: crate::enforcement::GroundedShape + ConstrainedTypeShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> Iterator for StreamDriver<T, P, H, INLINE_BYTES> {");
-    f.line("    type Item = Result<Grounded<T, INLINE_BYTES>, PipelineFailure>;");
+    f.line("    type Item = Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>;");
     f.line("    fn next(&mut self) -> Option<Self::Item> {");
     f.line("        if self.terminated || self.productivity_countdown == 0 {");
     f.line("            self.terminated = true;");
@@ -1189,7 +1189,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("Returns a `PipelineFailure::ShapeViolation` if the driver has");
     f.indented_doc_comment("not converged, or `PipelineFailure::ShapeMismatch` if the source");
     f.indented_doc_comment("declaration's result_type_iri does not match `T::IRI`.");
-    f.line("    pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
+    f.line(
+        "    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>",
+    );
     f.line("    where");
     f.line("        T: ConstrainedTypeShape,");
     f.line("    {");
@@ -1307,7 +1309,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // returned driver struct is not inherently must_use.
     f.line("pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<ParallelDeclaration, P>,");
-    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
@@ -1982,7 +1984,7 @@ fn emit_constrained_type_shape(f: &mut RustFile) {
     // ADR-033 G20: every `partition_product`-shaped type carries a
     // factor-fields directory describing each factor's byte offset and
     // length within the product's canonical byte serialization (per
-    // ADR-023's `IntoBindingValue::into_binding_bytes`). The closure-body
+    // ADR-023's `IntoBindingValue` carrier). The closure-body
     // grammar's field-access form `<expr>.<index>` (G20 positional) and
     // `<expr>.<name>` (G20 named) lowers via this trait at proc-macro
     // expansion time: the macro emits `Term::ProjectField` whose
@@ -2273,7 +2275,6 @@ fn emit_witt_domain(f: &mut RustFile, ontology: &Ontology) {
     f.line("    use crate::enforcement::GroundedShape;");
     f.line("    use crate::pipeline::__sdk_seal;");
     f.line("    use crate::pipeline::IntoBindingValue;");
-    f.line("    use crate::enforcement::ShapeViolation;");
     f.blank();
     for (local, bits, _byte_or_limb) in &levels {
         // Compute cycle_size: 2^bits, saturated at u64::MAX.
@@ -2305,12 +2306,11 @@ fn emit_witt_domain(f: &mut RustFile, ontology: &Ontology) {
         f.line(&format!("        const CYCLE_SIZE: u64 = {cycle_size};"));
         f.line("    }");
         f.line(&format!("    impl __sdk_seal::Sealed for {local} {{}}"));
-        f.line(&format!("    impl IntoBindingValue for {local} {{"));
-        f.line("        const MAX_BYTES: usize = 0;");
+        f.line(&format!("    impl<'a> IntoBindingValue<'a> for {local} {{"));
         f.line(
-            "        fn into_binding_bytes(&self, _out: &mut [u8]) -> Result<usize, ShapeViolation> {",
+            "        fn as_binding_value<const INLINE_BYTES: usize>(&self) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {",
         );
-        f.line("            Ok(0)");
+        f.line("            crate::pipeline::TermValue::empty()");
         f.line("        }");
         f.line("    }");
         f.line(&format!("    impl GroundedShape for {local} {{}}"));
@@ -2861,7 +2861,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.indented_doc_comment("cannot produce content (e.g., the foundation Null impl carrying");
         f.indented_doc_comment("the `RESOLVER_ABSENT` discriminator).");
         f.line("    fn resolve<'a>(");
-        f.line("        &'a self,");
+        f.line("        &self,");
         f.line("        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,");
         f.line("    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;");
         f.line("}");
@@ -3009,7 +3009,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
             "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for {null_ty}<H> {{"
         ));
         f.line("    fn resolve<'a>(");
-        f.line("        &'a self,");
+        f.line("        &self,");
         f.line("        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,");
         f.line("    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation> {");
         f.line("        Err(crate::enforcement::ShapeViolation {");
@@ -3105,7 +3105,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
             "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for NullResolverTuple {{"
         ));
         f.line("    fn resolve<'a>(");
-        f.line("        &'a self,");
+        f.line("        &self,");
         f.line("        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,");
         f.line("    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation> {");
         f.line("        Err(crate::enforcement::ShapeViolation {");
@@ -3178,7 +3178,7 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line(
         "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag = T>(",
     );
-    f.line("    pub &'a crate::enforcement::Grounded<T, INLINE_BYTES, Tag>,");
+    f.line("    pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>,");
     f.line(");");
     f.blank();
     f.line(
@@ -3285,8 +3285,8 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line("    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource");
-    f.line("    for crate::enforcement::Grounded<T, INLINE_BYTES, Tag>");
+    f.line("impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource");
+    f.line("    for crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>");
     f.line("{");
     f.line("    fn binding_count(&self) -> usize {");
     f.line("        self.iter_bindings().count()");
@@ -4185,34 +4185,42 @@ fn emit_prism_model(f: &mut RustFile) {
     // Closes the architectural gap ADR-022 left open: how does an
     // `M::Input` value supplied at runtime flow into the `CompileUnit`
     // binding table? Foundation declares the trait every `M::Input`
-    // implements; `pipeline::run_route` calls `into_binding_bytes` to
-    // fill a stack buffer, hashes the result with the selected
-    // `Hasher` to derive a `ContentAddress`, and constructs a
-    // transient `Binding` for `Term::Variable { name_index: 0 }` (the
-    // route's input parameter slot per ADR-022 D3 G2).
+    // implements; `pipeline::run_route` calls `as_binding_value` to get a
+    // source-polymorphic `TermValue` carrier (ADR-060), folds it through
+    // the selected `Hasher` (chunk-by-chunk for `Stream`) to derive a
+    // `ContentAddress`, and constructs a transient `Binding` for
+    // `Term::Variable { name_index: 0 }` (the route's input parameter slot
+    // per ADR-022 D3 G2). There is no input byte-width ceiling.
     //
     // Sealed via `__sdk_seal::Sealed`: only foundation and the SDK
     // shape macros emit impls. Closure-bound values flow through
     // sanctioned constructors only, in the same spirit as the
     // `FoundationClosed` and `PrismModel` seals.
     f.doc_comment("Trait — `ConstrainedTypeShape` impls used as a `PrismModel::Input`");
-    f.doc_comment("MUST implement this trait so [`run_route`] can serialize the");
-    f.doc_comment("runtime input value into the `CompileUnit` binding table per wiki");
-    f.doc_comment("ADR-023.");
+    f.doc_comment("MUST implement this trait so [`run_route`] can flow the runtime input");
+    f.doc_comment("value into the `CompileUnit` binding table per wiki ADR-023.");
     f.doc_comment("");
-    f.doc_comment("# Implementation contract");
+    f.doc_comment("# Implementation contract (ADR-060 source-polymorphic)");
     f.doc_comment("");
-    f.doc_comment("[`into_binding_bytes`] writes the canonical content-addressable byte");
-    f.doc_comment("sequence for the value into the caller-provided buffer and returns");
-    f.doc_comment("the written length. The serialization MUST be deterministic — two");
-    f.doc_comment("values that compare equal MUST produce byte sequences that compare");
-    f.doc_comment("equal — so the input's content fingerprint is a function of the");
+    f.doc_comment("[`as_binding_value`] returns the value's canonical content-addressable");
+    f.doc_comment("bytes as a source-polymorphic [`crate::pipeline::TermValue`] carrier:");
+    f.doc_comment("`Inline` for small values within the foundation-derived inline width,");
+    f.doc_comment("`Borrowed` for larger in-memory values (zero-copy slice into the");
+    f.doc_comment("`'a`-lived input data), or `Stream` for unbounded sources. ADR-060");
+    f.doc_comment("principle (3): there is no carrier-side fixed allocation that depends");
+    f.doc_comment("on payload size, so there is no input byte-width ceiling — [`run_route`]");
+    f.doc_comment("folds the carrier through the selected `Hasher` (chunk-by-chunk for");
+    f.doc_comment("`Stream`) to derive the input's content address. The carrier MUST be");
+    f.doc_comment("deterministic — two values that compare equal yield byte sequences that");
+    f.doc_comment("compare equal — so the input's content fingerprint is a function of the");
     f.doc_comment("value alone.");
     f.doc_comment("");
-    f.doc_comment("[`MAX_BYTES`] is the maximum byte length any value of this shape can");
-    f.doc_comment("produce. [`run_route`] uses it to size the on-stack buffer and");
-    f.doc_comment("rejects inputs whose declared `MAX_BYTES` exceeds the foundation");
-    f.doc_comment("ceiling [`INLINE_BYTES`].");
+    f.doc_comment("The trait's lifetime `'a` is the lifetime of the borrowed input data:");
+    f.doc_comment("a borrowing-handle input (`Handle<'a>` carrying `&'a [u8]` or");
+    f.doc_comment("`&'a dyn ChunkSource`) returns a carrier valid for `'a`, which the");
+    f.doc_comment("catamorphism propagates into the [`crate::enforcement::Grounded`]`<'a>`");
+    f.doc_comment("output (ADR-028 amended by ADR-060). Inline-only inputs (e.g. the");
+    f.doc_comment("identity input) are valid for every `'a`.");
     f.doc_comment("");
     f.doc_comment("# Sealing");
     f.doc_comment("");
@@ -4224,50 +4232,33 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("`ConstrainedTypeShape` impl. Application authors implementing a");
     f.doc_comment("custom `ConstrainedTypeShape` use the `prism_model!` macro's input");
     f.doc_comment("declaration to obtain the impl.");
-    f.line("pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {");
-    f.indented_doc_comment("Maximum byte length any value of this shape can produce when");
-    f.indented_doc_comment("serialized via [`into_binding_bytes`]. Used by [`run_route`] to");
-    f.indented_doc_comment("size the on-stack buffer and reject inputs that would overflow.");
-    f.line("    const MAX_BYTES: usize;");
-    f.blank();
-    f.indented_doc_comment("Serialize this input value into the binding-table form. `out` is a");
-    f.indented_doc_comment("fixed-capacity buffer the call-site provides; the implementation");
-    f.indented_doc_comment("writes the canonical content-addressable byte sequence and returns");
-    f.indented_doc_comment("the written length.");
-    f.indented_doc_comment("");
-    f.indented_doc_comment("# Errors");
-    f.indented_doc_comment("");
-    f.indented_doc_comment("Returns [`crate::enforcement::ShapeViolation`] when the canonical");
-    f.indented_doc_comment("serialization cannot be produced (e.g., a coproduct tag is out of");
-    f.indented_doc_comment("range, a constraint cannot be witnessed) or when `out.len()` is");
-    f.indented_doc_comment("smaller than the bytes the value requires.");
+    f.line("pub trait IntoBindingValue<'a>: ConstrainedTypeShape + __sdk_seal::Sealed {");
+    f.indented_doc_comment("Return this input value's canonical content-addressable bytes as a");
+    f.indented_doc_comment("source-polymorphic [`crate::pipeline::TermValue`] carrier (ADR-060).");
+    f.indented_doc_comment("`Inline` for values within the derived inline width, `Borrowed` for");
+    f.indented_doc_comment("larger in-memory values (zero-copy), or `Stream` for unbounded");
+    f.indented_doc_comment("sources. The carrier borrows the input's `'a`-lived data; for an");
+    f.indented_doc_comment("Inline-only input it owns its bytes and is valid for any `'a`.");
     f.line("    #[allow(clippy::wrong_self_convention)]");
-    f.line("    fn into_binding_bytes(");
+    f.line("    fn as_binding_value<const INLINE_BYTES: usize>(");
     f.line("        &self,");
-    f.line("        out: &mut [u8],");
-    f.line("    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation>;");
+    f.line("    ) -> crate::pipeline::TermValue<'a, INLINE_BYTES>;");
     f.line("}");
     f.blank();
 
-    // INLINE_BYTES — foundation-side ceiling for the
-    // stack-allocated buffer `run_route` uses to materialize the input
-    // value's canonical bytes. ADR-023 specifies that `into_binding_bytes`
-    // writes into a buffer the call-site provides; on stable Rust 1.83
-    // we cannot size the buffer with `[u8; <T as IntoBindingValue>::MAX_BYTES]`
-    // (that needs nightly `generic_const_exprs`). The foundation-side
-    // ceiling is the architecturally-equivalent stable-Rust form: any
-    // input declaring `MAX_BYTES <= INLINE_BYTES` flows through
-    // the catamorphism; inputs declaring a larger MAX_BYTES are rejected
-    // at runtime by `run_route`.
-    // ADR-060: `INLINE_BYTES` and `INLINE_BYTES` are
-    // REMOVED (byte-width caps + their `HostBounds` source + `DefaultHostBounds`).
-    // `run_route` is const-generic over `INLINE_BYTES = carrier_inline_bytes::<B>()`
-    // (instantiated at the application boundary); the input-materialization and
-    // output-payload on-stack buffers are sized `[u8; INLINE_BYTES]`. Inputs /
-    // outputs declaring `IntoBindingValue::MAX_BYTES > INLINE_BYTES` are
-    // rejected at runtime (same rejection semantics, foundation-derived width).
-    // Larger structural / unbounded payloads flow through the catamorphism as
-    // `TermValue::Borrowed` / `TermValue::Stream` with no ceiling.
+    // ADR-060: the input and output paths are source-polymorphic and have
+    // NO byte-width ceiling. `run_route` is const-generic over
+    // `INLINE_BYTES = carrier_inline_bytes::<B>()` (instantiated at the
+    // application boundary); that const sizes only the `TermValue::Inline`
+    // variant (foundation-derived from the application's `HostBounds`
+    // primitives). The model input flows in as a source-polymorphic
+    // `TermValue` carrier (`as_binding_value`, ADR-023 amended by ADR-060):
+    // `Inline` for small values, `Borrowed` for large in-memory values
+    // (zero-copy), or `Stream` for unbounded sources — folded through the
+    // hasher chunk-by-chunk for the content address. The route output is
+    // likewise a `TermValue` carried by `Grounded<'a>` (ADR-028 amended).
+    // There is no input/output rejection by size: arbitrarily large inputs
+    // content-address natively.
 
     // FOLD_UNROLL_THRESHOLD — wiki ADR-026 G14.
     //
@@ -4338,7 +4329,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
     f.doc_comment("[`run_route`] traverses (per ADR-022 D2 + D3 + D5).");
     f.line(
-        "pub trait PrismModel<H, B, A, const INLINE_BYTES: usize, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
+        "pub trait PrismModel<'a, H, B, A, const INLINE_BYTES: usize, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
     );
     f.line("where");
     f.line("    H: crate::HostTypes,");
@@ -4361,18 +4352,21 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("Input feature type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment("foundation vocabulary.");
     f.indented_doc_comment("");
-    f.indented_doc_comment("Per wiki ADR-023, `Input` is also bound by [`IntoBindingValue`] so");
-    f.indented_doc_comment("[`run_route`] can serialize the runtime input value into the");
+    f.indented_doc_comment("Per wiki ADR-023 (amended by ADR-060), `Input` is also bound by");
+    f.indented_doc_comment("[`IntoBindingValue`]`<'a>` so [`run_route`] can flow the runtime");
+    f.indented_doc_comment("input value (as a source-polymorphic `TermValue` carrier) into the");
     f.indented_doc_comment("`CompileUnit` binding table for `Term::Variable { name_index: 0 }`");
-    f.indented_doc_comment("(the route's input-parameter slot per ADR-022 D3 G2).");
-    f.line("    type Input: ConstrainedTypeShape + IntoBindingValue;");
+    f.indented_doc_comment("(the route's input-parameter slot per ADR-022 D3 G2). The lifetime");
+    f.indented_doc_comment("`'a` is the borrowed-input-data lifetime the carrier (and the");
+    f.indented_doc_comment("resulting `Grounded<'a>` output) propagates.");
+    f.line("    type Input: ConstrainedTypeShape + IntoBindingValue<'a>;");
     f.blank();
     f.indented_doc_comment("Output label type — a [`ConstrainedTypeShape`] impl declared in");
     f.indented_doc_comment(
         "foundation vocabulary that is also a [`crate::enforcement::GroundedShape`].",
     );
     f.line(
-        "    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape + IntoBindingValue;",
+        "    type Output: ConstrainedTypeShape + crate::enforcement::GroundedShape + IntoBindingValue<'a>;",
     );
     f.blank();
     f.indented_doc_comment("Type-level witness of the term tree mapping `Input` to `Output`.");
@@ -4396,7 +4390,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("coherence, dispatch coverage, timing) or when reduction stages");
     f.indented_doc_comment("detect contradiction along the route.");
     f.line("    fn forward(input: Self::Input) -> Result<");
-    f.line("        crate::enforcement::Grounded<Self::Output, INLINE_BYTES>,");
+    f.line("        crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES>,");
     f.line("        PipelineFailure,");
     f.line("    >;");
     f.line("}");
@@ -4425,19 +4419,19 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] from the underlying [`run`] call.");
-    f.line("pub fn run_route<H, B, A, M, R, C, const INLINE_BYTES: usize>(");
+    f.line("pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize>(");
     f.line("    input: M::Input,");
     f.line("    resolvers: &R,");
     f.line("    commitment: &C,");
     f.line(") -> Result<");
-    f.line("    crate::enforcement::Grounded<M::Output, INLINE_BYTES>,");
+    f.line("    crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES>,");
     f.line("    PipelineFailure,");
     f.line(">");
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
-    f.line("    M: PrismModel<H, B, A, INLINE_BYTES, R, C>,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
+    f.line("    M: PrismModel<'a, H, B, A, INLINE_BYTES, R, C>,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -4458,44 +4452,29 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // build a `Validated<CompileUnit, FinalPhase>` whose root_term is");
     f.line("    // exactly that arena, and dispatch to `run` (the catamorphism).");
     f.line("    let arena_slice = <M::Route as FoundationClosed<INLINE_BYTES>>::arena_slice();");
-    f.line("    // ADR-023: serialize the runtime input value into a transient");
-    f.line("    // `Binding` for the route's input-parameter slot");
-    f.line("    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer");
-    f.line("    // ceiling is the foundation-side `INLINE_BYTES`");
-    f.line("    // (stable-Rust equivalent of nightly's");
-    f.line("    // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).");
-    f.line("    let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;");
-    f.line("    if max_bytes > INLINE_BYTES {");
-    f.line("        // Per ADR-023: inputs whose declared MAX_BYTES exceeds the");
-    f.line("        // foundation-side ceiling are rejected — the canonical content");
-    f.line("        // address cannot be derived without a buffer big enough for");
-    f.line("        // the value's full byte sequence.");
-    f.line("        return Err(PipelineFailure::ShapeViolation {");
-    f.line("            report: crate::enforcement::ShapeViolation {");
-    f.line("                shape_iri: \"https://uor.foundation/pipeline/RouteInputBufferShape\",");
-    f.line(
-        "                constraint_iri: \"https://uor.foundation/pipeline/RouteInputBufferShape/maxBytes\",",
-    );
-    f.line("                property_iri: \"https://uor.foundation/pipeline/inputMaxBytes\",");
-    f.line(
-        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
-    );
-    f.line("                min_count: 0,");
-    f.line("                max_count: INLINE_BYTES as u32,");
-    f.line("                kind: crate::ViolationKind::ValueCheck,");
-    f.line("            },");
-    f.line("        });");
-    f.line("    }");
-    f.line("    let mut buf = [0u8; INLINE_BYTES];");
-    f.line("    let written = input.into_binding_bytes(&mut buf[..max_bytes])");
-    f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
-    f.line("    // Hash the canonical bytes through the application's selected");
-    f.line("    // `Hasher` (substitution axis A). The fold output is truncated to");
-    f.line("    // u64 for the `Binding.content_address` carrier, matching the");
-    f.line("    // `to_binding_entry` convention foundation already uses for static");
-    f.line("    // bindings (`ContentAddress::from_u64_fingerprint`).");
+    f.line("    // ADR-023 (amended by ADR-060): flow the runtime input value into a");
+    f.line("    // transient `Binding` for the route's input-parameter slot");
+    f.line("    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2) as a");
+    f.line("    // source-polymorphic carrier. Per ADR-060 principle (3) there is no");
+    f.line("    // carrier-side fixed allocation that depends on payload size: the");
+    f.line("    // input carrier is `Inline` (small values), `Borrowed` (large in-memory");
+    f.line("    // values, zero-copy), or `Stream` (unbounded). There is NO input");
+    f.line("    // byte-width ceiling and no rejection by size — the content address is");
+    f.line("    // derived by folding the carrier through the selected `Hasher`");
+    f.line("    // chunk-by-chunk, so arbitrarily large inputs flow natively.");
+    f.line("    let input_value = input.as_binding_value::<INLINE_BYTES>();");
+    f.line("    // Stream-fold the input carrier through the application's selected");
+    f.line("    // `Hasher` (substitution axis A). `for_each_chunk` visits `Inline` and");
+    f.line("    // `Borrowed` carriers in a single chunk and `Stream` carriers");
+    f.line("    // chunk-by-chunk; peak resident memory is the chunk size, never the");
+    f.line("    // full canonical sequence. The fold output is truncated to u64 for the");
+    f.line("    // `Binding.content_address` carrier, matching the `to_binding_entry`");
+    f.line("    // convention foundation uses for static bindings.");
     f.line("    let mut hasher = <A as crate::enforcement::Hasher>::initial();");
-    f.line("    hasher = hasher.fold_bytes(&buf[..written]);");
+    f.line("    input_value.for_each_chunk(&mut |chunk| {");
+    f.line("        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())");
+    f.line("            .fold_bytes(chunk);");
+    f.line("    });");
     f.line("    let digest = hasher.finalize();");
     f.line("    let content_address: u64 =");
     f.line("        u64::from_be_bytes([");
@@ -4538,33 +4517,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        .result_type::<M::Output>()");
     f.line("        .validate()");
     f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
-    f.line("    // ADR-028: reject Output shapes that would overflow the foundation");
-    f.line("    // ceiling. Parallel to ADR-023's input-side check, but checked");
-    f.line("    // against the Output-side `IntoBindingValue::MAX_BYTES`.");
-    f.line("    let out_max = <M::Output as IntoBindingValue>::MAX_BYTES;");
-    f.line("    if out_max > INLINE_BYTES {");
-    f.line("        return Err(PipelineFailure::ShapeViolation {");
-    f.line("            report: crate::enforcement::ShapeViolation {");
-    f.line(
-        "                shape_iri: \"https://uor.foundation/pipeline/RouteOutputBufferShape\",",
-    );
-    f.line(
-        "                constraint_iri: \"https://uor.foundation/pipeline/RouteOutputBufferShape/maxBytes\",",
-    );
-    f.line("                property_iri: \"https://uor.foundation/pipeline/outputMaxBytes\",");
-    f.line(
-        "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
-    );
-    f.line("                min_count: 0,");
-    f.line("                max_count: INLINE_BYTES as u32,");
-    f.line("                kind: crate::ViolationKind::ValueCheck,");
-    f.line("            },");
-    f.line("        });");
-    f.line("    }");
-    f.line("    // ADR-029: evaluate the route's Term tree as a structural fold.");
-    f.line("    // The catamorphism's output bytes flow into the Grounded's");
-    f.line("    // output payload (ADR-028).");
-    f.line("    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, &buf[..written], resolvers)?;");
+    f.line("    // ADR-028 (amended by ADR-060): there is no output byte-width");
+    f.line("    // ceiling. The route's evaluated output is a source-polymorphic");
+    f.line("    // `TermValue` (Inline κ-label for content-addressing routes; Borrowed/");
+    f.line("    // Stream for structural/unbounded outputs) carried by `Grounded<'a>`.");
+    f.line("    // ADR-029: evaluate the route's Term tree as a structural fold; the");
+    f.line("    // catamorphism's output carrier flows into the Grounded's output");
+    f.line("    // payload (ADR-028). The input carrier threads `'a` so a Borrowed/");
+    f.line("    // Stream output borrows the same input data the `Grounded<'a>` carries.");
+    f.line("    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, input_value, resolvers)?;");
     f.line("    // Wiki ADR-048: post-resolver typed-bandwidth admission. The");
     f.line("    // catamorphism evaluates the model's `C: TypedCommitment` on the");
     f.line("    // κ-label byte sequence (the route's evaluated output, which for the");
@@ -4590,8 +4551,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            },");
     f.line("        });");
     f.line("    }");
-    f.line("    let grounded = run::<M::Output, _, A, INLINE_BYTES>(unit)?;");
-    f.line("    Ok(grounded.with_output_bytes(evaluation.bytes()))");
+    f.line("    // `run` grounds the unit with an empty output carrier (valid for any");
+    f.line("    // lifetime); the annotation coerces its `Grounded<'static>` to");
+    f.line("    // `Grounded<'a>` (TermValue is covariant in its lifetime) so the");
+    f.line("    // evaluated output carrier (which borrows the route's `'a` input data)");
+    f.line("    // can be attached via `with_output`.");
+    f.line("    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES> =");
+    f.line("        run::<M::Output, _, A, INLINE_BYTES>(unit)?;");
+    f.line("    Ok(grounded.with_output(evaluation))");
     f.line("}");
     f.blank();
 
@@ -5073,10 +5040,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds");
     f.doc_comment("index, level mismatch, exhausted match without wildcard arm, etc.).");
-    f.line("pub fn evaluate_term_tree<'a, A, R, const INLINE_BYTES: usize>(");
+    f.line("pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize>(");
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
-    f.line("    input_bytes: &'a [u8],");
-    f.line("    resolvers: &'a R,");
+    f.line("    input: TermValue<'a, INLINE_BYTES>,");
+    f.line("    // ADR-060: the resolver borrow `'r` is decoupled from the value/output");
+    f.line("    // lifetime `'a` — resolvers are consulted only during evaluation, so a");
+    f.line("    // locally-constructed resolver tuple (e.g. the `prism_model!`-emitted");
+    f.line("    // `forward` body's) can drive an evaluation whose output carrier escapes");
+    f.line("    // with the route input's `'a`.");
+    f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
@@ -5091,16 +5063,16 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,");
     f.line("{");
     f.line("    if arena.is_empty() {");
-    f.line("        // ADR-060: identity route — output is the input bytes by reference");
-    f.line("        // (zero-copy `Borrowed`, no inline-width ceiling so arbitrarily large");
-    f.line("        // inputs pass through).");
-    f.line("        return Ok(TermValue::borrowed(input_bytes));");
+    f.line("        // ADR-060: identity route — output IS the input carrier itself");
+    f.line("        // (Inline/Borrowed/Stream, no inline-width ceiling so arbitrarily");
+    f.line("        // large inputs pass through unchanged).");
+    f.line("        return Ok(input);");
     f.line("    }");
     f.line("    // Canonical convention: the root term is the last entry in the");
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A, R, INLINE_BYTES>(arena, root_idx, input_bytes, None, None, None, None, resolvers)");
+    f.line("    evaluate_term_at::<A, R, INLINE_BYTES>(arena, root_idx, input, None, None, None, None, resolvers)");
     f.line("}");
     f.blank();
 
@@ -5116,15 +5088,15 @@ fn emit_prism_model(f: &mut RustFile) {
     // required. The Term enum carries exactly the ten variants ADR-029
     // enumerates.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn evaluate_term_at<'a, 'b, A, R, const INLINE_BYTES: usize>(");
+    f.line("fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(");
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    idx: usize,");
-    f.line("    input_bytes: &'a [u8],");
+    f.line("    input: TermValue<'a, INLINE_BYTES>,");
     f.line("    recurse_value: Option<&'b [u8]>,");
     f.line("    recurse_idx_value: Option<&'b [u8]>,");
     f.line("    unfold_value: Option<&'b [u8]>,");
     f.line("    first_admit_idx_value: Option<&'b [u8]>,");
-    f.line("    resolvers: &'a R,");
+    f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
@@ -5193,16 +5165,18 @@ fn emit_prism_model(f: &mut RustFile) {
         "                return Ok(TermValue::inline_from_slice(first_admit_idx_value.unwrap_or(&[])));",
     );
     f.line("            }");
-    f.line("            Ok(TermValue::borrowed(input_bytes))");
+    f.line("            // ADR-022 D3 G2 + ADR-060: name_index = 0 returns the route");
+    f.line("            // input carrier itself (Inline/Borrowed/Stream) — no copy, no cap.");
+    f.line("            Ok(input)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A, R, INLINE_BYTES>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
+    f.line("            apply_primitive_op::<A, R, INLINE_BYTES>(arena, operator, start, len, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > INLINE_BYTES {");
@@ -5221,7 +5195,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > INLINE_BYTES {");
@@ -5234,7 +5208,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(arena, scrutinee_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(arena, scrutinee_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -5250,13 +5224,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
+    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, pattern_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, pattern_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
+    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -5291,11 +5265,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // forms within the measure/base computations; step body uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let measure = evaluate_term_at::<A, R, INLINE_BYTES>(arena, measure_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let measure = evaluate_term_at::<A, R, INLINE_BYTES>(arena, measure_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(measure.bytes());");
     f.line(
-        "            let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, base_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, base_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            if n == 0 {");
     f.line("                return Ok(base_val);");
@@ -5322,7 +5296,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
-    f.line("                    input_bytes,");
+    f.line("                    input,");
     f.line("                    Some(&current_buf[..current_len]),");
     f.line("                    Some(&descent_bytes[..]),");
     f.line("                    unfold_value,");
@@ -5351,7 +5325,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // within the seed; step body's state placeholder uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, seed_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, seed_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let mut state_buf = [0u8; INLINE_BYTES];");
     f.line("            let mut state_len = seed_val.bytes().len();");
@@ -5365,7 +5339,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
-    f.line("                    input_bytes,");
+    f.line("                    input,");
     f.line("                    recurse_value,");
     f.line("                    recurse_idx_value,");
     f.line("                    Some(&state_buf[..state_len]),");
@@ -5389,14 +5363,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            Ok(TermValue::inline_from_slice(&state_buf[..state_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers) {");
+    f.line("            match evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A, R, INLINE_BYTES>(arena, handler_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)",
+        "                        evaluate_term_at::<A, R, INLINE_BYTES>(arena, handler_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)",
     );
     f.line("                    }");
     f.line("                }");
@@ -5405,7 +5379,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Term::AxisInvocation { axis_index, kernel_id, input_index } => {");
     f.line("            // ADR-055: read the axis's SubstrateTermBody::body_arena() via");
     f.line("            // `AxisTuple::body_arena_at`. When non-empty, recursively fold");
-    f.line("            // the body with the evaluated kernel input bound as input_bytes;");
+    f.line("            // the body with the evaluated kernel input bound as input;");
     f.line("            // when empty (primitive-fast-path interpretation), dispatch the");
     f.line("            // kernel function directly per the optional fast-path per ADR-055.");
     f.line("            //");
@@ -5415,10 +5389,33 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
     f.line("            // (axis_index, kernel_id) combinations and may provide substrate-");
     f.line("            // Term bodies the catamorphism walks structurally.");
-    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, input_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);");
     f.line("            if body.is_empty() {");
-    f.line("                // Primitive fast-path: dispatch the kernel function directly.");
+    f.line("                if axis_index == 0 && kernel_id == 0 {");
+    f.line("                    // ADR-060: the canonical σ-projection / hash axis (axis 0,");
+    f.line("                    // kernel 0) folds the operand carrier through the `Hasher`");
+    f.line("                    // chunk-by-chunk via `for_each_chunk`, so a `Stream` or");
+    f.line("                    // large `Borrowed` operand of arbitrary size folds without");
+    f.line("                    // materialization. (The `v.bytes()` dispatch path would see");
+    f.line("                    // an empty slice for a `Stream` operand.) The digest is");
+    f.line("                    // always Inline — its width is bounded by the application's");
+    f.line("                    // fingerprint width, ≤ the derived inline width.");
+    f.line("                    let mut hasher = <A as crate::enforcement::Hasher>::initial();");
+    f.line("                    v.for_each_chunk(&mut |chunk| {");
+    f.line("                        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())");
+    f.line("                            .fold_bytes(chunk);");
+    f.line("                    });");
+    f.line("                    let digest = hasher.finalize();");
+    f.line("                    let n_max = <A as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line(
+        "                    let width = if n_max > INLINE_BYTES { INLINE_BYTES } else { n_max };",
+    );
+    f.line("                    return Ok(TermValue::inline_from_slice(&digest[..width]));");
+    f.line("                }");
+    f.line("                // Primitive fast-path: dispatch the kernel function directly on");
+    f.line("                // the bounded operand bytes (user-declared axes operate on");
+    f.line("                // bounded values; `v.bytes()` yields the Inline/Borrowed slice).");
     f.line("                let mut out = [0u8; INLINE_BYTES];");
     f.line("                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                    Ok(n) => n,");
@@ -5433,16 +5430,17 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // body with the evaluated kernel input bound in scope. The");
     f.line("                // body's root term is by convention the last entry in the arena.");
     f.line("                let root = body.len() - 1;");
-    f.line("                // ADR-060: the kernel input `v.bytes()` is a local borrow, so the");
-    f.line("                // recursively-folded body result is materialized into an owned");
-    f.line("                // `Inline` carrier (it cannot outlive the local `v`).");
-    f.line("                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(body, root, v.bytes(), recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("                // The evaluated kernel input carrier `v` is threaded as the");
+    f.line("                // body's input; the recursively-folded body result is");
+    f.line("                // materialized into an owned `Inline` carrier so it does not");
+    f.line("                // borrow the body arena's transient scope.");
+    f.line("                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(body, root, v, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("                Ok(TermValue::inline_from_slice(folded.bytes()))");
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
     f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
-    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, source_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, source_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("            let bytes = v.bytes();");
     f.line("            let start = byte_offset as usize;");
     f.line("            let end = start.saturating_add(byte_length as usize);");
@@ -5474,7 +5472,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // 0x01 || idx_bytes); after exhausting the domain return the");
     f.line("            // \"not-found\" coproduct value 0x00 || idx-width zero bytes.");
     f.line(
-        "            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(arena, domain_size_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(arena, domain_size_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(domain_size.bytes());");
     f.line("            // Determine the idx byte width from the domain size's");
@@ -5497,7 +5495,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES>(");
     f.line("                    arena,");
     f.line("                    predicate_index as usize,");
-    f.line("                    input_bytes,");
+    f.line("                    input,");
     f.line("                    recurse_value,");
     f.line("                    recurse_idx_value,");
     f.line("                    unfold_value,");
@@ -5617,7 +5615,7 @@ fn emit_prism_model(f: &mut RustFile) {
         f.line("            // `PipelineFailure::ShapeViolation` (the Null defaults emit");
         f.line("            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).");
         f.line(&format!(
-            "            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(arena, {operand_field} as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
+            "            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(arena, {operand_field} as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
         ));
         f.line(&format!(
             "            match resolvers.{accessor}().resolve(operand) {{"
@@ -5637,7 +5635,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // are returned as-is; downstream consumers slice the");
     f.line("            // Betti tuple positions out of the result.");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, homology_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, homology_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            Ok(v)");
     f.line("        }");
@@ -5648,17 +5646,17 @@ fn emit_prism_model(f: &mut RustFile) {
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn apply_primitive_op<'a, 'b, A, R, const INLINE_BYTES: usize>(");
+    f.line("fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(");
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    args_start: usize,");
     f.line("    args_len: usize,");
-    f.line("    input_bytes: &'a [u8],");
+    f.line("    input: TermValue<'a, INLINE_BYTES>,");
     f.line("    recurse_value: Option<&'b [u8]>,");
     f.line("    recurse_idx_value: Option<&'b [u8]>,");
     f.line("    unfold_value: Option<&'b [u8]>,");
     f.line("    first_admit_idx_value: Option<&'b [u8]>,");
-    f.line("    resolvers: &'a R,");
+    f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
@@ -5713,7 +5711,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    }");
     f.line("    if arity == 1 {");
     f.line(
-        "        let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "        let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
@@ -5744,9 +5742,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        Ok(TermValue::inline_from_slice(&arr[8 - width..]))");
     f.line("    } else {");
     f.line(
-        "        let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "        let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
-    f.line("        let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start + 1, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("        let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start + 1, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and");
     f.line("        // comparison primitives bypass the u64 fold and operate on the");
     f.line("        // operands' full byte sequences.");
@@ -6154,15 +6152,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        &[]");
     f.line("    }");
     f.line("}");
-    f.line("impl IntoBindingValue for ConstrainedTypeInput {");
-    f.line("    const MAX_BYTES: usize = 0;");
-    f.line("    fn into_binding_bytes(");
-    f.line("        &self,");
-    f.line("        _out: &mut [u8],");
-    f.line("    ) -> core::result::Result<usize, crate::enforcement::ShapeViolation> {");
+    f.line("impl<'a> IntoBindingValue<'a> for ConstrainedTypeInput {");
+    f.line("    fn as_binding_value<const INLINE_BYTES: usize>(&self) -> crate::pipeline::TermValue<'a, INLINE_BYTES> {");
     f.line("        // Identity input carries no bytes — the empty shape's canonical");
-    f.line("        // serialization is the empty byte sequence.");
-    f.line("        Ok(0)");
+    f.line("        // carrier is the empty Inline carrier (valid for any lifetime).");
+    f.line("        crate::pipeline::TermValue::empty()");
     f.line("    }");
     f.line("}");
     f.blank();
@@ -8045,7 +8039,7 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     // Phase M.3: `run` returns `Result`, which is already `#[must_use]`.
     f.line("pub fn run<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
-    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");

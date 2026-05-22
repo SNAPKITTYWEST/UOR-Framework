@@ -2,6 +2,56 @@
 
 All notable changes to UOR-Framework are documented in this file.
 
+## 0.5.1 — ADR-060 source-polymorphic application I/O (input + Grounded output) — 2026-05-22
+
+Completes ADR-060: 0.5.0 made the **intermediate** carriers source-polymorphic
+but left the application **I/O boundary** hard-capped — `run_route` materialized
+the model input into a fixed `[u8; INLINE_BYTES]` buffer and rejected any input
+whose `MAX_BYTES` exceeded that, and `Grounded` stored its output in a fixed
+`[u8; INLINE_BYTES]` slot. Per ADR-060 principle (3) ("no carrier-side fixed
+allocation that depends on payload size") and ADR-028-as-amended (the output
+payload carrier is a source-polymorphic `TermValue`), both the input and output
+paths are now source-polymorphic, so **arbitrarily large inputs content-address
+natively** through `prism_model! → forward() → run_route()`. Conformance reports
+**546 passed, 0 warnings, 0 failed**.
+
+### Breaking
+
+- **`IntoBindingValue` is now `IntoBindingValue<'a>`** with a single method
+  `fn as_binding_value<const INLINE_BYTES: usize>(&self) -> TermValue<'a, INLINE_BYTES>`.
+  The `const MAX_BYTES` and `fn into_binding_bytes(&self, &mut [u8])` members are
+  removed. An input shape returns a source-polymorphic carrier: `Inline` (small),
+  `Borrowed` (large in-memory, zero-copy), or `Stream` (unbounded). There is no
+  input byte-width ceiling.
+- **`Grounded` gains a lifetime: `Grounded<'a, T, INLINE_BYTES, Tag = T>`.** Its
+  output payload is now a `TermValue<'a, INLINE_BYTES>` (was `[u8; INLINE_BYTES]`
+  + `output_len`); add `Grounded::output_value()` for the carrier and the
+  pre-existing `output_bytes()` for the contiguous prefix. The crate-internal
+  `with_output_bytes` setter becomes `with_output(TermValue)`.
+- **`PrismModel` gains a lifetime: `PrismModel<'a, H, B, A, INLINE_BYTES, R, C>`**;
+  `forward` returns `Grounded<'a, Output, INLINE_BYTES>`. `run_route` gains `'a`
+  and returns `Grounded<'a, …>`. The ψ-resolver `resolve` decouples its `&self`
+  borrow from the value lifetime (`fn resolve<'a>(&self, TermValue<'a, _>) -> …`),
+  so a locally-constructed resolver tuple can drive an evaluation whose output
+  carrier escapes with the route input's lifetime.
+
+### Fixed
+
+- `run_route` streams the model input through the selected `Hasher` (`Inline`/
+  `Borrowed` in one chunk, `Stream` chunk-by-chunk via `for_each_chunk`) for the
+  content address — no fixed buffer, no `MAX_BYTES > INLINE_BYTES` rejection.
+- The catamorphism's `Term::AxisInvocation` canonical hash (axis 0 / kernel 0)
+  folds the operand carrier via `for_each_chunk`, so a `Stream` operand hashes
+  correctly (previously `v.bytes()` saw an empty slice for `Stream`).
+
+### Added
+
+- `foundation/tests/behavior_adr_060_large_input_grounded.rs`: feeds an 8 KiB
+  `Borrowed` input and a 4 MiB `Stream` input through the sanctioned
+  `forward()`/`run_route()` path into a `Grounded`, asserting the output digest
+  reflects the **full** input (bounded resident memory; flipping a late byte
+  changes the digest). This test fails against the 0.5.0 capped path.
+
 ## 0.5.0 — ADR-060 source-polymorphic value carrier — 2026-05-22
 
 Breaking release. Replaces the contrived fixed 4096-byte `TermValue`

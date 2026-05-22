@@ -1,8 +1,8 @@
 //! Target §3 example: downstream-authored `Sinking` implementations.
 //!
 //! Demonstrates the outbound-boundary discipline: a `Sinking` impl projects
-//! a foundation-minted `Grounded<T>` through a specific `ProjectionMap` kind
-//! to a host-side output. The `&Grounded<T>` input is structurally
+//! a foundation-minted `Grounded<'static, T>` through a specific `ProjectionMap` kind
+//! to a host-side output. The `&Grounded<'static, T>` input is structurally
 //! unforgeable — sealed per §2, constructed only by `pipeline::run` — so
 //! the "cannot launder unverified data outward" guarantee is carried by
 //! the Rust type system.
@@ -32,7 +32,7 @@ impl Sinking<N> for WitnessReport {
     type ProjectionMap = Utf8ProjectionMap;
     type Output = String;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {
+    fn project(&self, grounded: &Grounded<'_, ConstrainedTypeInput, N>) -> String {
         format!(
             "witt_bits={} unit_address={:?} sigma={:.6}",
             grounded.witt_level_bits(),
@@ -51,7 +51,7 @@ impl Sinking<N> for FingerprintBytes {
     type ProjectionMap = BinaryProjectionMap;
     type Output = Vec<u8>;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> Vec<u8> {
+    fn project(&self, grounded: &Grounded<'_, ConstrainedTypeInput, N>) -> Vec<u8> {
         grounded.content_fingerprint().as_bytes().to_vec()
     }
 }
@@ -67,14 +67,14 @@ fn main() {
         .validate()
         .expect("unit is well-formed");
 
-    // Step 2: run the pipeline to mint a Grounded<T>. This sealed value is
+    // Step 2: run the pipeline to mint a Grounded<'static, T>. This sealed value is
     // the only admissible input to a Sinking projection.
     let grounded =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
 
     // Step 3: project through two different Sinking impls. Each one serves
     // a distinct ProjectionMap kind; the foundation contract ensures both
-    // inputs are sealed Grounded<_> values — nothing else is expressible.
+    // inputs are sealed Grounded<'static, _> values — nothing else is expressible.
     let report = WitnessReport.project(&grounded);
     let bytes = FingerprintBytes.project(&grounded);
 
@@ -86,12 +86,12 @@ fn main() {
     );
 
     // Step 4: the key discipline demonstrated — Sinking::project accepts only
-    // &Grounded<Source>. Downstream cannot call these functions on raw data;
+    // &Grounded<'static, Source>. Downstream cannot call these functions on raw data;
     // the type system rejects it at compile time. See the compile_fail test
     // in phase_x6_sinking.rs for the anchor.
     println!(
-        "\nTarget §3 guarantee upheld: both sinks consumed &Grounded<{}>,\n\
-         not raw primitives. The sealing of Grounded<T> is the sole\n\
+        "\nTarget §3 guarantee upheld: both sinks consumed &Grounded<'static, {}>,\n\
+         not raw primitives. The sealing of Grounded<'static, T> is the sole\n\
          structural assurance that unverified data cannot be laundered outward.",
         std::any::type_name::<ConstrainedTypeInput>()
     );

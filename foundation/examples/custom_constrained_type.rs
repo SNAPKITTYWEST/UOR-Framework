@@ -19,7 +19,7 @@ use uor_foundation_test_helpers::Fnv1aHasher16;
 
 /// A downstream-declared constrained type: 4 sites, residue-3-mod-7 constraint.
 ///
-/// Sealing lives on `Validated<T>` / `Grounded<T>` construction — downstream
+/// Sealing lives on `Validated<T>` / `Grounded<'static, T>` construction — downstream
 /// is free to impl `ConstrainedTypeShape` but cannot mint `Validated<Self>`
 /// except through a foundation admission function.
 pub struct ModSeven4Site;

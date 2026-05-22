@@ -385,7 +385,8 @@ fn prism_model_macro_recognises_input_variable_and_unary_op() {
 fn prism_model_macro_satisfies_prism_model_bound() {
     // The macro emitted `impl PrismModel<H, B, A> for AddTwoLiterals` —
     // pin that the impl resolves at compile time.
-    fn _accepts<M: PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>() {}
+    fn _accepts<'a, M: PrismModel<'a, DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>() {
+    }
     _accepts::<AddTwoLiterals>();
     _accepts::<VariableThenSucc>();
     // Surface assertion: the bound check above is itself the test.
@@ -436,13 +437,20 @@ fn output_shape_emits_grounded_shape_impl() {
 }
 
 #[test]
-fn output_shape_emits_into_binding_value_with_max_bytes_equals_site_count() {
-    assert_eq!(<OutputHashSmoke as IntoBindingValue>::MAX_BYTES, 32);
+fn output_shape_emits_into_binding_value_carrier() {
+    // ADR-060: `IntoBindingValue` no longer carries a `MAX_BYTES` ceiling; an
+    // output shape used as an input contributes the empty source-polymorphic
+    // carrier (no bytes, no width cap).
+    use uor_foundation::pipeline::{IntoBindingValue, TermValue};
+    let shape = OutputHashSmoke;
+    let carrier: TermValue<'_, SMOKE_IB> =
+        <OutputHashSmoke as IntoBindingValue>::as_binding_value::<SMOKE_IB>(&shape);
+    assert!(carrier.bytes().is_empty());
 }
 
 #[test]
 fn output_shape_qualifies_as_prism_model_output() {
-    fn _accepts<T: ConstrainedTypeShape + GroundedShape + IntoBindingValue>() {}
+    fn _accepts<'a, T: ConstrainedTypeShape + GroundedShape + IntoBindingValue<'a>>() {}
     _accepts::<OutputHashSmoke>();
 }
 
@@ -990,7 +998,7 @@ fn partition_coproduct_macro_matches_st10_structure() {
 
 #[test]
 fn partition_product_macro_emits_grounded_shape_and_into_binding_value() {
-    fn _accepts<T: ConstrainedTypeShape + GroundedShape + IntoBindingValue>() {}
+    fn _accepts<'a, T: ConstrainedTypeShape + GroundedShape + IntoBindingValue<'a>>() {}
     _accepts::<LeafAPpLeafB>();
     _accepts::<LeafAPcLeafB>();
 }
@@ -1422,13 +1430,11 @@ impl<const N: usize> ConstrainedTypeShape for BigIntShape<N> {
 }
 
 impl<const N: usize> uor_foundation::pipeline::__sdk_seal::Sealed for BigIntShape<N> {}
-impl<const N: usize> uor_foundation::pipeline::IntoBindingValue for BigIntShape<N> {
-    const MAX_BYTES: usize = 0;
-    fn into_binding_bytes(
+impl<'a, const N: usize> uor_foundation::pipeline::IntoBindingValue<'a> for BigIntShape<N> {
+    fn as_binding_value<const INLINE_BYTES: usize>(
         &self,
-        _out: &mut [u8],
-    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
-        Ok(0)
+    ) -> uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+        uor_foundation::pipeline::TermValue::empty()
     }
 }
 impl<const N: usize> uor_foundation::enforcement::GroundedShape for BigIntShape<N> {}
@@ -1730,7 +1736,7 @@ impl<const INLINE_BYTES: usize, H: Hasher> NerveResolver<INLINE_BYTES, H>
     for SentinelNerveResolver<H>
 {
     fn resolve<'a>(
-        &'a self,
+        &self,
         _input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
         const SENTINEL: &[u8] = &[0xA1, 0xB2, 0xC3, 0xD4];
@@ -1786,7 +1792,9 @@ fn psi_chain_nerve_term_dispatches_through_user_declared_resolver() {
     };
     let input = [0x00, 0x00, 0x00];
     let result = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
-        &arena, &input, &resolvers,
+        &arena,
+        uor_foundation::pipeline::TermValue::borrowed(&input),
+        &resolvers,
     )
     .expect("user-declared nerve resolver should resolve");
     assert_eq!(
@@ -1815,7 +1823,9 @@ fn undeclared_resolver_categories_propagate_resolver_absent() {
     };
     let input = [0u8; 1];
     let outcome = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
-        &arena, &input, &resolvers,
+        &arena,
+        uor_foundation::pipeline::TermValue::borrowed(&input),
+        &resolvers,
     );
     match outcome {
         Err(PipelineFailure::ShapeViolation { report }) => assert_eq!(
@@ -1902,7 +1912,7 @@ macro_rules! psi_marker_resolver_byte_input {
         impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
         impl<const INLINE_BYTES: usize, H: Hasher> $trait<INLINE_BYTES, H> for $struct<H> {
             fn resolve<'a>(
-                &'a self,
+                &self,
                 input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
             ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
                 append_marker_tv::<INLINE_BYTES>(input.bytes(), $marker)
@@ -1921,7 +1931,7 @@ macro_rules! psi_marker_resolver_typed_input {
         impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
         impl<const INLINE_BYTES: usize, H: Hasher> $trait<INLINE_BYTES, H> for $struct<H> {
             fn resolve<'a>(
-                &'a self,
+                &self,
                 input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
             ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
                 append_marker_tv::<INLINE_BYTES>(input.bytes(), $marker)
@@ -2036,7 +2046,9 @@ fn psi_chain_homology_branch_routes_feature_to_betti_label() {
         let resolvers = complete_resolvers();
         let input = [0xFEu8, 0xED];
         let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena, &input, &resolvers,
+            &arena,
+            uor_foundation::pipeline::TermValue::borrowed(&input),
+            &resolvers,
         )
         .expect("homology-branch chain should resolve end-to-end");
         let expected = &[0xFE, 0xED, PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
@@ -2066,7 +2078,9 @@ fn psi_chain_cohomology_branch_routes_feature_to_cohomology_label() {
         let resolvers = complete_resolvers();
         let input = [0xCAu8, 0xFE];
         let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena, &input, &resolvers,
+            &arena,
+            uor_foundation::pipeline::TermValue::borrowed(&input),
+            &resolvers,
         )
         .expect("cohomology-branch chain should resolve end-to-end");
         let expected = &[
@@ -2104,7 +2118,9 @@ fn psi_chain_k_invariant_branch_routes_feature_to_k_invariant_label() {
         let resolvers = complete_resolvers();
         let input = [0xBEu8, 0xEF];
         let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena, &input, &resolvers,
+            &arena,
+            uor_foundation::pipeline::TermValue::borrowed(&input),
+            &resolvers,
         )
         .expect("k-invariant-branch chain should resolve end-to-end");
         let expected = &[
@@ -2212,7 +2228,7 @@ fn prism_model_forward_walks_k_invariant_psi_chain_end_to_end() {
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through the ψ-chain should resolve end-to-end");
-        let grounded: Grounded<ConstrainedTypeInput, SMOKE_IB> = result;
+        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB> = result;
         // Input is empty (ConstrainedTypeInput's `IntoBindingValue::MAX_BYTES
         // = 0`), so the chain emits only the per-ψ marker bytes:
         //   ψ_1 appends 0x01, ψ_7 appends 0x07, ψ_8 appends 0x08, ψ_9 appends 0x09.
@@ -2267,7 +2283,7 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through default-constructed resolvers should resolve");
-        let grounded: Grounded<ConstrainedTypeInput, SMOKE_IB> = result;
+        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB> = result;
         let expected = &[PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
         assert_eq!(
             grounded.output_bytes(),
@@ -3526,13 +3542,11 @@ impl ConstrainedTypeShape for RecursiveLeaf {
     const CYCLE_SIZE: u64 = 1;
 }
 impl uor_foundation::pipeline::__sdk_seal::Sealed for RecursiveLeaf {}
-impl uor_foundation::pipeline::IntoBindingValue for RecursiveLeaf {
-    const MAX_BYTES: usize = 0;
-    fn into_binding_bytes(
+impl<'a> uor_foundation::pipeline::IntoBindingValue<'a> for RecursiveLeaf {
+    fn as_binding_value<const INLINE_BYTES: usize>(
         &self,
-        _out: &mut [u8],
-    ) -> Result<usize, uor_foundation::enforcement::ShapeViolation> {
-        Ok(0)
+    ) -> uor_foundation::pipeline::TermValue<'a, INLINE_BYTES> {
+        uor_foundation::pipeline::TermValue::empty()
     }
 }
 impl uor_foundation::enforcement::GroundedShape for RecursiveLeaf {}

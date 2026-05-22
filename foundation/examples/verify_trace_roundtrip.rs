@@ -1,6 +1,6 @@
 //! v0.2.2 Phase Q.3 example: trace-replay round-trip verification.
 //!
-//! `Derivation::replay()` on a `Grounded<T>`'s derivation produces a sealed
+//! `Derivation::replay()` on a `Grounded<'static, T>`'s derivation produces a sealed
 //! `Trace`. `replay::certify_from_trace(&trace)` then re-derives a
 //! `Certified<GroundingCertificate>` whose fingerprint matches the source
 //! grounded value — demonstrating the content-addressed verify-trace
@@ -21,7 +21,7 @@ const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {
-    // Build → validate → run → Grounded<T>.
+    // Build → validate → run → Grounded<'static, T>.
     let builder = CompileUnitBuilder::new()
         .root_term(ROOT_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -29,7 +29,7 @@ fn main() {
         .target_domains(DOMAINS)
         .result_type::<ConstrainedTypeInput>();
     let unit: Validated<_> = builder.validate().expect("unit well-formed");
-    let grounded: Grounded<ConstrainedTypeInput, N> =
+    let grounded: Grounded<'static, ConstrainedTypeInput, N> =
         run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits");
 
     // Replay: extract a Trace from the grounded derivation. Type-annotate
