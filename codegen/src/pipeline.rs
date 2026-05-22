@@ -4192,13 +4192,16 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("the equivalent of the wiki's `&'static TermArena` bound: it");
     f.doc_comment("exposes the term tree without forcing every Route to carry the");
     f.doc_comment("arena's `CAP` const-generic through the trait.");
-    f.line("pub trait FoundationClosed: __sdk_seal::Sealed {");
+    f.line("pub trait FoundationClosed<const INLINE_BYTES: usize>: __sdk_seal::Sealed {");
     f.indented_doc_comment(
         "Returns the term-tree arena slice the `prism_model!` macro emitted for",
     );
     f.indented_doc_comment("this route witness. [`run_route`] reads this to populate the");
     f.indented_doc_comment("`CompileUnit`'s root_term before invoking [`run`].");
-    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term];");
+    f.indented_doc_comment("");
+    f.indented_doc_comment("ADR-060: the term arena is const-generic over the application's");
+    f.indented_doc_comment("foundation-derived inline carrier width `INLINE_BYTES`.");
+    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];");
     f.line("}");
     f.blank();
 
@@ -5201,17 +5204,17 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A, R>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
+    f.line("            apply_primitive_op::<A, R, INLINE_BYTES>(arena, operator, start, len, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
         "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
-    f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
-    f.line("                TERM_VALUE_MAX_BYTES");
+    f.line("            let target_width = if target_width > INLINE_BYTES {");
+    f.line("                INLINE_BYTES");
     f.line("            } else if target_width == 0 { 1 } else { target_width };");
-    f.line("            let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut buf = [0u8; INLINE_BYTES];");
     f.line("            // Big-endian zero-extend: pad the high bytes with zeros.");
     f.line("            let src = v.bytes();");
     f.line("            let pad = target_width.saturating_sub(src.len());");
@@ -5227,8 +5230,8 @@ fn emit_prism_model(f: &mut RustFile) {
         "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
-    f.line("            let target_width = if target_width > TERM_VALUE_MAX_BYTES {");
-    f.line("                TERM_VALUE_MAX_BYTES");
+    f.line("            let target_width = if target_width > INLINE_BYTES {");
+    f.line("                INLINE_BYTES");
     f.line("            } else if target_width == 0 { 1 } else { target_width };");
     f.line("            let src = v.bytes();");
     f.line("            // Big-endian truncation: take the trailing `target_width` bytes.");
@@ -5306,7 +5309,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // Iterate step N times. Each iteration's `current` becomes the");
     f.line("            // next iteration's recurse_value. The descent measure is the");
     f.line("            // bound; well-foundedness holds by monotonic decrease.");
-    f.line("            let mut current_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut current_buf = [0u8; INLINE_BYTES];");
     f.line("            let mut current_len = base_val.bytes().len();");
     f.line("            let mut k = 0;");
     f.line("            while k < current_len {");
@@ -5333,7 +5336,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    resolvers,");
     f.line("                )?;");
     f.line("                let nb = next.bytes();");
-    f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
+    f.line("                let copy_len = if nb.len() > INLINE_BYTES { INLINE_BYTES } else { nb.len() };");
     f.line("                let mut j = 0;");
     f.line("                while j < copy_len {");
     f.line("                    current_buf[j] = nb[j];");
@@ -5356,7 +5359,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line(
         "            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, seed_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
-    f.line("            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut state_buf = [0u8; INLINE_BYTES];");
     f.line("            let mut state_len = seed_val.bytes().len();");
     f.line("            let mut k = 0;");
     f.line("            while k < state_len {");
@@ -5380,7 +5383,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                if nb.len() == state_len && nb == &state_buf[..state_len] {");
     f.line("                    return Ok(TermValue::inline_from_slice(&state_buf[..state_len]));");
     f.line("                }");
-    f.line("                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { nb.len() };");
+    f.line("                let copy_len = if nb.len() > INLINE_BYTES { INLINE_BYTES } else { nb.len() };");
     f.line("                let mut j = 0;");
     f.line("                while j < copy_len {");
     f.line("                    state_buf[j] = nb[j];");
@@ -5422,12 +5425,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);");
     f.line("            if body.is_empty() {");
     f.line("                // Primitive fast-path: dispatch the kernel function directly.");
-    f.line("                let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];");
+    f.line("                let mut out = [0u8; INLINE_BYTES];");
     f.line("                let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                    Ok(n) => n,");
     f.line("                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),");
     f.line("                };");
-    f.line("                let width = if written > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { written };");
+    f.line("                let width = if written > INLINE_BYTES { INLINE_BYTES } else { written };");
     f.line("                Ok(TermValue::inline_from_slice(&out[..width]))");
     f.line("            } else {");
     f.line("                // ADR-055 recursive-fold path: walk the axis's substrate-Term");
@@ -5515,7 +5518,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    bi += 1;");
     f.line("                }");
     f.line("                if admitted {");
-    f.line("                    let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("                    let mut out_buf = [0u8; INLINE_BYTES];");
     f.line("                    out_buf[0] = 0x01;");
     f.line("                    let mut k = 0;");
     f.line("                    while k < idx_byte_width {");
@@ -5527,7 +5530,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                idx_iter += 1;");
     f.line("            }");
     f.line("            // No idx admitted — emit not-found coproduct value.");
-    f.line("            let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut out_buf = [0u8; INLINE_BYTES];");
     f.line("            out_buf[0] = 0x00;");
     f.line("            // bytes 1..1+idx_byte_width remain zero (structural padding).");
     f.line("            Ok(TermValue::inline_from_slice(&out_buf[..1 + idx_byte_width]))");
@@ -5641,29 +5644,29 @@ fn emit_prism_model(f: &mut RustFile) {
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn apply_primitive_op<A, R>(");
-    f.line("    arena: &[crate::enforcement::Term],");
+    f.line("fn apply_primitive_op<'a, A, R, const INLINE_BYTES: usize>(");
+    f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    args_start: usize,");
     f.line("    args_len: usize,");
-    f.line("    input_bytes: &[u8],");
-    f.line("    recurse_value: Option<&[u8]>,");
-    f.line("    recurse_idx_value: Option<&[u8]>,");
-    f.line("    unfold_value: Option<&[u8]>,");
-    f.line("    first_admit_idx_value: Option<&[u8]>,");
-    f.line("    resolvers: &R,");
-    f.line(") -> Result<TermValue, PipelineFailure>");
+    f.line("    input_bytes: &'a [u8],");
+    f.line("    recurse_value: Option<&'a [u8]>,");
+    f.line("    recurse_idx_value: Option<&'a [u8]>,");
+    f.line("    unfold_value: Option<&'a [u8]>,");
+    f.line("    first_admit_idx_value: Option<&'a [u8]>,");
+    f.line("    resolvers: &'a R,");
+    f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple");
-    f.line("        + crate::pipeline::HasNerveResolver<A>");
-    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
-    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
-    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
-    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
+    f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,");
     f.line("{");
     f.line("    // Unary ops: 1 arg. Binary ops: 2 args.");
     f.line("    let arity = match operator {");
@@ -5746,15 +5749,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        match operator {");
     f.line("            crate::PrimitiveOp::Concat => {");
     f.line("                // Concat: emit lhs.bytes() ⧺ rhs.bytes(), bounded by");
-    f.line("                // TERM_VALUE_MAX_BYTES (truncates excess; runtime callers");
+    f.line("                // INLINE_BYTES (truncates excess; runtime callers");
     f.line("                // declaring shapes whose composite length exceeds the");
     f.line("                // ceiling are rejected at validation time per ADR-028's");
     f.line("                // symmetric output ceiling check).");
     f.line("                let lb = lhs.bytes();");
     f.line("                let rb = rhs.bytes();");
     f.line("                let total = lb.len() + rb.len();");
-    f.line("                let cap = if total > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { total };");
-    f.line("                let mut buf = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("                let cap = if total > INLINE_BYTES { INLINE_BYTES } else { total };");
+    f.line("                let mut buf = [0u8; INLINE_BYTES];");
     f.line("                let mut i = 0;");
     f.line("                while i < lb.len() && i < cap { buf[i] = lb[i]; i += 1; }");
     f.line("                let mut j = 0;");
@@ -5822,7 +5825,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        // operands (Limbs<N>-backed levels W160..W32768) compute");
     f.line("        // correctly under Z/(2^(8·width))Z without truncating to u64.");
     f.line("        if width > 8 {");
-    f.line("            return byte_arith_be(operator, lhs.bytes(), rhs.bytes(), width);");
+    f.line("            return byte_arith_be::<INLINE_BYTES>(operator, lhs.bytes(), rhs.bytes(), width);");
     f.line("        }");
     f.line("        let a = bytes_to_u64_be(lhs.bytes());");
     f.line("        let b = bytes_to_u64_be(rhs.bytes());");
@@ -5876,16 +5879,16 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("semantics but operates on the runtime catamorphism's `TermValue` byte slices");
     f.doc_comment("rather than on typed `Limbs<N>` values.");
     f.line("#[allow(clippy::too_many_lines)]");
-    f.line("fn byte_arith_be(");
+    f.line("fn byte_arith_be<'a, const INLINE_BYTES: usize>(");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    lhs: &[u8],");
     f.line("    rhs: &[u8],");
     f.line("    width: usize,");
-    f.line(") -> Result<TermValue, PipelineFailure> {");
+    f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure> {");
     f.line("    // Pad both operands to `width` bytes (leading zeros, big-endian).");
-    f.line("    let mut a = [0u8; TERM_VALUE_MAX_BYTES];");
-    f.line("    let mut b = [0u8; TERM_VALUE_MAX_BYTES];");
-    f.line("    let w = if width > TERM_VALUE_MAX_BYTES { TERM_VALUE_MAX_BYTES } else { width };");
+    f.line("    let mut a = [0u8; INLINE_BYTES];");
+    f.line("    let mut b = [0u8; INLINE_BYTES];");
+    f.line("    let w = if width > INLINE_BYTES { INLINE_BYTES } else { width };");
     f.line("    {");
     f.line("        let la = lhs.len().min(w);");
     f.line("        let dst_off = w - la;");
@@ -5900,7 +5903,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        let mut i = 0;");
     f.line("        while i < lb { b[dst_off + i] = rhs[src_off + i]; i += 1; }");
     f.line("    }");
-    f.line("    let mut out = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("    let mut out = [0u8; INLINE_BYTES];");
     f.line("    match operator {");
     f.line("        crate::PrimitiveOp::And => {");
     f.line("            let mut i = 0; while i < w { out[i] = a[i] & b[i]; i += 1; }");
@@ -5931,7 +5934,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // a[w-1-i] * b[w-1-j] contributes to output position");
     f.line("            // (w-1)-(i+j) when (i+j) < w; otherwise it overflows the");
     f.line("            // ring modulus and is discarded.");
-    f.line("            let mut tmp = [0u32; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut tmp = [0u32; INLINE_BYTES];");
     f.line("            let mut i: usize = 0;");
     f.line("            while i < w {");
     f.line("                let mut j: usize = 0;");
@@ -5955,8 +5958,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::PrimitiveOp::Div | crate::PrimitiveOp::Mod => {");
     f.line("            // Binary long division MSB→LSB over the byte slice.");
-    f.line("            let mut q = [0u8; TERM_VALUE_MAX_BYTES];");
-    f.line("            let mut r = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut q = [0u8; INLINE_BYTES];");
+    f.line("            let mut r = [0u8; INLINE_BYTES];");
     f.line("            let total_bits = w * 8;");
     f.line("            let mut i = 0;");
     f.line("            while i < total_bits {");
@@ -5981,9 +5984,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // Square-and-multiply over byte-slice operands. Exponent");
     f.line("            // bits walked LSB→MSB; each iteration squares the running");
     f.line("            // base and conditionally multiplies into the accumulator.");
-    f.line("            let mut result = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut result = [0u8; INLINE_BYTES];");
     f.line("            result[w - 1] = 1;");
-    f.line("            let mut base = [0u8; TERM_VALUE_MAX_BYTES];");
+    f.line("            let mut base = [0u8; INLINE_BYTES];");
     f.line("            let mut k = 0; while k < w { base[k] = a[k]; k += 1; }");
     f.line("            let mut byte = w;");
     f.line("            while byte > 0 {");
@@ -5991,14 +5994,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                let mut bit = 0u32;");
     f.line("                while bit < 8 {");
     f.line("                    if ((b[byte] >> bit) & 1) == 1 {");
-    f.line("                        let prod = byte_arith_be(crate::PrimitiveOp::Mul, &result[..w], &base[..w], w)?;");
+    f.line("                        let prod = byte_arith_be::<INLINE_BYTES>(crate::PrimitiveOp::Mul, &result[..w], &base[..w], w)?;");
     f.line("                        let pb = prod.bytes();");
     f.line("                        let dst_off = w - pb.len().min(w);");
     f.line("                        let mut j = 0;");
     f.line("                        while j < w { result[j] = 0; j += 1; }");
     f.line("                        let mut j2 = 0; while j2 < pb.len().min(w) { result[dst_off + j2] = pb[j2]; j2 += 1; }");
     f.line("                    }");
-    f.line("                    let sq = byte_arith_be(crate::PrimitiveOp::Mul, &base[..w], &base[..w], w)?;");
+    f.line("                    let sq = byte_arith_be::<INLINE_BYTES>(crate::PrimitiveOp::Mul, &base[..w], &base[..w], w)?;");
     f.line("                    let sb = sq.bytes();");
     f.line("                    let dst_off = w - sb.len().min(w);");
     f.line("                    let mut j = 0;");
