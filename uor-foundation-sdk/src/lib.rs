@@ -4587,7 +4587,10 @@ fn render_atomic_term_in_builder(
 ///     so subsequent specs reference verb-spliced positions correctly
 ///   - returns `(buf, len)` and exposes `&buf[..len]` as the route's
 ///     `&'static [Term]` slice
-fn render_const_fn_arena_builder(arena: &[TermSpec]) -> proc_macro2::TokenStream {
+fn render_const_fn_arena_builder(
+    arena: &[TermSpec],
+    inline_bytes: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
     // Step 1: compute each spec's result-position TokenStream. For
     // atomic specs, the position is a fresh `pos_<N>` const-let. For
     // VerbSplice specs, the position is `len - 1` evaluated AFTER the
@@ -4619,7 +4622,7 @@ fn render_const_fn_arena_builder(arena: &[TermSpec]) -> proc_macro2::TokenStream
                     let __spliced = ::uor_foundation::enforcement::inline_verb_fragment(
                         buf,
                         len,
-                        #fragment_path,
+                        #fragment_path::<#inline_bytes>(),
                         (#arg_pos) as u32,
                     );
                     buf = __spliced.0;
@@ -4643,14 +4646,14 @@ fn render_const_fn_arena_builder(arena: &[TermSpec]) -> proc_macro2::TokenStream
     quote! {
         {
             const ROUTE_ARENA_CAP: usize = 256;
-            const fn __build_arena() -> ([::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP], usize) {
-                let mut buf: [::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP] =
+            const fn __build_arena() -> ([::uor_foundation::enforcement::Term<'static, #inline_bytes>; ROUTE_ARENA_CAP], usize) {
+                let mut buf: [::uor_foundation::enforcement::Term<'static, #inline_bytes>; ROUTE_ARENA_CAP] =
                     [::uor_foundation::enforcement::Term::Variable { name_index: 0u32 }; ROUTE_ARENA_CAP];
                 let mut len: usize = 0;
                 #( #stmts )*
                 (buf, len)
             }
-            const ROUTE_BUILT: ([::uor_foundation::enforcement::Term; ROUTE_ARENA_CAP], usize) =
+            const ROUTE_BUILT: ([::uor_foundation::enforcement::Term<'static, #inline_bytes>; ROUTE_ARENA_CAP], usize) =
                 __build_arena();
             const ROUTE_LEN: usize = ROUTE_BUILT.1;
             // Slice the active prefix; const split_at_checked is stable on Rust 1.83.
@@ -4773,7 +4776,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         .iter()
         .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
     let route_arena_expr = if route_has_verb_splices {
-        render_const_fn_arena_builder(&arena)
+        render_const_fn_arena_builder(&arena, &inline_bytes)
     } else {
         let term_specs = render_arena(&arena);
         quote! { &[ #( #term_specs ),* ] }
@@ -5212,7 +5215,7 @@ pub fn verb(input: TokenStream) -> TokenStream {
         .iter()
         .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
     let verb_fragment_expr = if body_has_verb_splices {
-        render_const_fn_arena_builder(&arena)
+        render_const_fn_arena_builder(&arena, &quote! { INLINE_BYTES })
     } else {
         let term_specs = render_arena(&arena);
         quote! { &[ #( #term_specs ),* ] }
