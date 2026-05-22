@@ -262,7 +262,7 @@ fn coproduct_shape_supports_affine_operand() {
 // returned by `<Route as FoundationClosed>::arena_slice()`.
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher, Term};
-use uor_foundation::{DefaultHostBounds, DefaultHostTypes, PrimitiveOp};
+use uor_foundation::{DefaultHostTypes, HostBounds, PrimitiveOp};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SmokeHasher;
@@ -279,10 +279,40 @@ impl Hasher for SmokeHasher {
     }
 }
 
+// ADR-060: `SmokeHostBounds` is removed — every application declares its own
+// `impl HostBounds`. This is the smoke suite's reference bounds, carrying the
+// pre-0.5.0 canonical values (16/32/256/64 + the 10 retained structural
+// counts). Carrier byte widths are foundation-derived from these via
+// `carrier_inline_bytes::<SmokeHostBounds>()`, not declared here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct SmokeHostBounds;
+impl HostBounds for SmokeHostBounds {
+    const FINGERPRINT_MIN_BYTES: usize = 16;
+    const FINGERPRINT_MAX_BYTES: usize = 32;
+    const TRACE_MAX_EVENTS: usize = 256;
+    const WITT_LEVEL_MAX_BITS: u32 = 64;
+    const FOLD_UNROLL_THRESHOLD: usize = 8;
+    const BETTI_DIMENSION_MAX: usize = 8;
+    const NERVE_CONSTRAINTS_MAX: usize = 8;
+    const NERVE_SITES_MAX: usize = 8;
+    const JACOBIAN_SITES_MAX: usize = 8;
+    const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+    const OP_CHAIN_DEPTH_MAX: usize = 8;
+    const AFFINE_COEFFS_MAX: usize = 8;
+    const CONJUNCTION_TERMS_MAX: usize = 8;
+    const UNFOLD_ITERATIONS_MAX: usize = 256;
+}
+
+// ADR-060: foundation-derived inline carrier width for `SmokeHostBounds`.
+// Bare references to `PrismModel`/`Has*Resolver`/`Grounded` in test-assertion
+// code (outside the `prism_model!`/`resolver!` blocks, which synthesize it)
+// thread this explicitly as the const-generic argument.
+const SMOKE_IB: usize = uor_foundation::pipeline::carrier_inline_bytes::<SmokeHostBounds>();
+
 prism_model! {
     pub struct AddTwoLiterals;
     pub struct AddTwoLiteralsRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for AddTwoLiterals {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for AddTwoLiterals {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = AddTwoLiteralsRoute;
@@ -322,7 +352,7 @@ fn prism_model_macro_emits_term_arena_for_simple_addition() {
 prism_model! {
     pub struct VariableThenSucc;
     pub struct VariableThenSuccRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for VariableThenSucc {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for VariableThenSucc {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = VariableThenSuccRoute;
@@ -355,13 +385,13 @@ fn prism_model_macro_recognises_input_variable_and_unary_op() {
 fn prism_model_macro_satisfies_prism_model_bound() {
     // The macro emitted `impl PrismModel<H, B, A> for AddTwoLiterals` —
     // pin that the impl resolves at compile time.
-    fn _accepts<M: PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher>>() {}
+    fn _accepts<M: PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>() {}
     _accepts::<AddTwoLiterals>();
     _accepts::<VariableThenSucc>();
     // Surface assertion: the bound check above is itself the test.
     assert_eq!(
         core::any::type_name::<
-            <AddTwoLiterals as PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher>>::Route,
+            <AddTwoLiterals as PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>::Route,
         >(),
         core::any::type_name::<AddTwoLiteralsRoute>(),
     );
@@ -432,7 +462,7 @@ verb! {
 
 #[test]
 fn verb_macro_emits_term_arena_const() {
-    let arena = smoke_succ_term_arena();
+    let arena = smoke_succ_term_arena::<SMOKE_IB>();
     // `succ(input)` → [Variable, Application{Succ, [0..1]}]
     assert_eq!(arena.len(), 2);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
@@ -448,9 +478,9 @@ fn verb_macro_emits_term_arena_const() {
 
 #[test]
 fn verb_macro_const_is_publicly_visible() {
-    // The `pub const VERB_TERMS_SMOKE_SUCC` is exported so prism_model!
+    // The `pub const VERB_TERMS_SMOKE_SUCC::<SMOKE_IB>()` is exported so prism_model!
     // can reference it when inlining via inline_verb_fragment (ADR-024).
-    let arena = VERB_TERMS_SMOKE_SUCC;
+    let arena = VERB_TERMS_SMOKE_SUCC::<SMOKE_IB>();
     assert_eq!(arena.len(), 2);
 }
 
@@ -460,7 +490,7 @@ fn verb_macro_const_is_publicly_visible() {
 prism_model! {
     pub struct VerbInvokingModel;
     pub struct VerbInvokingRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for VerbInvokingModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for VerbInvokingModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = VerbInvokingRoute;
@@ -482,7 +512,7 @@ fn prism_model_inlines_verb_fragment_for_local_verb_call() {
     //
     // The arena contains exactly 10-Term-variant nodes — no
     // `Term::VerbReference` (eleventh variant was removed).
-    assert_eq!(arena.len(), 1 + VERB_TERMS_SMOKE_SUCC.len());
+    assert_eq!(arena.len(), 1 + VERB_TERMS_SMOKE_SUCC::<SMOKE_IB>().len());
     // No VerbReference in the arena: every entry is one of the eleven
     // ADR-029 variants (ten from the original signature category plus
     // Term::ProjectField from ADR-033).
@@ -534,7 +564,7 @@ use uor_foundation::WittLevel;
 prism_model! {
     pub struct LiftToW16Model;
     pub struct LiftToW16Route;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for LiftToW16Model {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for LiftToW16Model {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = LiftToW16Route;
@@ -568,7 +598,7 @@ fn prism_model_emits_lift_term_for_g4_lift_form() {
 prism_model! {
     pub struct ProjectToW8Model;
     pub struct ProjectToW8Route;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ProjectToW8Model {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for ProjectToW8Model {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ProjectToW8Route;
@@ -597,7 +627,7 @@ fn prism_model_emits_project_term_for_g5_project_form() {
 prism_model! {
     pub struct LetBindingModel;
     pub struct LetBindingRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for LetBindingModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for LetBindingModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = LetBindingRoute;
@@ -639,7 +669,7 @@ fn prism_model_emits_term_arena_for_g10_let_binding() {
 prism_model! {
     pub struct TryPropagateModel;
     pub struct TryPropagateRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for TryPropagateModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for TryPropagateModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = TryPropagateRoute;
@@ -669,7 +699,7 @@ fn prism_model_emits_try_term_for_g9_postfix_question() {
 prism_model! {
     pub struct RecurseModel;
     pub struct RecurseRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for RecurseModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for RecurseModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = RecurseRoute;
@@ -690,7 +720,7 @@ fn prism_model_emits_recurse_term_for_g7_form() {
 prism_model! {
     pub struct UnfoldModel;
     pub struct UnfoldRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for UnfoldModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for UnfoldModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = UnfoldRoute;
@@ -709,7 +739,7 @@ fn prism_model_emits_unfold_term_for_g8_form() {
 prism_model! {
     pub struct FoldNUnrolledModel;
     pub struct FoldNUnrolledRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for FoldNUnrolledModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for FoldNUnrolledModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = FoldNUnrolledRoute;
@@ -756,7 +786,7 @@ fn prism_model_unrolls_fold_n_for_const_count_below_threshold() {
 prism_model! {
     pub struct MatchModel;
     pub struct MatchRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for MatchModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for MatchModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = MatchRoute;
@@ -811,7 +841,7 @@ uor_foundation_sdk::use_verbs! {
 prism_model! {
     pub struct ParallelComposeModel;
     pub struct ParallelComposeRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ParallelComposeModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for ParallelComposeModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ParallelComposeRoute;
@@ -840,7 +870,7 @@ fn prism_model_emits_parallel_term_for_g13_form() {
 prism_model! {
     pub struct TreeFoldModel;
     pub struct TreeFoldRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for TreeFoldModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for TreeFoldModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = TreeFoldRoute;
@@ -976,11 +1006,11 @@ fn partition_product_variadic_3_operands_folds_left_associatively() {
 fn use_verbs_re_exports_verb_const_and_accessor() {
     // The re-exported const matches the original module's const.
     assert_eq!(
-        VERB_TERMS_INNER_VERB.len(),
-        inner_verb_module::VERB_TERMS_INNER_VERB.len(),
+        VERB_TERMS_INNER_VERB::<SMOKE_IB>().len(),
+        inner_verb_module::VERB_TERMS_INNER_VERB::<SMOKE_IB>().len(),
     );
     // The re-exported accessor returns the same fragment.
-    let arena = inner_verb_term_arena();
+    let arena = inner_verb_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 2);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
 }
@@ -1034,7 +1064,7 @@ partition_product!(OuterLR, outer: InnerLR, tail: LeafA);
 prism_model! {
     pub struct ChainedFieldModel;
     pub struct ChainedFieldRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ChainedFieldModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for ChainedFieldModel {
         type Input = OuterLR;
         type Output = ConstrainedTypeInput;
         type Route = ChainedFieldRoute;
@@ -1128,7 +1158,7 @@ verb! {
 fn verb_macro_admits_depth2_positional_field_access() {
     // Depth-2 `input.0.0` lowers to nested ProjectField entries:
     // [Variable, ProjectField(0 → 0), ProjectField(1 → 0)].
-    let arena = verb_depth2_pos00_term_arena();
+    let arena = verb_depth2_pos00_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 3);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
     assert!(matches!(
@@ -1149,7 +1179,7 @@ fn verb_macro_admits_depth2_positional_field_access() {
 
 #[test]
 fn verb_macro_admits_depth2_pos01() {
-    let arena = verb_depth2_pos01_term_arena();
+    let arena = verb_depth2_pos01_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 3);
     assert!(matches!(
         arena[2],
@@ -1162,7 +1192,7 @@ fn verb_macro_admits_depth2_pos01() {
 
 #[test]
 fn verb_macro_admits_depth1_pos1_in_chained_context() {
-    let arena = verb_depth2_pos1_term_arena();
+    let arena = verb_depth2_pos1_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 2);
     assert!(matches!(
         arena[1],
@@ -1186,7 +1216,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_three_operand_depth2_access() {
-    let arena = verb_depth2_three_operands_term_arena();
+    let arena = verb_depth2_three_operands_term_arena::<SMOKE_IB>();
     // Expect: Variable, PF(0→0), PF(1→0), Variable, PF(3→0), PF(4→1),
     //         Application(Concat, [2..3+1]), Variable, PF(7→1),
     //         Application(Concat, [combined..]).
@@ -1231,7 +1261,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_literal_u64_wide_form() {
-    let arena = verb_wide_literal_u64_term_arena();
+    let arena = verb_wide_literal_u64_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 1);
     match arena[0] {
         Term::Literal { value, level } => {
@@ -1260,7 +1290,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_literal_bytes_wide_form_at_w128() {
-    let arena = verb_wide_literal_bytes_term_arena();
+    let arena = verb_wide_literal_bytes_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 1);
     match arena[0] {
         Term::Literal { value, level } => {
@@ -1287,7 +1317,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_wide_literal_in_compound_body() {
-    let arena = verb_wide_literal_compose_term_arena();
+    let arena = verb_wide_literal_compose_term_arena::<SMOKE_IB>();
     // Outermost: Application(Mod, [mul, literal]).
     let last = arena.last().expect("non-empty arena");
     match last {
@@ -1438,7 +1468,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_depth1_with_in_place_const_generic_operand() {
-    let arena = verb_depth1_through_in_place_const_generic_term_arena();
+    let arena = verb_depth1_through_in_place_const_generic_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 2);
     assert!(matches!(
         arena[1],
@@ -1462,7 +1492,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_depth2_through_in_place_const_generic() {
-    let arena = verb_depth2_through_in_place_const_generic_term_arena();
+    let arena = verb_depth2_through_in_place_const_generic_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 3);
     assert!(matches!(
         arena[1],
@@ -1496,7 +1526,7 @@ verb! {
 
 #[test]
 fn verb_macro_handles_const_generic_outer_partition_product() {
-    let arena = verb_depth2_const_generic_leaf_term_arena();
+    let arena = verb_depth2_const_generic_leaf_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 2);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
     assert!(matches!(
@@ -1526,7 +1556,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_depth2_through_const_generic_inner_partition() {
-    let arena = verb_depth2_const_generic_inner_term_arena();
+    let arena = verb_depth2_const_generic_inner_term_arena::<SMOKE_IB>();
     assert_eq!(arena.len(), 3);
     assert!(matches!(arena[0], Term::Variable { name_index: 0 }));
     assert!(matches!(
@@ -1566,7 +1596,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_concat_per_adr_056() {
-    let arena = verb_admits_concat_term_arena();
+    let arena = verb_admits_concat_term_arena::<SMOKE_IB>();
     let last = arena.last().expect("non-empty arena");
     assert!(matches!(
         last,
@@ -1588,7 +1618,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_byte_comparison_per_adr_056() {
-    let arena = verb_admits_byte_compare_term_arena();
+    let arena = verb_admits_byte_compare_term_arena::<SMOKE_IB>();
     let last = arena.last().expect("non-empty arena");
     assert!(matches!(
         last,
@@ -1611,7 +1641,7 @@ verb! {
 
 #[test]
 fn verb_macro_admits_hash_per_adr_056() {
-    let arena = verb_admits_hash_term_arena();
+    let arena = verb_admits_hash_term_arena::<SMOKE_IB>();
     let last = arena.last().expect("non-empty arena");
     assert!(matches!(
         last,
@@ -1626,7 +1656,7 @@ fn verb_macro_admits_hash_per_adr_056() {
 prism_model! {
     pub struct ChainedPosModel;
     pub struct ChainedPosRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ChainedPosModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for ChainedPosModel {
         type Input = PosOuter;
         type Output = ConstrainedTypeInput;
         type Route = ChainedPosRoute;
@@ -1689,12 +1719,17 @@ pub struct SentinelNerveResolver<H>(core::marker::PhantomData<H>);
 // non-conforming"; a unit test in the SDK crate is the harness case.
 impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for SentinelNerveResolver<H> {}
 
-impl<H: Hasher> NerveResolver<H> for SentinelNerveResolver<H> {
-    fn resolve(&self, _input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation> {
+// ADR-060: the resolver returns a source-polymorphic `TermValue` (blanket
+// over the carrier inline width). The sentinel fits the inline carrier.
+impl<const INLINE_BYTES: usize, H: Hasher> NerveResolver<INLINE_BYTES, H>
+    for SentinelNerveResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
         const SENTINEL: &[u8] = &[0xA1, 0xB2, 0xC3, 0xD4];
-        let n = SENTINEL.len().min(out.len());
-        out[..n].copy_from_slice(&SENTINEL[..n]);
-        Ok(n)
+        Ok(uor_foundation::pipeline::TermValue::inline_from_slice(SENTINEL))
     }
 }
 
@@ -1714,14 +1749,14 @@ fn resolver_macro_emits_all_eight_has_impls_so_run_route_bounds_resolve() {
     fn _accepts<R>()
     where
         R: ::uor_foundation::pipeline::ResolverTuple
-            + ::uor_foundation::pipeline::HasNerveResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasChainComplexResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasHomologyGroupResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasCochainComplexResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasCohomologyGroupResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasPostnikovResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasHomotopyGroupResolver<SmokeHasher>
-            + ::uor_foundation::pipeline::HasKInvariantResolver<SmokeHasher>,
+            + ::uor_foundation::pipeline::HasNerveResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasChainComplexResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasHomologyGroupResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasCochainComplexResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasCohomologyGroupResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasPostnikovResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasHomotopyGroupResolver<SMOKE_IB, SmokeHasher>
+            + ::uor_foundation::pipeline::HasKInvariantResolver<SMOKE_IB, SmokeHasher>,
     {
     }
     _accepts::<SingleCategoryResolvers<SmokeHasher>>();
@@ -1841,6 +1876,30 @@ fn append_marker(input: &[u8], out: &mut [u8], marker: u8) -> Result<usize, Shap
     Ok(n + 1)
 }
 
+// ADR-060: source-polymorphic variant of `append_marker` — appends `marker`
+// to `input` and returns the result as an `Inline` `TermValue`.
+fn append_marker_tv<'a, const INLINE_BYTES: usize>(
+    input: &[u8],
+    marker: u8,
+) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
+    let n = input.len();
+    if n + 1 > INLINE_BYTES {
+        return Err(ShapeViolation {
+            shape_iri: "https://example.org/psi-chain-test/OutputBufferShape",
+            constraint_iri: "https://example.org/psi-chain-test/OutputBufferShape/maxBytes",
+            property_iri: "https://example.org/psi-chain-test/output",
+            expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
+            min_count: 0,
+            max_count: INLINE_BYTES as u32,
+            kind: uor_foundation::ViolationKind::ValueCheck,
+        });
+    }
+    let mut buf = [0u8; INLINE_BYTES];
+    buf[..n].copy_from_slice(input);
+    buf[n] = marker;
+    Ok(uor_foundation::pipeline::TermValue::inline_from_slice(&buf[..n + 1]))
+}
+
 // Wiki ADR-041: per-trait input type. NerveResolver receives the raw
 // per-value `&[u8]`; the seven downstream resolvers receive their
 // ADR-041 typed-coordinate carrier (a zero-cost `#[repr(transparent)]`
@@ -1852,22 +1911,31 @@ macro_rules! psi_marker_resolver_byte_input {
         #[derive(Debug, Default)]
         pub struct $struct<H>(core::marker::PhantomData<H>);
         impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
-        impl<H: Hasher> $trait<H> for $struct<H> {
-            fn resolve(&self, input: &[u8], out: &mut [u8]) -> Result<usize, ShapeViolation> {
-                append_marker(input, out, $marker)
+        impl<const INLINE_BYTES: usize, H: Hasher> $trait<INLINE_BYTES, H> for $struct<H> {
+            fn resolve<'a>(
+                &'a self,
+                input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
+            ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
+                append_marker_tv::<INLINE_BYTES>(input.bytes(), $marker)
             }
         }
     };
 }
 
+// ADR-060: the resolve signature is uniform (`TermValue` in/out); the ADR-041
+// typed-input distinction is no longer part of the trait surface, so the
+// `$input_ty` parameter is retained for call-site compatibility but unused.
 macro_rules! psi_marker_resolver_typed_input {
     ($struct:ident, $trait:ident, $marker:ident, $input_ty:ty) => {
         #[derive(Debug, Default)]
         pub struct $struct<H>(core::marker::PhantomData<H>);
         impl<H: Hasher> uor_foundation::pipeline::__sdk_seal::Sealed for $struct<H> {}
-        impl<H: Hasher> $trait<H> for $struct<H> {
-            fn resolve(&self, input: $input_ty, out: &mut [u8]) -> Result<usize, ShapeViolation> {
-                append_marker(input.as_bytes(), out, $marker)
+        impl<const INLINE_BYTES: usize, H: Hasher> $trait<INLINE_BYTES, H> for $struct<H> {
+            fn resolve<'a>(
+                &'a self,
+                input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
+            ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
+                append_marker_tv::<INLINE_BYTES>(input.bytes(), $marker)
             }
         }
     };
@@ -2125,7 +2193,7 @@ prism_model! {
     pub struct KInvariantInferenceRoute;
     impl PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        SmokeHostBounds,
         SmokeHasher,
         CompleteResolvers<SmokeHasher>
     > for KInvariantInferenceModel {
@@ -2154,7 +2222,7 @@ fn prism_model_forward_walks_k_invariant_psi_chain_end_to_end() {
     run_psi_chain_body(|| {
         let result = <KInvariantInferenceModel as PrismModel<
             DefaultHostTypes,
-            DefaultHostBounds,
+            SmokeHostBounds,
             SmokeHasher,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
@@ -2182,7 +2250,7 @@ prism_model! {
     pub struct HomologyInferenceRoute;
     impl PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        SmokeHostBounds,
         SmokeHasher,
         CompleteResolvers<SmokeHasher>
     > for HomologyInferenceModel {
@@ -2208,7 +2276,7 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
     run_psi_chain_body(|| {
         let result = <HomologyInferenceModel as PrismModel<
             DefaultHostTypes,
-            DefaultHostBounds,
+            SmokeHostBounds,
             SmokeHasher,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
@@ -2423,7 +2491,7 @@ fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
         // bytes carry the chain trace [ψ_1, ψ_7, ψ_8, ψ_9] = [0x01, 0x07, 0x08, 0x09].
         let grounded = <KInvariantInferenceModel as PrismModel<
             DefaultHostTypes,
-            DefaultHostBounds,
+            SmokeHostBounds,
             SmokeHasher,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
@@ -2757,7 +2825,7 @@ prism_model! {
     pub struct CostModelRejectsRoute;
     impl PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        SmokeHostBounds,
         SmokeHasher,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
@@ -2794,7 +2862,7 @@ fn adr048_cost_model_rejects_kappa_label_on_predicate_failure() {
     run_psi_chain_body(|| {
         let result = <CostModelRejectsModel as PrismModel<
             DefaultHostTypes,
-            DefaultHostBounds,
+            SmokeHostBounds,
             SmokeHasher,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
@@ -2822,7 +2890,7 @@ prism_model! {
     pub struct CostModelAcceptsRoute;
     impl PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        SmokeHostBounds,
         SmokeHasher,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
@@ -2854,7 +2922,7 @@ fn adr048_cost_model_accepts_kappa_label_on_predicate_success() {
     run_psi_chain_body(|| {
         let result = <CostModelAcceptsModel as PrismModel<
             DefaultHostTypes,
-            DefaultHostBounds,
+            SmokeHostBounds,
             SmokeHasher,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
@@ -3263,7 +3331,7 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
 prism_model! {
     pub struct DivModel;
     pub struct DivRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for DivModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for DivModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = DivRoute;
@@ -3276,7 +3344,7 @@ prism_model! {
 prism_model! {
     pub struct ModModel;
     pub struct ModRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for ModModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for ModModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ModRoute;
@@ -3289,7 +3357,7 @@ prism_model! {
 prism_model! {
     pub struct PowModel;
     pub struct PowRoute;
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, SmokeHasher> for PowModel {
+    impl PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher> for PowModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = PowRoute;
