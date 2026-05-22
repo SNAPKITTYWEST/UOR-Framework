@@ -633,19 +633,19 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("downstream code that needs deterministic hashing should fold through");
     f.doc_comment("the substrate `Hasher` via the pipeline's `fold_stream_digest`.");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
-    f.line("pub struct StreamDeclaration<'a> {");
+    f.line("pub struct StreamDeclaration<'a, const INLINE_BYTES: usize> {");
     f.line("    payload: u64,");
     f.line("    result_type_iri: &'static str,");
     f.indented_doc_comment("v0.2.2 Phase A: stream seed term slice retained from the builder.");
-    f.line("    seed: &'a [Term],");
+    f.line("    seed: &'a [Term<'a, INLINE_BYTES>],");
     f.indented_doc_comment("v0.2.2 Phase A: stream step term slice retained from the builder.");
-    f.line("    step: &'a [Term],");
+    f.line("    step: &'a [Term<'a, INLINE_BYTES>],");
     f.indented_doc_comment("v0.2.2 Phase A: productivity-witness IRI retained from the builder.");
     f.line("    productivity_witness: &'a str,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl<'a> StreamDeclaration<'a> {");
+    f.line("impl<'a, const INLINE_BYTES: usize> StreamDeclaration<'a, INLINE_BYTES> {");
     f.indented_doc_comment(
         "v0.2.2 T6.11: construct a stream declaration with the given productivity",
     );
@@ -653,7 +653,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("`new_full` to retain the full structure.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn new<T: ConstrainedTypeShape>(productivity_bound: u64) -> StreamDeclaration<'static> {");
+    f.line("    pub const fn new<T: ConstrainedTypeShape>(productivity_bound: u64) -> StreamDeclaration<'static, INLINE_BYTES> {");
     f.line("        StreamDeclaration {");
     f.line("            payload: productivity_bound,");
     f.line("            result_type_iri: T::IRI,");
@@ -670,8 +670,8 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("    #[must_use]");
     f.line("    pub const fn new_full<T: ConstrainedTypeShape>(");
     f.line("        productivity_bound: u64,");
-    f.line("        seed: &'a [Term],");
-    f.line("        step: &'a [Term],");
+    f.line("        seed: &'a [Term<'a, INLINE_BYTES>],");
+    f.line("        step: &'a [Term<'a, INLINE_BYTES>],");
     f.line("        productivity_witness: &'a str,");
     f.line("    ) -> Self {");
     f.line("        Self {");
@@ -697,12 +697,12 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("v0.2.2 Phase A: returns the seed term slice.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn seed(&self) -> &'a [Term] { self.seed }");
+    f.line("    pub const fn seed(&self) -> &'a [Term<'a, INLINE_BYTES>] { self.seed }");
     f.blank();
     f.indented_doc_comment("v0.2.2 Phase A: returns the step term slice.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn step(&self) -> &'a [Term] { self.step }");
+    f.line("    pub const fn step(&self) -> &'a [Term<'a, INLINE_BYTES>] { self.step }");
     f.blank();
     f.indented_doc_comment("v0.2.2 Phase A: returns the productivity-witness IRI.");
     f.line("    #[inline]");
@@ -2350,11 +2350,11 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("ADR-029, amended by ADR-055). The `body_arena()` slice is a static const,");
     f.doc_comment("not wire-format state, so the on-wire shape of `Term::AxisInvocation` is");
     f.doc_comment("preserved.");
-    f.line("pub trait SubstrateTermBody: __sdk_seal::Sealed {");
+    f.line("pub trait SubstrateTermBody<const INLINE_BYTES: usize>: __sdk_seal::Sealed {");
     f.indented_doc_comment("The Term arena the kernel decomposes to. Empty slice signals a");
     f.indented_doc_comment("primitive-fast-path axis whose body the implementation may evaluate");
     f.indented_doc_comment("through `dispatch_kernel` directly per ADR-055's optional fast-path.");
-    f.line("    fn body_arena() -> &'static [crate::enforcement::Term];");
+    f.line("    fn body_arena() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];");
     f.line("}");
     f.blank();
 
@@ -2375,7 +2375,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("evaluated kernel input bound in scope, and emits the resulting");
     f.doc_comment("`TermValue`. The legacy `dispatch_kernel` fast-path remains as an");
     f.doc_comment("optimization for axes whose body is empty (primitive fast-path).");
-    f.line("pub trait AxisExtension: SubstrateTermBody {");
+    f.line("pub trait AxisExtension<const INLINE_BYTES: usize>: SubstrateTermBody<INLINE_BYTES> {");
     f.indented_doc_comment("ADR-017 content address of this axis trait. The SDK macro");
     f.indented_doc_comment("derives this from the trait name and method signatures.");
     f.line("    const AXIS_ADDRESS: &'static str;");
@@ -2404,7 +2404,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Foundation provides tuple impls for arities 1 through");
     f.doc_comment("[`MAX_AXIS_TUPLE_ARITY`].");
-    f.line("pub trait AxisTuple {");
+    f.line("pub trait AxisTuple<const INLINE_BYTES: usize> {");
     f.indented_doc_comment("Number of axes carried in this tuple.");
     f.line("    const AXIS_COUNT: usize;");
     f.indented_doc_comment("Maximum kernel-output byte width across all axes in this tuple.");
@@ -2428,7 +2428,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.indented_doc_comment("Non-empty slices carry the recursive-fold decomposition the");
     f.indented_doc_comment("catamorphism walks per ADR-055's amended `Term::AxisInvocation`");
     f.indented_doc_comment("fold-rule.");
-    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term];");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];");
     f.line("}");
     f.blank();
     // ADR-030 blanket: every `Hasher` is an `AxisTuple` of arity 1
@@ -2440,7 +2440,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("ADR-030 blanket: every [`crate::enforcement::Hasher`] is");
     f.doc_comment("automatically an [`AxisTuple`] of arity 1 — the canonical");
     f.doc_comment("hash axis at position 0, kernel id 0.");
-    f.line("impl<H: crate::enforcement::Hasher> AxisTuple for H {");
+    f.line("impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_BYTES> for H {");
     f.line("    const AXIS_COUNT: usize = 1;");
     f.line("    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;");
     f.line("    fn dispatch(");
@@ -2476,16 +2476,16 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("    // body is byte-output-equivalent to `fold_bytes` ∘ `finalize`; the");
     f.line("    // empty arena signals to the catamorphism that dispatch_kernel is the");
     f.line("    // canonical evaluation strategy here.");
-    f.line("    fn body_arena_at(_axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("    fn body_arena_at(_axis_index: u32) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
     f.line("        &[]");
     f.line("    }");
     f.line("}");
     f.blank();
     // 1-tuple impl — the most common case (a single hash axis).
     f.doc_comment("ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.");
-    f.line("impl<A0: AxisExtension> AxisTuple for (A0,) {");
+    f.line("impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0,) {");
     f.line("    const AXIS_COUNT: usize = 1;");
-    f.line("    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
     f.line("    fn dispatch(");
     f.line("        axis_index: u32,");
     f.line("        kernel_id: u32,");
@@ -2493,7 +2493,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        out: &mut [u8],");
     f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
     f.line("            _ => Err(crate::enforcement::ShapeViolation {");
     f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
     f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
@@ -2505,9 +2505,9 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("            }),");
     f.line("        }");
     f.line("    }");
-    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as SubstrateTermBody>::body_arena(),");
+    f.line("            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),");
     f.line("            _ => &[],");
     f.line("        }");
     f.line("    }");
@@ -2515,11 +2515,11 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.blank();
     // 2-tuple impl
     f.doc_comment("ADR-030: 2-tuple AxisTuple impl.");
-    f.line("impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {");
+    f.line("impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>, A1: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0, A1) {");
     f.line("    const AXIS_COUNT: usize = 2;");
     f.line("    const MAX_OUTPUT_BYTES: usize = {");
-    f.line("        let a = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;");
-    f.line("        let b = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;");
+    f.line("        let a = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
+    f.line("        let b = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
     f.line("        if a > b { a } else { b }");
     f.line("    };");
     f.line("    fn dispatch(");
@@ -2529,8 +2529,8 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        out: &mut [u8],");
     f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
-    f.line("            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
     f.line("            _ => Err(crate::enforcement::ShapeViolation {");
     f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
     f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
@@ -2542,10 +2542,10 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("            }),");
     f.line("        }");
     f.line("    }");
-    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+    f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as SubstrateTermBody>::body_arena(),");
-    f.line("            1 => <A1 as SubstrateTermBody>::body_arena(),");
+    f.line("            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),");
+    f.line("            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),");
     f.line("            _ => &[],");
     f.line("        }");
     f.line("    }");
@@ -2555,7 +2555,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     for arity in 3..=8 {
         f.doc_comment(&format!("ADR-030: {arity}-tuple AxisTuple impl."));
         let type_params: String = (0..arity)
-            .map(|i| format!("A{i}: AxisExtension"))
+            .map(|i| format!("A{i}: AxisExtension<INLINE_BYTES>"))
             .collect::<Vec<_>>()
             .join(", ");
         let tuple_args: String = (0..arity)
@@ -2563,14 +2563,14 @@ fn emit_axis_extension(f: &mut RustFile) {
             .collect::<Vec<_>>()
             .join(", ");
         f.line(&format!(
-            "impl<{type_params}> AxisTuple for ({tuple_args},) {{"
+            "impl<const INLINE_BYTES: usize, {type_params}> AxisTuple<INLINE_BYTES> for ({tuple_args},) {{"
         ));
         f.line(&format!("    const AXIS_COUNT: usize = {arity};"));
         f.line("    const MAX_OUTPUT_BYTES: usize = {");
         // saturating max chain of MAX_OUTPUT_BYTES
         for i in 0..arity {
             f.line(&format!(
-                "        let a{i} = <A{i} as AxisExtension>::MAX_OUTPUT_BYTES;"
+                "        let a{i} = <A{i} as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;"
             ));
         }
         // Compute max via const-fn-friendly chained ifs.
@@ -2589,7 +2589,7 @@ fn emit_axis_extension(f: &mut RustFile) {
         f.line("        match axis_index {");
         for i in 0..arity {
             f.line(&format!(
-                "            {i} => <A{i} as AxisExtension>::dispatch_kernel(kernel_id, input, out),"
+                "            {i} => <A{i} as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),"
             ));
         }
         f.line("            _ => Err(crate::enforcement::ShapeViolation {");
@@ -2603,11 +2603,11 @@ fn emit_axis_extension(f: &mut RustFile) {
         f.line("            }),");
         f.line("        }");
         f.line("    }");
-        f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {");
+        f.line("    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
         f.line("        match axis_index {");
         for i in 0..arity {
             f.line(&format!(
-                "            {i} => <A{i} as SubstrateTermBody>::body_arena(),"
+                "            {i} => <A{i} as SubstrateTermBody<INLINE_BYTES>>::body_arena(),"
             ));
         }
         f.line("            _ => &[],");
@@ -4373,7 +4373,7 @@ fn emit_prism_model(f: &mut RustFile) {
     // `Hasher` so resolver-bound ψ-Term fold-rules per ADR-035 can invoke
     // `<A as Hasher>::initial()` at evaluation time (parameterizes the eight
     // resolver traits per ADR-036).
-    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple,");
     // Wiki ADR-048: the 5th substrate parameter is the model's
     // `TypedCommitment` — prism's cost-model commitment surface. The
@@ -4461,7 +4461,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
     f.line("    M: PrismModel<H, B, A, INLINE_BYTES, R, C>,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
@@ -5087,7 +5087,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5135,7 +5135,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5657,7 +5657,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -6143,8 +6143,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("The identity route's `arena_slice()` returns `&[]` — no terms, no");
     f.doc_comment("transformation, input passes through to output unchanged.");
     f.line("impl __sdk_seal::Sealed for ConstrainedTypeInput {}");
-    f.line("impl FoundationClosed for ConstrainedTypeInput {");
-    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term] {");
+    f.line("impl<const INLINE_BYTES: usize> FoundationClosed<INLINE_BYTES> for ConstrainedTypeInput {");
+    f.line("    fn arena_slice() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
     f.line("        &[]");
     f.line("    }");
     f.line("}");

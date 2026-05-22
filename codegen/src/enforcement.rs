@@ -2185,7 +2185,7 @@ fn generate_term_ast(f: &mut RustFile) {
     f.doc_comment("is preserved unchanged when it equals `u32::MAX` (the default-");
     f.doc_comment("propagation sentinel per ADR-022 D3 G9).");
     f.line("#[must_use]");
-    f.line("pub const fn shift_term(term: Term, offset: u32) -> Term {");
+    f.line("pub const fn shift_term<'a, const INLINE_BYTES: usize>(term: Term<'a, INLINE_BYTES>, offset: u32) -> Term<'a, INLINE_BYTES> {");
     f.line("    match term {");
     f.line("        Term::Literal { value, level } => Term::Literal { value, level },");
     f.line("        // name_index is a binding-name reference, not an arena index.");
@@ -2292,12 +2292,12 @@ fn generate_term_ast(f: &mut RustFile) {
     f.doc_comment("Panics at const-eval time if `len + fragment.len() > CAP` or if");
     f.doc_comment("`arg_root_idx as usize >= len`.");
     f.line("#[must_use]");
-    f.line("pub const fn inline_verb_fragment<const CAP: usize>(");
-    f.line("    mut buf: [Term; CAP],");
+    f.line("pub const fn inline_verb_fragment<'a, const INLINE_BYTES: usize, const CAP: usize>(");
+    f.line("    mut buf: [Term<'a, INLINE_BYTES>; CAP],");
     f.line("    mut len: usize,");
-    f.line("    fragment: &[Term],");
+    f.line("    fragment: &[Term<'a, INLINE_BYTES>],");
     f.line("    arg_root_idx: u32,");
-    f.line(") -> ([Term; CAP], usize) {");
+    f.line(") -> ([Term<'a, INLINE_BYTES>; CAP], usize) {");
     f.line("    let offset = len as u32;");
     f.line(
         "    // Capture a copy of the caller's argument root term; `Variable { name_index: 0 }`",
@@ -5624,12 +5624,12 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     // Hasher; the empty arena signals the catamorphism to evaluate via
     // `dispatch_kernel` rather than recursively folding a body.
     f.line("impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}");
-    f.line("impl<H: Hasher> crate::pipeline::SubstrateTermBody for HashAxis<H> {");
-    f.line("    fn body_arena() -> &'static [Term] {");
+    f.line("impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::SubstrateTermBody<INLINE_BYTES> for HashAxis<H> {");
+    f.line("    fn body_arena() -> &'static [Term<'static, INLINE_BYTES>] {");
     f.line("        &[]");
     f.line("    }");
     f.line("}");
-    f.line("impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {");
+    f.line("impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE_BYTES> for HashAxis<H> {");
     f.line("    const AXIS_ADDRESS: &'static str = \"https://uor.foundation/axis/HashAxis\";");
     f.line("    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;");
     f.line("    fn dispatch_kernel(");

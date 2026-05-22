@@ -593,11 +593,11 @@ pub const MAX_AXIS_TUPLE_ARITY: usize = 8;
 /// ADR-029, amended by ADR-055). The `body_arena()` slice is a static const,
 /// not wire-format state, so the on-wire shape of `Term::AxisInvocation` is
 /// preserved.
-pub trait SubstrateTermBody: __sdk_seal::Sealed {
+pub trait SubstrateTermBody<const INLINE_BYTES: usize>: __sdk_seal::Sealed {
     /// The Term arena the kernel decomposes to. Empty slice signals a
     /// primitive-fast-path axis whose body the implementation may evaluate
     /// through `dispatch_kernel` directly per ADR-055's optional fast-path.
-    fn body_arena() -> &'static [crate::enforcement::Term];
+    fn body_arena() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];
 }
 
 /// ADR-030: a substrate-extension axis. Each `axis!`-declared
@@ -615,7 +615,7 @@ pub trait SubstrateTermBody: __sdk_seal::Sealed {
 /// evaluated kernel input bound in scope, and emits the resulting
 /// `TermValue`. The legacy `dispatch_kernel` fast-path remains as an
 /// optimization for axes whose body is empty (primitive fast-path).
-pub trait AxisExtension: SubstrateTermBody {
+pub trait AxisExtension<const INLINE_BYTES: usize>: SubstrateTermBody<INLINE_BYTES> {
     /// ADR-017 content address of this axis trait. The SDK macro
     /// derives this from the trait name and method signatures.
     const AXIS_ADDRESS: &'static str;
@@ -641,7 +641,7 @@ pub trait AxisExtension: SubstrateTermBody {
 /// axis position.
 /// Foundation provides tuple impls for arities 1 through
 /// [`MAX_AXIS_TUPLE_ARITY`].
-pub trait AxisTuple {
+pub trait AxisTuple<const INLINE_BYTES: usize> {
     /// Number of axes carried in this tuple.
     const AXIS_COUNT: usize;
     /// Maximum kernel-output byte width across all axes in this tuple.
@@ -663,13 +663,14 @@ pub trait AxisTuple {
     /// Non-empty slices carry the recursive-fold decomposition the
     /// catamorphism walks per ADR-055's amended `Term::AxisInvocation`
     /// fold-rule.
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term];
+    fn body_arena_at(axis_index: u32)
+        -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];
 }
 
 /// ADR-030 blanket: every [`crate::enforcement::Hasher`] is
 /// automatically an [`AxisTuple`] of arity 1 — the canonical
 /// hash axis at position 0, kernel id 0.
-impl<H: crate::enforcement::Hasher> AxisTuple for H {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_BYTES> for H {
     const AXIS_COUNT: usize = 1;
     const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;
     fn dispatch(
@@ -705,15 +706,17 @@ impl<H: crate::enforcement::Hasher> AxisTuple for H {
     // body is byte-output-equivalent to `fold_bytes` ∘ `finalize`; the
     // empty arena signals to the catamorphism that dispatch_kernel is the
     // canonical evaluation strategy here.
-    fn body_arena_at(_axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        _axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         &[]
     }
 }
 
 /// ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.
-impl<A0: AxisExtension> AxisTuple for (A0,) {
+impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0,) {
     const AXIS_COUNT: usize = 1;
-    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
+    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
     fn dispatch(
         axis_index: u32,
         kernel_id: u32,
@@ -721,7 +724,7 @@ impl<A0: AxisExtension> AxisTuple for (A0,) {
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -733,20 +736,27 @@ impl<A0: AxisExtension> AxisTuple for (A0,) {
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
 }
 
 /// ADR-030: 2-tuple AxisTuple impl.
-impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {
+impl<
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1)
+{
     const AXIS_COUNT: usize = 2;
     const MAX_OUTPUT_BYTES: usize = {
-        let a = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let b = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let b = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         if a > b {
             a
         } else {
@@ -760,8 +770,8 @@ impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -773,22 +783,30 @@ impl<A0: AxisExtension, A1: AxisExtension> AxisTuple for (A0, A1) {
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
 }
 
 /// ADR-030: 3-tuple AxisTuple impl.
-impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension> AxisTuple for (A0, A1, A2) {
+impl<
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2)
+{
     const AXIS_COUNT: usize = 3;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -805,9 +823,9 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension> AxisTuple for (A0,
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -819,26 +837,33 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension> AxisTuple for (A0,
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
 }
 
 /// ADR-030: 4-tuple AxisTuple impl.
-impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension> AxisTuple
-    for (A0, A1, A2, A3)
+impl<
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+        A3: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3)
 {
     const AXIS_COUNT: usize = 4;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -858,10 +883,10 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension>
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -873,12 +898,14 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension>
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
-            3 => <A3 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            3 => <A3 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
@@ -886,20 +913,21 @@ impl<A0: AxisExtension, A1: AxisExtension, A2: AxisExtension, A3: AxisExtension>
 
 /// ADR-030: 5-tuple AxisTuple impl.
 impl<
-        A0: AxisExtension,
-        A1: AxisExtension,
-        A2: AxisExtension,
-        A3: AxisExtension,
-        A4: AxisExtension,
-    > AxisTuple for (A0, A1, A2, A3, A4)
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+        A3: AxisExtension<INLINE_BYTES>,
+        A4: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4)
 {
     const AXIS_COUNT: usize = 5;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -922,11 +950,11 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -938,13 +966,15 @@ impl<
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
-            3 => <A3 as SubstrateTermBody>::body_arena(),
-            4 => <A4 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            3 => <A3 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            4 => <A4 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
@@ -952,22 +982,23 @@ impl<
 
 /// ADR-030: 6-tuple AxisTuple impl.
 impl<
-        A0: AxisExtension,
-        A1: AxisExtension,
-        A2: AxisExtension,
-        A3: AxisExtension,
-        A4: AxisExtension,
-        A5: AxisExtension,
-    > AxisTuple for (A0, A1, A2, A3, A4, A5)
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+        A3: AxisExtension<INLINE_BYTES>,
+        A4: AxisExtension<INLINE_BYTES>,
+        A5: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5)
 {
     const AXIS_COUNT: usize = 6;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -993,12 +1024,12 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1010,14 +1041,16 @@ impl<
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
-            3 => <A3 as SubstrateTermBody>::body_arena(),
-            4 => <A4 as SubstrateTermBody>::body_arena(),
-            5 => <A5 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            3 => <A3 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            4 => <A4 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            5 => <A5 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
@@ -1025,24 +1058,25 @@ impl<
 
 /// ADR-030: 7-tuple AxisTuple impl.
 impl<
-        A0: AxisExtension,
-        A1: AxisExtension,
-        A2: AxisExtension,
-        A3: AxisExtension,
-        A4: AxisExtension,
-        A5: AxisExtension,
-        A6: AxisExtension,
-    > AxisTuple for (A0, A1, A2, A3, A4, A5, A6)
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+        A3: AxisExtension<INLINE_BYTES>,
+        A4: AxisExtension<INLINE_BYTES>,
+        A5: AxisExtension<INLINE_BYTES>,
+        A6: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5, A6)
 {
     const AXIS_COUNT: usize = 7;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a6 = <A6 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -1071,13 +1105,13 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            6 => <A6 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            6 => <A6 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1089,15 +1123,17 @@ impl<
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
-            3 => <A3 as SubstrateTermBody>::body_arena(),
-            4 => <A4 as SubstrateTermBody>::body_arena(),
-            5 => <A5 as SubstrateTermBody>::body_arena(),
-            6 => <A6 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            3 => <A3 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            4 => <A4 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            5 => <A5 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            6 => <A6 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
@@ -1105,26 +1141,27 @@ impl<
 
 /// ADR-030: 8-tuple AxisTuple impl.
 impl<
-        A0: AxisExtension,
-        A1: AxisExtension,
-        A2: AxisExtension,
-        A3: AxisExtension,
-        A4: AxisExtension,
-        A5: AxisExtension,
-        A6: AxisExtension,
-        A7: AxisExtension,
-    > AxisTuple for (A0, A1, A2, A3, A4, A5, A6, A7)
+        const INLINE_BYTES: usize,
+        A0: AxisExtension<INLINE_BYTES>,
+        A1: AxisExtension<INLINE_BYTES>,
+        A2: AxisExtension<INLINE_BYTES>,
+        A3: AxisExtension<INLINE_BYTES>,
+        A4: AxisExtension<INLINE_BYTES>,
+        A5: AxisExtension<INLINE_BYTES>,
+        A6: AxisExtension<INLINE_BYTES>,
+        A7: AxisExtension<INLINE_BYTES>,
+    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5, A6, A7)
 {
     const AXIS_COUNT: usize = 8;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a6 = <A6 as AxisExtension>::MAX_OUTPUT_BYTES;
-        let a7 = <A7 as AxisExtension>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a7 = <A7 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -1156,14 +1193,14 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            6 => <A6 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
-            7 => <A7 as AxisExtension>::dispatch_kernel(kernel_id, input, out),
+            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            6 => <A6 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            7 => <A7 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1175,16 +1212,18 @@ impl<
             }),
         }
     }
-    fn body_arena_at(axis_index: u32) -> &'static [crate::enforcement::Term] {
+    fn body_arena_at(
+        axis_index: u32,
+    ) -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         match axis_index {
-            0 => <A0 as SubstrateTermBody>::body_arena(),
-            1 => <A1 as SubstrateTermBody>::body_arena(),
-            2 => <A2 as SubstrateTermBody>::body_arena(),
-            3 => <A3 as SubstrateTermBody>::body_arena(),
-            4 => <A4 as SubstrateTermBody>::body_arena(),
-            5 => <A5 as SubstrateTermBody>::body_arena(),
-            6 => <A6 as SubstrateTermBody>::body_arena(),
-            7 => <A7 as SubstrateTermBody>::body_arena(),
+            0 => <A0 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            1 => <A1 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            2 => <A2 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            3 => <A3 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            4 => <A4 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            5 => <A5 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            6 => <A6 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
+            7 => <A7 as SubstrateTermBody<INLINE_BYTES>>::body_arena(),
             _ => &[],
         }
     }
@@ -3385,7 +3424,7 @@ pub trait PrismModel<
 >: __sdk_seal::Sealed where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple,
     C: crate::pipeline::TypedCommitment,
 {
@@ -3442,7 +3481,7 @@ pub fn run_route<H, B, A, M, R, C, const INLINE_BYTES: usize>(
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
     M: PrismModel<H, B, A, INLINE_BYTES, R, C>,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
@@ -4042,7 +4081,7 @@ pub fn evaluate_term_tree<'a, A, R, const INLINE_BYTES: usize>(
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4087,7 +4126,7 @@ fn evaluate_term_at<'a, A, R, const INLINE_BYTES: usize>(
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4885,7 +4924,7 @@ fn apply_primitive_op<'a, A, R, const INLINE_BYTES: usize>(
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -5463,8 +5502,8 @@ fn u64_modpow(base: u64, exp: u64, mask: u64) -> u64 {
 /// The identity route's `arena_slice()` returns `&[]` — no terms, no
 /// transformation, input passes through to output unchanged.
 impl __sdk_seal::Sealed for ConstrainedTypeInput {}
-impl FoundationClosed for ConstrainedTypeInput {
-    fn arena_slice() -> &'static [crate::enforcement::Term] {
+impl<const INLINE_BYTES: usize> FoundationClosed<INLINE_BYTES> for ConstrainedTypeInput {
+    fn arena_slice() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {
         &[]
     }
 }
@@ -8181,19 +8220,19 @@ impl<'a> ParallelDeclaration<'a> {
 /// downstream code that needs deterministic hashing should fold through
 /// the substrate `Hasher` via the pipeline's `fold_stream_digest`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StreamDeclaration<'a> {
+pub struct StreamDeclaration<'a, const INLINE_BYTES: usize> {
     payload: u64,
     result_type_iri: &'static str,
     /// v0.2.2 Phase A: stream seed term slice retained from the builder.
-    seed: &'a [Term],
+    seed: &'a [Term<'a, INLINE_BYTES>],
     /// v0.2.2 Phase A: stream step term slice retained from the builder.
-    step: &'a [Term],
+    step: &'a [Term<'a, INLINE_BYTES>],
     /// v0.2.2 Phase A: productivity-witness IRI retained from the builder.
     productivity_witness: &'a str,
     _sealed: (),
 }
 
-impl<'a> StreamDeclaration<'a> {
+impl<'a, const INLINE_BYTES: usize> StreamDeclaration<'a, INLINE_BYTES> {
     /// v0.2.2 T6.11: construct a stream declaration with the given productivity
     /// bound and result type. Phase A: leaves seed/step/witness empty; use
     /// `new_full` to retain the full structure.
@@ -8201,7 +8240,7 @@ impl<'a> StreamDeclaration<'a> {
     #[must_use]
     pub const fn new<T: ConstrainedTypeShape>(
         productivity_bound: u64,
-    ) -> StreamDeclaration<'static> {
+    ) -> StreamDeclaration<'static, INLINE_BYTES> {
         StreamDeclaration {
             payload: productivity_bound,
             result_type_iri: T::IRI,
@@ -8218,8 +8257,8 @@ impl<'a> StreamDeclaration<'a> {
     #[must_use]
     pub const fn new_full<T: ConstrainedTypeShape>(
         productivity_bound: u64,
-        seed: &'a [Term],
-        step: &'a [Term],
+        seed: &'a [Term<'a, INLINE_BYTES>],
+        step: &'a [Term<'a, INLINE_BYTES>],
         productivity_witness: &'a str,
     ) -> Self {
         Self {
@@ -8249,14 +8288,14 @@ impl<'a> StreamDeclaration<'a> {
     /// v0.2.2 Phase A: returns the seed term slice.
     #[inline]
     #[must_use]
-    pub const fn seed(&self) -> &'a [Term] {
+    pub const fn seed(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         self.seed
     }
 
     /// v0.2.2 Phase A: returns the step term slice.
     #[inline]
     #[must_use]
-    pub const fn step(&self) -> &'a [Term] {
+    pub const fn step(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         self.step
     }
 

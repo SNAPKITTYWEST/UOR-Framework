@@ -1975,7 +1975,10 @@ pub enum Term<'a, const INLINE_BYTES: usize> {
 /// is preserved unchanged when it equals `u32::MAX` (the default-
 /// propagation sentinel per ADR-022 D3 G9).
 #[must_use]
-pub const fn shift_term(term: Term, offset: u32) -> Term {
+pub const fn shift_term<'a, const INLINE_BYTES: usize>(
+    term: Term<'a, INLINE_BYTES>,
+    offset: u32,
+) -> Term<'a, INLINE_BYTES> {
     match term {
         Term::Literal { value, level } => Term::Literal { value, level },
         // name_index is a binding-name reference, not an arena index.
@@ -2109,12 +2112,12 @@ pub const fn shift_term(term: Term, offset: u32) -> Term {
 /// Panics at const-eval time if `len + fragment.len() > CAP` or if
 /// `arg_root_idx as usize >= len`.
 #[must_use]
-pub const fn inline_verb_fragment<const CAP: usize>(
-    mut buf: [Term; CAP],
+pub const fn inline_verb_fragment<'a, const INLINE_BYTES: usize, const CAP: usize>(
+    mut buf: [Term<'a, INLINE_BYTES>; CAP],
     mut len: usize,
-    fragment: &[Term],
+    fragment: &[Term<'a, INLINE_BYTES>],
     arg_root_idx: u32,
-) -> ([Term; CAP], usize) {
+) -> ([Term<'a, INLINE_BYTES>; CAP], usize) {
     let offset = len as u32;
     // Capture a copy of the caller's argument root term; `Variable { name_index: 0 }`
     // occurrences in the fragment are replaced by this copy per ADR-024.
@@ -7267,12 +7270,16 @@ impl<H: Hasher> HashAxis<H> {
 }
 
 impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}
-impl<H: Hasher> crate::pipeline::SubstrateTermBody for HashAxis<H> {
-    fn body_arena() -> &'static [Term] {
+impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::SubstrateTermBody<INLINE_BYTES>
+    for HashAxis<H>
+{
+    fn body_arena() -> &'static [Term<'static, INLINE_BYTES>] {
         &[]
     }
 }
-impl<H: Hasher> crate::pipeline::AxisExtension for HashAxis<H> {
+impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE_BYTES>
+    for HashAxis<H>
+{
     const AXIS_ADDRESS: &'static str = "https://uor.foundation/axis/HashAxis";
     const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;
     fn dispatch_kernel(
