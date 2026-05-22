@@ -523,6 +523,17 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
 
     f.line("#![no_std]");
     f.blank();
+    // ADR-060: the optional `alloc` feature pulls in `extern crate alloc`
+    // ONLY for the opt-in, per-caller `TermValue::to_vec()` materialization
+    // helper. The default build (`default = []`) is strictly no_std + no-alloc;
+    // the principal data path (the source-polymorphic carrier and the
+    // catamorphism's chunk-folding σ-projection) allocates nothing — unbounded
+    // `TermValue::Stream` payloads fold chunk-by-chunk via `for_each_chunk`
+    // with zero heap use. Downstream no-alloc libraries depend with
+    // `default-features = false` and never see this declaration.
+    f.line("#[cfg(feature = \"alloc\")]");
+    f.line("extern crate alloc;");
+    f.blank();
     // Phase 11d — `pub mod blanket_impls;` lands in the generated lib.rs
     // so the hand-written `@codegen-exempt`-banner-protected file at
     // `foundation/src/blanket_impls.rs` is exposed to crate consumers.

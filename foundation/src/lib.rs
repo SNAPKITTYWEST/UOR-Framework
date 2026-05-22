@@ -244,6 +244,9 @@
 
 #![no_std]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 pub mod blanket_impls;
 pub mod bridge;
 pub mod enforcement;
