@@ -2224,10 +2224,11 @@ fn prism_model_forward_walks_k_invariant_psi_chain_end_to_end() {
             DefaultHostTypes,
             SmokeHostBounds,
             SmokeHasher,
+            SMOKE_IB,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through the ψ-chain should resolve end-to-end");
-        let grounded: Grounded<ConstrainedTypeInput> = result;
+        let grounded: Grounded<ConstrainedTypeInput, SMOKE_IB> = result;
         // Input is empty (ConstrainedTypeInput's `IntoBindingValue::MAX_BYTES
         // = 0`), so the chain emits only the per-ψ marker bytes:
         //   ψ_1 appends 0x01, ψ_7 appends 0x07, ψ_8 appends 0x08, ψ_9 appends 0x09.
@@ -2278,10 +2279,11 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
             DefaultHostTypes,
             SmokeHostBounds,
             SmokeHasher,
+            SMOKE_IB,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through default-constructed resolvers should resolve");
-        let grounded: Grounded<ConstrainedTypeInput> = result;
+        let grounded: Grounded<ConstrainedTypeInput, SMOKE_IB> = result;
         let expected = &[PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
         assert_eq!(
             grounded.output_bytes(),
@@ -2493,6 +2495,7 @@ fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
             DefaultHostTypes,
             SmokeHostBounds,
             SmokeHasher,
+            SMOKE_IB,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("k-invariants branch must resolve under CompleteResolvers");
@@ -2827,6 +2830,7 @@ prism_model! {
         DefaultHostTypes,
         SmokeHostBounds,
         SmokeHasher,
+        SMOKE_IB,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
     > for CostModelRejectsModel {
@@ -2864,6 +2868,7 @@ fn adr048_cost_model_rejects_kappa_label_on_predicate_failure() {
             DefaultHostTypes,
             SmokeHostBounds,
             SmokeHasher,
+            SMOKE_IB,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
         >>::forward(ConstrainedTypeInput::default());
@@ -2892,6 +2897,7 @@ prism_model! {
         DefaultHostTypes,
         SmokeHostBounds,
         SmokeHasher,
+        SMOKE_IB,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
     > for CostModelAcceptsModel {
@@ -2924,6 +2930,7 @@ fn adr048_cost_model_accepts_kappa_label_on_predicate_success() {
             DefaultHostTypes,
             SmokeHostBounds,
             SmokeHasher,
+            SMOKE_IB,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
         >>::forward(ConstrainedTypeInput::default())
