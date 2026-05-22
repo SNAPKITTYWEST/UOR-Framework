@@ -2308,9 +2308,9 @@ impl ShapeViolation {
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct CompileUnitBuilder<'a> {
+pub struct CompileUnitBuilder<'a, const INLINE_BYTES: usize> {
     /// The root term expression.
-    root_term: Option<&'a [Term]>,
+    root_term: Option<&'a [Term<'a, INLINE_BYTES>]>,
     /// v0.2.2 Phase H1: named bindings (`let name : Type = term` forms)
     /// declared by the compile unit. Stage 5 extracts these into a `BindingsTable`
     /// for grounding-aware and session resolvers; an empty slice declares no bindings.
@@ -2339,7 +2339,7 @@ pub struct CompileUnitBuilder<'a> {
 /// Const-constructed compile units use the trivial specialization
 /// `CompileUnit<'static>` — borrow-free and usable in const contexts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompileUnit<'a> {
+pub struct CompileUnit<'a, const INLINE_BYTES: usize> {
     /// The Witt level ceiling.
     level: WittLevel,
     /// The thermodynamic budget.
@@ -2351,7 +2351,7 @@ pub struct CompileUnit<'a> {
     /// Stage 5 (extract bindings) and the grounding-aware resolver walk
     /// this slice. Empty slice for the trivial `CompileUnit<'static>`
     /// specialization produced by builders that don't carry a term AST.
-    root_term: &'a [Term],
+    root_term: &'a [Term<'a, INLINE_BYTES>],
     /// v0.2.2 Phase H1: named bindings retained from the builder. Consumed by Stage 5
     /// (`bindings_from_unit`) to materialize the `BindingsTable` for grounding-aware,
     /// session, and superposition resolvers. Empty slice declares no bindings.
@@ -2360,7 +2360,7 @@ pub struct CompileUnit<'a> {
     target_domains: &'a [VerificationDomain],
 }
 
-impl<'a> CompileUnit<'a> {
+impl<'a, const INLINE_BYTES: usize> CompileUnit<'a, INLINE_BYTES> {
     /// Returns the Witt level ceiling declared at validation time.
     #[inline]
     #[must_use]
@@ -2388,7 +2388,7 @@ impl<'a> CompileUnit<'a> {
     /// Empty for builders that did not supply a term AST.
     #[inline]
     #[must_use]
-    pub const fn root_term(&self) -> &'a [Term] {
+    pub const fn root_term(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         self.root_term
     }
 
@@ -2419,7 +2419,7 @@ impl<'a> CompileUnit<'a> {
         level: WittLevel,
         budget: u64,
         result_type_iri: &'static str,
-        root_term: &'a [Term],
+        root_term: &'a [Term<'a, INLINE_BYTES>],
         bindings: &'a [Binding],
         target_domains: &'a [VerificationDomain],
     ) -> Self {
@@ -2434,7 +2434,7 @@ impl<'a> CompileUnit<'a> {
     }
 }
 
-impl<'a> CompileUnitBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> CompileUnitBuilder<'a, INLINE_BYTES> {
     /// Creates a new empty builder.
     #[must_use]
     pub const fn new() -> Self {
@@ -2450,7 +2450,7 @@ impl<'a> CompileUnitBuilder<'a> {
 
     /// Set the root term expression.
     #[must_use]
-    pub const fn root_term(mut self, terms: &'a [Term]) -> Self {
+    pub const fn root_term(mut self, terms: &'a [Term<'a, INLINE_BYTES>]) -> Self {
         self.root_term = Some(terms);
         self
     }
@@ -2545,7 +2545,7 @@ impl<'a> CompileUnitBuilder<'a> {
     /// propagate the AST into the widened `CompileUnit<'a>` carrier.
     #[inline]
     #[must_use]
-    pub const fn root_term_slice_const(&self) -> &'a [Term] {
+    pub const fn root_term_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         match self.root_term {
             Some(terms) => terms,
             None => &[],
@@ -2580,7 +2580,7 @@ impl<'a> CompileUnitBuilder<'a> {
     /// Tier 2: checks budget solvency and level coherence.
     /// # Errors
     /// Returns `ShapeViolation` if any constraint is not satisfied.
-    pub fn validate(self) -> Result<Validated<CompileUnit<'a>>, ShapeViolation> {
+    pub fn validate(self) -> Result<Validated<CompileUnit<'a, INLINE_BYTES>>, ShapeViolation> {
         let root_term = match self.root_term {
             Some(terms) => terms,
             None => {
@@ -2668,7 +2668,7 @@ impl<'a> CompileUnitBuilder<'a> {
     }
 }
 
-impl<'a> Default for CompileUnitBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> Default for CompileUnitBuilder<'a, INLINE_BYTES> {
     fn default() -> Self {
         Self::new()
     }
@@ -3024,9 +3024,9 @@ impl<'a> Default for GroundingDeclarationBuilder<'a> {
 
 /// Builder for `DispatchDeclaration`. Validates against `DispatchShape`.
 #[derive(Debug, Clone)]
-pub struct DispatchDeclarationBuilder<'a> {
+pub struct DispatchDeclarationBuilder<'a, const INLINE_BYTES: usize> {
     /// The `predicate` field.
-    predicate: Option<&'a [Term]>,
+    predicate: Option<&'a [Term<'a, INLINE_BYTES>]>,
     /// The `target_resolver` field.
     target_resolver: Option<&'a str>,
     /// The `priority` field.
@@ -3053,7 +3053,7 @@ impl DispatchDeclaration {
     }
 }
 
-impl<'a> DispatchDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> DispatchDeclarationBuilder<'a, INLINE_BYTES> {
     /// Creates a new empty builder.
     #[must_use]
     pub const fn new() -> Self {
@@ -3066,7 +3066,7 @@ impl<'a> DispatchDeclarationBuilder<'a> {
 
     /// Set the `predicate` field.
     #[must_use]
-    pub const fn predicate(mut self, value: &'a [Term]) -> Self {
+    pub const fn predicate(mut self, value: &'a [Term<'a, INLINE_BYTES>]) -> Self {
         self.predicate = Some(value);
         self
     }
@@ -3174,7 +3174,7 @@ impl<'a> DispatchDeclarationBuilder<'a> {
     }
 }
 
-impl<'a> Default for DispatchDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> Default for DispatchDeclarationBuilder<'a, INLINE_BYTES> {
     fn default() -> Self {
         Self::new()
     }
@@ -3308,11 +3308,11 @@ impl<'a> Default for LeaseDeclarationBuilder<'a> {
 
 /// Builder for `StreamDeclaration`. Validates against `StreamShape`.
 #[derive(Debug, Clone)]
-pub struct StreamDeclarationBuilder<'a> {
+pub struct StreamDeclarationBuilder<'a, const INLINE_BYTES: usize> {
     /// The `seed` field.
-    seed: Option<&'a [Term]>,
+    seed: Option<&'a [Term<'a, INLINE_BYTES>]>,
     /// The `step` field.
-    step: Option<&'a [Term]>,
+    step: Option<&'a [Term<'a, INLINE_BYTES>]>,
     /// The `productivity_witness` field.
     productivity_witness: Option<&'a str>,
 }
@@ -3337,7 +3337,7 @@ impl StreamDeclaration {
     }
 }
 
-impl<'a> StreamDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> StreamDeclarationBuilder<'a, INLINE_BYTES> {
     /// Creates a new empty builder.
     #[must_use]
     pub const fn new() -> Self {
@@ -3350,14 +3350,14 @@ impl<'a> StreamDeclarationBuilder<'a> {
 
     /// Set the `seed` field.
     #[must_use]
-    pub const fn seed(mut self, value: &'a [Term]) -> Self {
+    pub const fn seed(mut self, value: &'a [Term<'a, INLINE_BYTES>]) -> Self {
         self.seed = Some(value);
         self
     }
 
     /// Set the `step` field.
     #[must_use]
-    pub const fn step(mut self, value: &'a [Term]) -> Self {
+    pub const fn step(mut self, value: &'a [Term<'a, INLINE_BYTES>]) -> Self {
         self.step = Some(value);
         self
     }
@@ -3458,7 +3458,7 @@ impl<'a> StreamDeclarationBuilder<'a> {
     }
 }
 
-impl<'a> Default for StreamDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> Default for StreamDeclarationBuilder<'a, INLINE_BYTES> {
     fn default() -> Self {
         Self::new()
     }
@@ -3466,11 +3466,11 @@ impl<'a> Default for StreamDeclarationBuilder<'a> {
 
 /// Builder for `PredicateDeclaration`. Validates against `PredicateShape`.
 #[derive(Debug, Clone)]
-pub struct PredicateDeclarationBuilder<'a> {
+pub struct PredicateDeclarationBuilder<'a, const INLINE_BYTES: usize> {
     /// The `input_type` field.
     input_type: Option<&'a str>,
     /// The `evaluator` field.
-    evaluator: Option<&'a [Term]>,
+    evaluator: Option<&'a [Term<'a, INLINE_BYTES>]>,
     /// The `termination_witness` field.
     termination_witness: Option<&'a str>,
 }
@@ -3495,7 +3495,7 @@ impl PredicateDeclaration {
     }
 }
 
-impl<'a> PredicateDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> PredicateDeclarationBuilder<'a, INLINE_BYTES> {
     /// Creates a new empty builder.
     #[must_use]
     pub const fn new() -> Self {
@@ -3515,7 +3515,7 @@ impl<'a> PredicateDeclarationBuilder<'a> {
 
     /// Set the `evaluator` field.
     #[must_use]
-    pub const fn evaluator(mut self, value: &'a [Term]) -> Self {
+    pub const fn evaluator(mut self, value: &'a [Term<'a, INLINE_BYTES>]) -> Self {
         self.evaluator = Some(value);
         self
     }
@@ -3616,7 +3616,7 @@ impl<'a> PredicateDeclarationBuilder<'a> {
     }
 }
 
-impl<'a> Default for PredicateDeclarationBuilder<'a> {
+impl<'a, const INLINE_BYTES: usize> Default for PredicateDeclarationBuilder<'a, INLINE_BYTES> {
     fn default() -> Self {
         Self::new()
     }

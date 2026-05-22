@@ -2520,9 +2520,9 @@ fn generate_builders(f: &mut RustFile) {
         "rust",
     );
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct CompileUnitBuilder<'a> {");
+    f.line("pub struct CompileUnitBuilder<'a, const INLINE_BYTES: usize> {");
     f.indented_doc_comment("The root term expression.");
-    f.line("    root_term: Option<&'a [Term]>,");
+    f.line("    root_term: Option<&'a [Term<'a, INLINE_BYTES>]>,");
     f.indented_doc_comment("v0.2.2 Phase H1: named bindings (`let name : Type = term` forms)");
     f.indented_doc_comment(
         "declared by the compile unit. Stage 5 extracts these into a `BindingsTable`",
@@ -2559,7 +2559,7 @@ fn generate_builders(f: &mut RustFile) {
     f.doc_comment("Const-constructed compile units use the trivial specialization");
     f.doc_comment("`CompileUnit<'static>` — borrow-free and usable in const contexts.");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
-    f.line("pub struct CompileUnit<'a> {");
+    f.line("pub struct CompileUnit<'a, const INLINE_BYTES: usize> {");
     f.indented_doc_comment("The Witt level ceiling.");
     f.line("    level: WittLevel,");
     f.indented_doc_comment("The thermodynamic budget.");
@@ -2571,7 +2571,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("Stage 5 (extract bindings) and the grounding-aware resolver walk");
     f.indented_doc_comment("this slice. Empty slice for the trivial `CompileUnit<'static>`");
     f.indented_doc_comment("specialization produced by builders that don't carry a term AST.");
-    f.line("    root_term: &'a [Term],");
+    f.line("    root_term: &'a [Term<'a, INLINE_BYTES>],");
     f.indented_doc_comment(
         "v0.2.2 Phase H1: named bindings retained from the builder. Consumed by Stage 5",
     );
@@ -2588,7 +2588,7 @@ fn generate_builders(f: &mut RustFile) {
     f.line("    target_domains: &'a [VerificationDomain],");
     f.line("}");
     f.blank();
-    f.line("impl<'a> CompileUnit<'a> {");
+    f.line("impl<'a, const INLINE_BYTES: usize> CompileUnit<'a, INLINE_BYTES> {");
     f.indented_doc_comment("Returns the Witt level ceiling declared at validation time.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
@@ -2618,7 +2618,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("Empty for builders that did not supply a term AST.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn root_term(&self) -> &'a [Term] {");
+    f.line("    pub const fn root_term(&self) -> &'a [Term<'a, INLINE_BYTES>] {");
     f.line("        self.root_term");
     f.line("    }");
     f.blank();
@@ -2656,7 +2656,7 @@ fn generate_builders(f: &mut RustFile) {
     f.line("        level: WittLevel,");
     f.line("        budget: u64,");
     f.line("        result_type_iri: &'static str,");
-    f.line("        root_term: &'a [Term],");
+    f.line("        root_term: &'a [Term<'a, INLINE_BYTES>],");
     f.line("        bindings: &'a [Binding],");
     f.line("        target_domains: &'a [VerificationDomain],");
     f.line("    ) -> Self {");
@@ -2672,7 +2672,7 @@ fn generate_builders(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    f.line("impl<'a> CompileUnitBuilder<'a> {");
+    f.line("impl<'a, const INLINE_BYTES: usize> CompileUnitBuilder<'a, INLINE_BYTES> {");
     f.indented_doc_comment("Creates a new empty builder.");
     f.line("    #[must_use]");
     f.line("    pub const fn new() -> Self {");
@@ -2688,7 +2688,7 @@ fn generate_builders(f: &mut RustFile) {
     f.blank();
     f.indented_doc_comment("Set the root term expression.");
     f.line("    #[must_use]");
-    f.line("    pub const fn root_term(mut self, terms: &'a [Term]) -> Self {");
+    f.line("    pub const fn root_term(mut self, terms: &'a [Term<'a, INLINE_BYTES>]) -> Self {");
     f.line("        self.root_term = Some(terms);");
     f.line("        self");
     f.line("    }");
@@ -2796,7 +2796,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("propagate the AST into the widened `CompileUnit<'a>` carrier.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn root_term_slice_const(&self) -> &'a [Term] {");
+    f.line("    pub const fn root_term_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {");
     f.line("        match self.root_term {");
     f.line("            Some(terms) => terms,");
     f.line("            None => &[],");
@@ -2840,7 +2840,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("# Errors");
     f.indented_doc_comment("");
     f.indented_doc_comment("Returns `ShapeViolation` if any constraint is not satisfied.");
-    f.line("    pub fn validate(self) -> Result<Validated<CompileUnit<'a>>, ShapeViolation> {");
+    f.line("    pub fn validate(self) -> Result<Validated<CompileUnit<'a, INLINE_BYTES>>, ShapeViolation> {");
     f.line("        let root_term = match self.root_term {");
     f.line("            Some(terms) => terms,");
     f.line("            None => return Err(ShapeViolation {");
@@ -2913,7 +2913,7 @@ fn generate_builders(f: &mut RustFile) {
     f.blank();
 
     // Default impl for CompileUnitBuilder
-    f.line("impl<'a> Default for CompileUnitBuilder<'a> {");
+    f.line("impl<'a, const INLINE_BYTES: usize> Default for CompileUnitBuilder<'a, INLINE_BYTES> {");
     f.line("    fn default() -> Self {");
     f.line("        Self::new()");
     f.line("    }");
@@ -3271,7 +3271,34 @@ fn generate_simple_builder(
     shape_iri: &str,
 ) {
     let needs_lifetime = fields.iter().any(|(_, ty)| ty.starts_with('&'));
-    let lt = if needs_lifetime { "<'a>" } else { "" };
+    // ADR-060: a builder field carrying a `[Term]` slice makes the builder
+    // const-generic over the source-polymorphic carrier's inline width, since
+    // `Term<'a, INLINE_BYTES>` is const-generic. `lt_def` is the def-side
+    // generic list (`<'a, const INLINE_BYTES: usize>`); `lt_use` is the
+    // use-side (`<'a, INLINE_BYTES>`). The validated result struct carries no
+    // Term, so it stays non-generic.
+    let has_term = fields.iter().any(|(_, ty)| ty.contains("[Term]"));
+    let lt_def = if has_term {
+        "<'a, const INLINE_BYTES: usize>"
+    } else if needs_lifetime {
+        "<'a>"
+    } else {
+        ""
+    };
+    let lt_use = if has_term {
+        "<'a, INLINE_BYTES>"
+    } else if needs_lifetime {
+        "<'a>"
+    } else {
+        ""
+    };
+    let map_ty = |ty: &str| -> String {
+        if ty.contains("[Term]") {
+            ty.replace("[Term]", "[Term<'a, INLINE_BYTES>]")
+        } else {
+            ty.to_string()
+        }
+    };
 
     // Builder struct
     f.doc_comment(&format!(
@@ -3279,9 +3306,9 @@ fn generate_simple_builder(
         shape_iri.rsplit('/').next().unwrap_or(shape_iri),
     ));
     f.line("#[derive(Debug, Clone)]");
-    f.line(&format!("pub struct {builder_name}{lt} {{"));
+    f.line(&format!("pub struct {builder_name}{lt_def} {{"));
     for (name, ty) in fields {
-        let opt_ty = format!("Option<{ty}>");
+        let opt_ty = format!("Option<{}>", map_ty(ty));
         f.indented_doc_comment(&format!("The `{name}` field."));
         f.line(&format!("    {name}: {opt_ty},"));
     }
@@ -3311,7 +3338,7 @@ fn generate_simple_builder(
     f.blank();
 
     // impl block
-    f.line(&format!("impl{lt} {builder_name}{lt} {{"));
+    f.line(&format!("impl{lt_def} {builder_name}{lt_use} {{"));
     f.indented_doc_comment("Creates a new empty builder.");
     f.line("    #[must_use]");
     f.line("    pub const fn new() -> Self {");
@@ -3328,7 +3355,8 @@ fn generate_simple_builder(
         f.indented_doc_comment(&format!("Set the `{name}` field."));
         f.line("    #[must_use]");
         f.line(&format!(
-            "    pub const fn {name}(mut self, value: {ty}) -> Self {{"
+            "    pub const fn {name}(mut self, value: {}) -> Self {{",
+            map_ty(ty)
         ));
         f.line(&format!("        self.{name} = Some(value);"));
         f.line("        self");
@@ -3439,7 +3467,7 @@ fn generate_simple_builder(
     f.blank();
 
     // Default impl
-    f.line(&format!("impl{lt} Default for {builder_name}{lt} {{"));
+    f.line(&format!("impl{lt_def} Default for {builder_name}{lt_use} {{"));
     f.line("    fn default() -> Self {");
     f.line("        Self::new()");
     f.line("    }");
