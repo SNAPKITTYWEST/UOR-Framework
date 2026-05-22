@@ -4768,6 +4768,16 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         return e.to_compile_error().into();
     }
 
+    // ADR-060: the foundation-derived inline carrier width for this model's
+    // selected `HostBounds` (#b_ty). `#b_ty` is concrete at the call site, so
+    // `carrier_inline_bytes::<#b_ty>()` is a concrete `const` expression
+    // admissible as a const-generic argument on stable Rust. Threaded through
+    // `Term`/`TermArena`, `FoundationClosed`, `PrismModel`, `run_route`,
+    // `Grounded`, and the verb-splice arena builder.
+    let inline_bytes = quote! {
+        { ::uor_foundation::pipeline::carrier_inline_bytes::<#b_ty>() }
+    };
+
     // Per wiki ADR-024, verb fragments are inlined into the route's
     // arena at compile time via the const-fn arena builder when any
     // verb invocation is present. Pure (verb-free) routes use the
@@ -4791,16 +4801,6 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         ),
         model_name.span(),
     );
-
-    // ADR-060: the foundation-derived inline carrier width for this model's
-    // selected `HostBounds` (#b_ty). `#b_ty` is a concrete type at the macro
-    // call site, so `carrier_inline_bytes::<#b_ty>()` is a concrete `const`
-    // expression admissible as a const-generic argument on stable Rust (no
-    // `generic_const_exprs`). Threaded through `Term`/`TermArena`,
-    // `FoundationClosed`, `PrismModel`, `run_route`, and `Grounded`.
-    let inline_bytes = quote! {
-        { ::uor_foundation::pipeline::carrier_inline_bytes::<#b_ty>() }
-    };
 
     let expansion = quote! {
         // Re-emit the model + route witness structs from the input.
@@ -5829,7 +5829,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
                 .iter()
                 .any(|s| matches!(s, TermSpec::VerbSplice { .. }));
             let arena_expr = if has_verb_splices {
-                render_const_fn_arena_builder(&arena)
+                render_const_fn_arena_builder(&arena, &quote! { INLINE_BYTES })
             } else {
                 let term_specs = render_arena(&arena);
                 quote! { &[ #( #term_specs ),* ] }
