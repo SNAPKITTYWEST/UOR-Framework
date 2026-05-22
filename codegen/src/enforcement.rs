@@ -3074,7 +3074,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("or an empty slice if unset.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn seed_slice_const(&self) -> &'a [Term] {");
+    f.line("    pub const fn seed_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {");
     f.line("        match self.seed {");
     f.line("            Some(t) => t,");
     f.line("            None => &[],");
@@ -3087,7 +3087,7 @@ fn generate_builders(f: &mut RustFile) {
     f.indented_doc_comment("or an empty slice if unset.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn step_slice_const(&self) -> &'a [Term] {");
+    f.line("    pub const fn step_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {");
     f.line("        match self.step {");
     f.line("            Some(t) => t,");
     f.line("            None => &[],");
@@ -4661,7 +4661,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("impl OntologyTarget for PartitionProductWitness {}");
     f.line("impl OntologyTarget for PartitionCoproductWitness {}");
     f.line("impl OntologyTarget for CartesianProductWitness {}");
-    f.line("impl OntologyTarget for CompileUnit<'_> {}");
+    f.line("impl<const INLINE_BYTES: usize> OntologyTarget for CompileUnit<'_, INLINE_BYTES> {}");
     f.blank();
 
     // ── v0.2.2 W11: Certified<C> parametric carrier ────────────────────────
@@ -6755,7 +6755,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line(
-        "    pub fn as_inhabitance_certificate(&self) -> crate::pipeline::InhabitanceCertificateView<'_, T, Tag> {",
+        "    pub fn as_inhabitance_certificate(&self) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, Tag> {",
     );
     f.line("        crate::pipeline::InhabitanceCertificateView(self)");
     f.line("    }");
@@ -7132,7 +7132,7 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("            P: crate::enforcement::ValidationPhase,");
     f.line("            H: crate::enforcement::Hasher,");
     f.line("        {");
-    f.line("            crate::pipeline::run_grounding_aware::<H>(input.inner(), level)");
+    f.line("            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)");
     f.line("                .map(|v| Certified::new(*v.inner()))");
     f.line("                .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))");
     f.line("        }");

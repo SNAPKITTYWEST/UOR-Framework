@@ -3809,7 +3809,7 @@ impl<'a, const INLINE_BYTES: usize> StreamDeclarationBuilder<'a, INLINE_BYTES> {
     /// or an empty slice if unset.
     #[inline]
     #[must_use]
-    pub const fn seed_slice_const(&self) -> &'a [Term] {
+    pub const fn seed_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         match self.seed {
             Some(t) => t,
             None => &[],
@@ -3820,7 +3820,7 @@ impl<'a, const INLINE_BYTES: usize> StreamDeclarationBuilder<'a, INLINE_BYTES> {
     /// or an empty slice if unset.
     #[inline]
     #[must_use]
-    pub const fn step_slice_const(&self) -> &'a [Term] {
+    pub const fn step_slice_const(&self) -> &'a [Term<'a, INLINE_BYTES>] {
         match self.step {
             Some(t) => t,
             None => &[],
@@ -5993,7 +5993,7 @@ impl OntologyTarget for ConstrainedTypeInput {}
 impl OntologyTarget for PartitionProductWitness {}
 impl OntologyTarget for PartitionCoproductWitness {}
 impl OntologyTarget for CartesianProductWitness {}
-impl OntologyTarget for CompileUnit<'_> {}
+impl<const INLINE_BYTES: usize> OntologyTarget for CompileUnit<'_, INLINE_BYTES> {}
 
 /// v0.2.2 W11: supporting evidence type for `CompletenessCertificate`.
 /// Linked from the certificate via the `Certificate::Evidence` associated type.
@@ -9266,7 +9266,7 @@ impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES,
     #[must_use]
     pub fn as_inhabitance_certificate(
         &self,
-    ) -> crate::pipeline::InhabitanceCertificateView<'_, T, Tag> {
+    ) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, Tag> {
         crate::pipeline::InhabitanceCertificateView(self)
     }
 }
@@ -9608,7 +9608,7 @@ pub mod resolver {
             P: crate::enforcement::ValidationPhase,
             H: crate::enforcement::Hasher,
         {
-            crate::pipeline::run_grounding_aware::<H>(input.inner(), level)
+            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)
                 .map(|v| Certified::new(*v.inner()))
                 .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))
         }

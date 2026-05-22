@@ -2576,8 +2576,8 @@ pub trait WitnessTupleSource {
     fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;
 }
 
-impl<T: crate::enforcement::GroundedShape, Tag> WitnessTupleSource
-    for crate::enforcement::Grounded<T, Tag>
+impl<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource
+    for crate::enforcement::Grounded<T, INLINE_BYTES, Tag>
 {
     fn binding_count(&self) -> usize {
         self.iter_bindings().count()
@@ -3627,7 +3627,7 @@ where
             },
         });
     }
-    let grounded = run::<M::Output, _, A>(unit)?;
+    let grounded = run::<M::Output, _, A, INLINE_BYTES>(unit)?;
     Ok(grounded.with_output_bytes(evaluation.bytes()))
 }
 
@@ -4086,7 +4086,7 @@ pub fn evaluate_term_tree<'a, A, R, const INLINE_BYTES: usize>(
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4120,18 +4120,18 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn evaluate_term_at<'a, A, R, const INLINE_BYTES: usize>(
+fn evaluate_term_at<'a, 'b, A, R, const INLINE_BYTES: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     idx: usize,
     input_bytes: &'a [u8],
-    recurse_value: Option<&'a [u8]>,
-    recurse_idx_value: Option<&'a [u8]>,
-    unfold_value: Option<&'a [u8]>,
-    first_admit_idx_value: Option<&'a [u8]>,
+    recurse_value: Option<&'b [u8]>,
+    recurse_idx_value: Option<&'b [u8]>,
+    unfold_value: Option<&'b [u8]>,
+    first_admit_idx_value: Option<&'b [u8]>,
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4176,18 +4176,22 @@ where
             // splice into the calling arena (so the binding's value-tree
             // root is what the catamorphism actually walks).
             if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {
-                return Ok(TermValue::borrowed(recurse_value.unwrap_or(&[])));
+                return Ok(TermValue::inline_from_slice(recurse_value.unwrap_or(&[])));
             }
             // ADR-034 Mechanism 1: iteration-counter binding for Recurse.
             if name_index == RECURSE_IDX_NAME_INDEX {
-                return Ok(TermValue::borrowed(recurse_idx_value.unwrap_or(&[])));
+                return Ok(TermValue::inline_from_slice(
+                    recurse_idx_value.unwrap_or(&[]),
+                ));
             }
             if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {
-                return Ok(TermValue::borrowed(unfold_value.unwrap_or(&[])));
+                return Ok(TermValue::inline_from_slice(unfold_value.unwrap_or(&[])));
             }
             // ADR-034 Mechanism 2: candidate-value binding for FirstAdmit.
             if name_index == FIRST_ADMIT_IDX_NAME_INDEX {
-                return Ok(TermValue::borrowed(first_admit_idx_value.unwrap_or(&[])));
+                return Ok(TermValue::inline_from_slice(
+                    first_admit_idx_value.unwrap_or(&[]),
+                ));
             }
             Ok(TermValue::borrowed(input_bytes))
         }
@@ -4238,9 +4242,9 @@ where
                 buf[pad + i] = src[i];
                 i += 1;
             }
-            Ok(TermValue {
+            Ok(TermValue::Inline {
                 bytes: buf,
-                len: target_width as u16,
+                len: target_width,
             })
         }
         crate::enforcement::Term::Project {
@@ -4268,7 +4272,7 @@ where
             let src = v.bytes();
             // Big-endian truncation: take the trailing `target_width` bytes.
             let take_from = src.len().saturating_sub(target_width);
-            Ok(TermValue::borrowed(&src[take_from..]))
+            Ok(TermValue::inline_from_slice(&src[take_from..]))
         }
         crate::enforcement::Term::Match {
             scrutinee_index,
@@ -4550,11 +4554,11 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);
+            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);
             if body.is_empty() {
                 // Primitive fast-path: dispatch the kernel function directly.
                 let mut out = [0u8; INLINE_BYTES];
-                let written = match <A as crate::pipeline::AxisTuple>::dispatch(
+                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(
                     axis_index,
                     kernel_id,
                     v.bytes(),
@@ -4574,7 +4578,10 @@ where
                 // body with the evaluated kernel input bound in scope. The
                 // body's root term is by convention the last entry in the arena.
                 let root = body.len() - 1;
-                evaluate_term_at::<A, R, INLINE_BYTES>(
+                // ADR-060: the kernel input `v.bytes()` is a local borrow, so the
+                // recursively-folded body result is materialized into an owned
+                // `Inline` carrier (it cannot outlive the local `v`).
+                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(
                     body,
                     root,
                     v.bytes(),
@@ -4583,7 +4590,8 @@ where
                     unfold_value,
                     first_admit_idx_value,
                     resolvers,
-                )
+                )?;
+                Ok(TermValue::inline_from_slice(folded.bytes()))
             }
         }
         crate::enforcement::Term::ProjectField {
@@ -4619,7 +4627,7 @@ where
                     },
                 });
             }
-            Ok(TermValue::borrowed(&bytes[start..end]))
+            Ok(TermValue::inline_from_slice(&bytes[start..end]))
         }
         crate::enforcement::Term::FirstAdmit {
             domain_size_index,
@@ -4916,20 +4924,20 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_primitive_op<'a, A, R, const INLINE_BYTES: usize>(
+fn apply_primitive_op<'a, 'b, A, R, const INLINE_BYTES: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     operator: crate::PrimitiveOp,
     args_start: usize,
     args_len: usize,
     input_bytes: &'a [u8],
-    recurse_value: Option<&'a [u8]>,
-    recurse_idx_value: Option<&'a [u8]>,
-    unfold_value: Option<&'a [u8]>,
-    first_admit_idx_value: Option<&'a [u8]>,
+    recurse_value: Option<&'b [u8]>,
+    recurse_idx_value: Option<&'b [u8]>,
+    unfold_value: Option<&'b [u8]>,
+    first_admit_idx_value: Option<&'b [u8]>,
     resolvers: &'a R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -9007,7 +9015,7 @@ where
 /// countdown reaches zero.
 #[must_use]
 pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(
-    unit: Validated<StreamDeclaration, P>,
+    unit: Validated<StreamDeclaration<'_, INLINE_BYTES>, P>,
 ) -> StreamDriver<T, P, H, INLINE_BYTES>
 where
     T: crate::enforcement::GroundedShape,

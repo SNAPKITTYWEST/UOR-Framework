@@ -1422,7 +1422,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // the iterator without pulling any items.
     f.line("#[must_use]");
     f.line("pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(");
-    f.line("    unit: Validated<StreamDeclaration, P>,");
+    f.line("    unit: Validated<StreamDeclaration<'_, INLINE_BYTES>, P>,");
     f.line(") -> StreamDriver<T, P, H, INLINE_BYTES>");
     f.line("where");
     f.line("    T: crate::enforcement::GroundedShape,");
@@ -3310,8 +3310,8 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line("    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, Tag> WitnessTupleSource");
-    f.line("    for crate::enforcement::Grounded<T, Tag>");
+    f.line("impl<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource");
+    f.line("    for crate::enforcement::Grounded<T, INLINE_BYTES, Tag>");
     f.line("{");
     f.line("    fn binding_count(&self) -> usize {");
     f.line("        self.iter_bindings().count()");
@@ -4615,7 +4615,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            },");
     f.line("        });");
     f.line("    }");
-    f.line("    let grounded = run::<M::Output, _, A>(unit)?;");
+    f.line("    let grounded = run::<M::Output, _, A, INLINE_BYTES>(unit)?;");
     f.line("    Ok(grounded.with_output_bytes(evaluation.bytes()))");
     f.line("}");
     f.blank();
@@ -5087,7 +5087,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5124,18 +5124,18 @@ fn emit_prism_model(f: &mut RustFile) {
     // required. The Term enum carries exactly the ten variants ADR-029
     // enumerates.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn evaluate_term_at<'a, A, R, const INLINE_BYTES: usize>(");
+    f.line("fn evaluate_term_at<'a, 'b, A, R, const INLINE_BYTES: usize>(");
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    idx: usize,");
     f.line("    input_bytes: &'a [u8],");
-    f.line("    recurse_value: Option<&'a [u8]>,");
-    f.line("    recurse_idx_value: Option<&'a [u8]>,");
-    f.line("    unfold_value: Option<&'a [u8]>,");
-    f.line("    first_admit_idx_value: Option<&'a [u8]>,");
+    f.line("    recurse_value: Option<&'b [u8]>,");
+    f.line("    recurse_idx_value: Option<&'b [u8]>,");
+    f.line("    unfold_value: Option<&'b [u8]>,");
+    f.line("    first_admit_idx_value: Option<&'b [u8]>,");
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5184,19 +5184,19 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // splice into the calling arena (so the binding's value-tree");
     f.line("            // root is what the catamorphism actually walks).");
     f.line("            if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {");
-    f.line("                return Ok(TermValue::borrowed(recurse_value.unwrap_or(&[])));");
+    f.line("                return Ok(TermValue::inline_from_slice(recurse_value.unwrap_or(&[])));");
     f.line("            }");
     f.line("            // ADR-034 Mechanism 1: iteration-counter binding for Recurse.");
     f.line("            if name_index == RECURSE_IDX_NAME_INDEX {");
-    f.line("                return Ok(TermValue::borrowed(recurse_idx_value.unwrap_or(&[])));");
+    f.line("                return Ok(TermValue::inline_from_slice(recurse_idx_value.unwrap_or(&[])));");
     f.line("            }");
     f.line("            if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {");
-    f.line("                return Ok(TermValue::borrowed(unfold_value.unwrap_or(&[])));");
+    f.line("                return Ok(TermValue::inline_from_slice(unfold_value.unwrap_or(&[])));");
     f.line("            }");
     f.line("            // ADR-034 Mechanism 2: candidate-value binding for FirstAdmit.");
     f.line("            if name_index == FIRST_ADMIT_IDX_NAME_INDEX {");
     f.line(
-        "                return Ok(TermValue::borrowed(first_admit_idx_value.unwrap_or(&[])));",
+        "                return Ok(TermValue::inline_from_slice(first_admit_idx_value.unwrap_or(&[])));",
     );
     f.line("            }");
     f.line("            Ok(TermValue::borrowed(input_bytes))");
@@ -5223,7 +5223,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                buf[pad + i] = src[i];");
     f.line("                i += 1;");
     f.line("            }");
-    f.line("            Ok(TermValue { bytes: buf, len: target_width as u16 })");
+    f.line("            Ok(TermValue::Inline { bytes: buf, len: target_width })");
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
@@ -5236,7 +5236,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            let src = v.bytes();");
     f.line("            // Big-endian truncation: take the trailing `target_width` bytes.");
     f.line("            let take_from = src.len().saturating_sub(target_width);");
-    f.line("            Ok(TermValue::borrowed(&src[take_from..]))");
+    f.line("            Ok(TermValue::inline_from_slice(&src[take_from..]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
@@ -5422,11 +5422,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // (axis_index, kernel_id) combinations and may provide substrate-");
     f.line("            // Term bodies the catamorphism walks structurally.");
     f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, input_index as usize, input_bytes, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
-    f.line("            let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);");
+    f.line("            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);");
     f.line("            if body.is_empty() {");
     f.line("                // Primitive fast-path: dispatch the kernel function directly.");
     f.line("                let mut out = [0u8; INLINE_BYTES];");
-    f.line("                let written = match <A as crate::pipeline::AxisTuple>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
+    f.line("                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                    Ok(n) => n,");
     f.line("                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),");
     f.line("                };");
@@ -5437,7 +5437,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // body with the evaluated kernel input bound in scope. The");
     f.line("                // body's root term is by convention the last entry in the arena.");
     f.line("                let root = body.len() - 1;");
-    f.line("                evaluate_term_at::<A, R, INLINE_BYTES>(body, root, v.bytes(), recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
+    f.line("                // ADR-060: the kernel input `v.bytes()` is a local borrow, so the");
+    f.line("                // recursively-folded body result is materialized into an owned");
+    f.line("                // `Inline` carrier (it cannot outlive the local `v`).");
+    f.line("                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(body, root, v.bytes(), recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("                Ok(TermValue::inline_from_slice(folded.bytes()))");
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
@@ -5461,7 +5465,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    },");
     f.line("                });");
     f.line("            }");
-    f.line("            Ok(TermValue::borrowed(&bytes[start..end]))");
+    f.line("            Ok(TermValue::inline_from_slice(&bytes[start..end]))");
     f.line("        }");
     f.line(
         "        crate::enforcement::Term::FirstAdmit { domain_size_index, predicate_index } => {",
@@ -5644,20 +5648,20 @@ fn emit_prism_model(f: &mut RustFile) {
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn apply_primitive_op<'a, A, R, const INLINE_BYTES: usize>(");
+    f.line("fn apply_primitive_op<'a, 'b, A, R, const INLINE_BYTES: usize>(");
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    args_start: usize,");
     f.line("    args_len: usize,");
     f.line("    input_bytes: &'a [u8],");
-    f.line("    recurse_value: Option<&'a [u8]>,");
-    f.line("    recurse_idx_value: Option<&'a [u8]>,");
-    f.line("    unfold_value: Option<&'a [u8]>,");
-    f.line("    first_admit_idx_value: Option<&'a [u8]>,");
+    f.line("    recurse_value: Option<&'b [u8]>,");
+    f.line("    recurse_idx_value: Option<&'b [u8]>,");
+    f.line("    unfold_value: Option<&'b [u8]>,");
+    f.line("    first_admit_idx_value: Option<&'b [u8]>,");
     f.line("    resolvers: &'a R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
