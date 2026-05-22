@@ -171,9 +171,9 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.line("///");
     f.doc_comment("Returns `ShapeViolation::Missing` for the first unset required field.");
-    f.line("pub const fn validate_compile_unit_const<'a>(");
-    f.line("    builder: &CompileUnitBuilder<'a>,");
-    f.line(") -> Result<Validated<CompileUnit<'a>, CompileTime>, ShapeViolation> {");
+    f.line("pub const fn validate_compile_unit_const<'a, const INLINE_BYTES: usize>(");
+    f.line("    builder: &CompileUnitBuilder<'a, INLINE_BYTES>,");
+    f.line(") -> Result<Validated<CompileUnit<'a, INLINE_BYTES>, CompileTime>, ShapeViolation> {");
     f.line("    if !builder.has_root_term_const() {");
     f.line("        return Err(ShapeViolation {");
     f.line("            shape_iri: \"https://uor.foundation/conformance/CompileUnitShape\",");
@@ -296,8 +296,8 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("parametric content fingerprint, distinguishing two units that share a");
     f.doc_comment("witt level but differ in budget, IRI, site count, or constraints.");
     f.line("#[must_use]");
-    f.line("pub fn certify_tower_completeness_const<T, H>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Validated<GroundingCertificate, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
@@ -329,8 +329,8 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("parametric fingerprint; uses `CertificateKind::IncrementalCompleteness`");
     f.doc_comment("as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_incremental_completeness_const<T, H>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("pub fn certify_incremental_completeness_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Validated<GroundingCertificate, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
@@ -361,8 +361,8 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Threads `H: Hasher` for the parametric fingerprint; uses");
     f.doc_comment("`CertificateKind::Inhabitance` as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_inhabitance_const<T, H>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Validated<GroundingCertificate, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
@@ -394,8 +394,8 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("fingerprint; uses `CertificateKind::Multiplication` as the trailing");
     f.doc_comment("discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_multiplication_const<T, H>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Validated<MultiplicationCertificate, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
@@ -427,8 +427,8 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Threads `H: Hasher` for the parametric fingerprint; uses");
     f.doc_comment("`CertificateKind::Grounding` as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_grounding_aware_const<T, H>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Validated<GroundingCertificate, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
@@ -471,7 +471,7 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("`result_type_iri` does not match `T::IRI`, or propagates any");
     f.doc_comment("failure from the reduction stage executor.");
     f.line("pub fn run_const<T, M, H, const INLINE_BYTES: usize>(");
-    f.line("    unit: &Validated<CompileUnit, CompileTime>,");
+    f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
     f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
@@ -8032,7 +8032,7 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("```");
     // Phase M.3: `run` returns `Result`, which is already `#[must_use]`.
     f.line("pub fn run<T, P, H, const INLINE_BYTES: usize>(");
-    f.line("    unit: Validated<CompileUnit, P>,");
+    f.line("    unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
     f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");

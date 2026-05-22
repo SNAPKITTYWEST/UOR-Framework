@@ -9576,14 +9576,14 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P, H>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify<P, H, const INLINE_BYTES: usize>(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         where
             P: crate::enforcement::ValidationPhase,
             H: crate::enforcement::Hasher,
         {
-            certify_at::<P, H>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
         }
 
         /// Certify at an explicit Witt level.
@@ -9591,8 +9591,8 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P, H>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify_at<P, H, const INLINE_BYTES: usize>(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         where
@@ -10731,11 +10731,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10743,8 +10747,12 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify_at<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         {
@@ -10806,11 +10814,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
         ) -> Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10818,8 +10830,12 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify_at<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
         ) -> Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>>
         {
@@ -10884,11 +10900,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
         ) -> Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10896,8 +10916,12 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify_at<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
         ) -> Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>>
         {
@@ -10959,11 +10983,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10971,8 +10999,12 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher>(
-            input: &Validated<CompileUnit, P>,
+        pub fn certify_at<
+            P: crate::enforcement::ValidationPhase,
+            H: crate::enforcement::Hasher,
+            const INLINE_BYTES: usize,
+        >(
+            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
         ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
         {

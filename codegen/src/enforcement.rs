@@ -7109,14 +7109,14 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify<P, H>(");
-    f.line("            input: &Validated<CompileUnit, P>,");
+    f.line("        pub fn certify<P, H, const INLINE_BYTES: usize>(");
+    f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
     f.line("        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            P: crate::enforcement::ValidationPhase,");
     f.line("            H: crate::enforcement::Hasher,");
     f.line("        {");
-    f.line("            certify_at::<P, H>(input, WittLevel::W32)");
+    f.line("            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)");
     f.line("        }");
     f.blank();
     f.line("        /// Certify at an explicit Witt level.");
@@ -7124,8 +7124,8 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify_at<P, H>(");
-    f.line("            input: &Validated<CompileUnit, P>,");
+    f.line("        pub fn certify_at<P, H, const INLINE_BYTES: usize>(");
+    f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
     f.line("            level: WittLevel,");
     f.line("        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
@@ -8748,12 +8748,13 @@ fn phase_d_emit_resolver_module(
             f.line("        pub fn certify<");
             f.line("            P: crate::enforcement::ValidationPhase,");
             f.line("            H: crate::enforcement::Hasher,");
+            f.line("            const INLINE_BYTES: usize,");
             f.line("        >(");
-            f.line("            input: &Validated<CompileUnit, P>,");
+            f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
             f.line(&format!(
                 "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"
             ));
-            f.line("            certify_at::<P, H>(input, WittLevel::W32)");
+            f.line("            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)");
             f.line("        }");
             f.blank();
             f.line("        /// Phase D (target §4.2): certify at an explicit Witt level.");
@@ -8764,8 +8765,9 @@ fn phase_d_emit_resolver_module(
             f.line("        pub fn certify_at<");
             f.line("            P: crate::enforcement::ValidationPhase,");
             f.line("            H: crate::enforcement::Hasher,");
+            f.line("            const INLINE_BYTES: usize,");
             f.line("        >(");
-            f.line("            input: &Validated<CompileUnit, P>,");
+            f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
             f.line("            level: WittLevel,");
             f.line(&format!(
                 "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"

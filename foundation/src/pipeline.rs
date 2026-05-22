@@ -7999,7 +7999,7 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 /// # let _ = grounded;
 /// ```
 pub fn run<T, P, H, const INLINE_BYTES: usize>(
-    unit: Validated<CompileUnit, P>,
+    unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,
 ) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
@@ -9019,9 +9019,9 @@ pub const fn validate_lease_const<'a>(
 /// # Errors
 ///
 /// Returns `ShapeViolation::Missing` for the first unset required field.
-pub const fn validate_compile_unit_const<'a>(
-    builder: &CompileUnitBuilder<'a>,
-) -> Result<Validated<CompileUnit<'a>, CompileTime>, ShapeViolation> {
+pub const fn validate_compile_unit_const<'a, const INLINE_BYTES: usize>(
+    builder: &CompileUnitBuilder<'a, INLINE_BYTES>,
+) -> Result<Validated<CompileUnit<'a, INLINE_BYTES>, CompileTime>, ShapeViolation> {
     if !builder.has_root_term_const() {
         return Err(ShapeViolation {
             shape_iri: "https://uor.foundation/conformance/CompileUnitShape",
@@ -9139,8 +9139,8 @@ pub const fn validate_stream_const<'a, T: ConstrainedTypeShape>(
 /// parametric content fingerprint, distinguishing two units that share a
 /// witt level but differ in budget, IRI, site count, or constraints.
 #[must_use]
-pub fn certify_tower_completeness_const<T, H>(
-    unit: &Validated<CompileUnit, CompileTime>,
+pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize>(
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Validated<GroundingCertificate, CompileTime>
 where
     T: ConstrainedTypeShape,
@@ -9170,8 +9170,8 @@ where
 /// parametric fingerprint; uses `CertificateKind::IncrementalCompleteness`
 /// as the trailing discriminant byte.
 #[must_use]
-pub fn certify_incremental_completeness_const<T, H>(
-    unit: &Validated<CompileUnit, CompileTime>,
+pub fn certify_incremental_completeness_const<T, H, const INLINE_BYTES: usize>(
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Validated<GroundingCertificate, CompileTime>
 where
     T: ConstrainedTypeShape,
@@ -9200,8 +9200,8 @@ where
 /// Threads `H: Hasher` for the parametric fingerprint; uses
 /// `CertificateKind::Inhabitance` as the trailing discriminant byte.
 #[must_use]
-pub fn certify_inhabitance_const<T, H>(
-    unit: &Validated<CompileUnit, CompileTime>,
+pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize>(
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Validated<GroundingCertificate, CompileTime>
 where
     T: ConstrainedTypeShape,
@@ -9231,8 +9231,8 @@ where
 /// fingerprint; uses `CertificateKind::Multiplication` as the trailing
 /// discriminant byte.
 #[must_use]
-pub fn certify_multiplication_const<T, H>(
-    unit: &Validated<CompileUnit, CompileTime>,
+pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize>(
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Validated<MultiplicationCertificate, CompileTime>
 where
     T: ConstrainedTypeShape,
@@ -9261,8 +9261,8 @@ where
 /// Threads `H: Hasher` for the parametric fingerprint; uses
 /// `CertificateKind::Grounding` as the trailing discriminant byte.
 #[must_use]
-pub fn certify_grounding_aware_const<T, H>(
-    unit: &Validated<CompileUnit, CompileTime>,
+pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize>(
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Validated<GroundingCertificate, CompileTime>
 where
     T: ConstrainedTypeShape,
@@ -9300,7 +9300,7 @@ where
 /// `result_type_iri` does not match `T::IRI`, or propagates any
 /// failure from the reduction stage executor.
 pub fn run_const<T, M, H, const INLINE_BYTES: usize>(
-    unit: &Validated<CompileUnit, CompileTime>,
+    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
 ) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
