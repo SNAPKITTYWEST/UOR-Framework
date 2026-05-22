@@ -51,10 +51,10 @@ pub use uor_foundation::PrimitiveOp;
 // Wiki ADR-018: `HostBounds` is the carrier of every capacity bound that
 // varies along the principal data path. Verifier callers reach
 // `Trace::<TR_MAX>` and `certify_from_trace::<TR_MAX>` with
-// `TR_MAX = <MyBounds as HostBounds>::TRACE_MAX_EVENTS` (or omit the
-// turbofish to inherit `DefaultHostBounds`'s 256 via the type's default
-// const-generic).
-pub use uor_foundation::{DefaultHostBounds, HostBounds};
+// `TR_MAX = <MyBounds as HostBounds>::TRACE_MAX_EVENTS`. ADR-060 removed
+// `DefaultHostBounds`: there is no default application, so every caller
+// declares its own `impl HostBounds` and threads its constants explicitly.
+pub use uor_foundation::HostBounds;
 
 /// Verify a trace by re-deriving its certificate via structural validation +
 /// fingerprint passthrough.

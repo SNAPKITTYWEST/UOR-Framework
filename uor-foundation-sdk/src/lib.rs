@@ -4789,6 +4789,16 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         model_name.span(),
     );
 
+    // ADR-060: the foundation-derived inline carrier width for this model's
+    // selected `HostBounds` (#b_ty). `#b_ty` is a concrete type at the macro
+    // call site, so `carrier_inline_bytes::<#b_ty>()` is a concrete `const`
+    // expression admissible as a const-generic argument on stable Rust (no
+    // `generic_const_exprs`). Threaded through `Term`/`TermArena`,
+    // `FoundationClosed`, `PrismModel`, `run_route`, and `Grounded`.
+    let inline_bytes = quote! {
+        { ::uor_foundation::pipeline::carrier_inline_bytes::<#b_ty>() }
+    };
+
     let expansion = quote! {
         // Re-emit the model + route witness structs from the input.
         #model_vis struct #model_name;
@@ -4800,7 +4810,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         // no runtime depth guard). `pipeline::run_route` reads the
         // slice via `FoundationClosed::arena_slice`.
         #[allow(non_upper_case_globals, dead_code)]
-        const #route_terms_const: &[::uor_foundation::enforcement::Term] =
+        const #route_terms_const: &[::uor_foundation::enforcement::Term<'static, #inline_bytes>] =
             #route_arena_expr;
 
         // ADR-022 D1: seal impls. Foundation-internal macro is the
@@ -4808,30 +4818,32 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #model_name {}
         impl ::uor_foundation::pipeline::__sdk_seal::Sealed for #route_name {}
 
-        // ADR-022 D5: FoundationClosed impl returning the parsed term-tree.
-        impl ::uor_foundation::pipeline::FoundationClosed for #route_name {
-            fn arena_slice() -> &'static [::uor_foundation::enforcement::Term] {
+        // ADR-022 D5 + ADR-060: FoundationClosed impl returning the parsed
+        // term-tree, const-generic over the foundation-derived inline width.
+        impl ::uor_foundation::pipeline::FoundationClosed<#inline_bytes> for #route_name {
+            fn arena_slice() -> &'static [::uor_foundation::enforcement::Term<'static, #inline_bytes>] {
                 #route_terms_const
             }
         }
 
-        // ADR-020 + ADR-022 D4 + ADR-036 + ADR-048: PrismModel impl with
-        // 5-position substrate parameter list. The 4th slot binds the
-        // route's ResolverTuple per ADR-036 (NullResolverTuple default);
-        // the 5th slot binds the model's TypedCommitment per ADR-048
-        // (EmptyCommitment default). The macro-emitted `forward` body
-        // constructs both substrate instances and threads them to
-        // `pipeline::run_route` per ADR-022 D5.
-        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
+        // ADR-020 + ADR-022 D4 + ADR-036 + ADR-048 + ADR-060: PrismModel impl.
+        // The 4th slot is the foundation-derived INLINE_BYTES carrier width
+        // (ADR-060); the 5th binds the route's ResolverTuple per ADR-036
+        // (NullResolverTuple default); the 6th binds the model's
+        // TypedCommitment per ADR-048 (EmptyCommitment default). The
+        // macro-emitted `forward` body constructs both substrate instances
+        // and threads them to `pipeline::run_route` per ADR-022 D5.
+        impl ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
             type Input = #input_ty;
             type Output = #output_ty;
             type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
-                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
+                    <Self as ::uor_foundation::pipeline::PrismModel<#h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
+                    #inline_bytes,
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
@@ -4844,6 +4856,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
                     Self,
                     #resolver_ty_tokens,
                     #commitment_ty_tokens,
+                    #inline_bytes,
                 >(input, &__resolvers, &__commitment)
             }
         }
@@ -5218,15 +5231,23 @@ pub fn verb(input: TokenStream) -> TokenStream {
         // `prism_model!` invocations in downstream crates (after
         // `use_verbs!` re-export) can name it when emitting calls to
         // foundation's `inline_verb_fragment` const-fn helper.
-        #[allow(non_upper_case_globals, dead_code)]
-        #fn_vis const #const_name: &[::uor_foundation::enforcement::Term] =
-            #verb_fragment_expr;
+        // ADR-060: a verb is model-independent, but its term-tree carries the
+        // source-polymorphic carrier `Term<'static, INLINE_BYTES>`, whose
+        // inline width is the consuming model's `carrier_inline_bytes::<B>()`.
+        // So the fragment is a `const fn` generic over `INLINE_BYTES`; the
+        // consuming `prism_model!` route calls it at its own derived width.
+        #[allow(non_snake_case, dead_code)]
+        #fn_vis const fn #const_name<const INLINE_BYTES: usize>(
+        ) -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
+            #verb_fragment_expr
+        }
 
         // Public accessor for the verb's term-tree fragment. Per
         // ADR-024, the verb is a structural declaration — its
         // runtime is implementation-owned.
-        #fn_vis fn #accessor_name() -> &'static [::uor_foundation::enforcement::Term] {
-            #const_name
+        #fn_vis const fn #accessor_name<const INLINE_BYTES: usize>(
+        ) -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
+            #const_name::<INLINE_BYTES>()
         }
 
         // Marker `pub fn name(_: InputTy) -> OutputTy` so the verb
@@ -5851,12 +5872,12 @@ pub fn axis(input: TokenStream) -> TokenStream {
                 // the empty slice (primitive-fast-path interpretation
                 // where dispatch_kernel is byte-output-equivalent).
                 impl ::uor_foundation::pipeline::__sdk_seal::Sealed for $struct_ident {}
-                impl ::uor_foundation::pipeline::SubstrateTermBody for $struct_ident {
-                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
+                impl<const INLINE_BYTES: usize> ::uor_foundation::pipeline::SubstrateTermBody<INLINE_BYTES> for $struct_ident {
+                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
                         #body_arena_expr
                     }
                 }
-                impl ::uor_foundation::pipeline::AxisExtension for $struct_ident {
+                impl<const INLINE_BYTES: usize> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES> for $struct_ident {
                     const AXIS_ADDRESS: &'static str =
                         <$struct_ident as #trait_name>::AXIS_ADDRESS;
                     const MAX_OUTPUT_BYTES: usize =
@@ -5904,14 +5925,14 @@ pub fn axis(input: TokenStream) -> TokenStream {
                 impl<$($generic_params)*> ::uor_foundation::pipeline::__sdk_seal::Sealed for $struct_ty
                 $(where $($where_clauses)*)?
                 {}
-                impl<$($generic_params)*> ::uor_foundation::pipeline::SubstrateTermBody for $struct_ty
+                impl<const INLINE_BYTES: usize, $($generic_params)*> ::uor_foundation::pipeline::SubstrateTermBody<INLINE_BYTES> for $struct_ty
                 $(where $($where_clauses)*)?
                 {
-                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term] {
+                    fn body_arena() -> &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] {
                         #body_arena_expr
                     }
                 }
-                impl<$($generic_params)*> ::uor_foundation::pipeline::AxisExtension for $struct_ty
+                impl<const INLINE_BYTES: usize, $($generic_params)*> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES> for $struct_ty
                 $(where $($where_clauses)*)?
                 {
                     const AXIS_ADDRESS: &'static str =
@@ -6201,15 +6222,17 @@ pub fn resolver(input: TokenStream) -> TokenStream {
             {
                 // Declared category: where-clause asserts the user's
                 // field type impls the resolver trait, and the accessor
-                // returns a borrow of that field.
+                // returns a borrow of that field. ADR-060: blanket over the
+                // carrier inline width `INLINE_BYTES` so the tuple satisfies
+                // any model's `run_route` regardless of its `HostBounds`.
                 quote::quote! {
-                    impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
-                        ::uor_foundation::pipeline::#marker<#hasher_param>
+                    impl<const INLINE_BYTES: usize, #hasher_param: ::uor_foundation::enforcement::Hasher>
+                        ::uor_foundation::pipeline::#marker<INLINE_BYTES, #hasher_param>
                         for #struct_name<#hasher_param>
                     where
-                        #field_ty: ::uor_foundation::pipeline::#resolver_trait<#hasher_param>,
+                        #field_ty: ::uor_foundation::pipeline::#resolver_trait<INLINE_BYTES, #hasher_param>,
                     {
-                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
+                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<INLINE_BYTES, #hasher_param> {
                             &self.#field_name
                         }
                     }
@@ -6218,14 +6241,14 @@ pub fn resolver(input: TokenStream) -> TokenStream {
                 // Undeclared category: accessor returns a static borrow
                 // of `NullResolverTuple` (unit-struct const-promotion).
                 // `NullResolverTuple` already impls every resolver trait
-                // for any `H: Hasher` (foundation, ADR-036), so the
-                // `&dyn` coercion is direct.
+                // for any `H: Hasher` and `INLINE_BYTES` (foundation,
+                // ADR-036 + ADR-060), so the `&dyn` coercion is direct.
                 quote::quote! {
-                    impl<#hasher_param: ::uor_foundation::enforcement::Hasher>
-                        ::uor_foundation::pipeline::#marker<#hasher_param>
+                    impl<const INLINE_BYTES: usize, #hasher_param: ::uor_foundation::enforcement::Hasher>
+                        ::uor_foundation::pipeline::#marker<INLINE_BYTES, #hasher_param>
                         for #struct_name<#hasher_param>
                     {
-                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<#hasher_param> {
+                        fn #accessor(&self) -> &dyn ::uor_foundation::pipeline::#resolver_trait<INLINE_BYTES, #hasher_param> {
                             &::uor_foundation::pipeline::NullResolverTuple
                         }
                     }
