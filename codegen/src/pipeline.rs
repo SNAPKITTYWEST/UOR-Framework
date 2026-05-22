@@ -470,9 +470,9 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Returns `PipelineFailure::ShapeMismatch` when the unit's declared");
     f.doc_comment("`result_type_iri` does not match `T::IRI`, or propagates any");
     f.doc_comment("failure from the reduction stage executor.");
-    f.line("pub fn run_const<T, M, H>(");
+    f.line("pub fn run_const<T, M, H, const INLINE_BYTES: usize>(");
     f.line("    unit: &Validated<CompileUnit, CompileTime>,");
-    f.line(") -> Result<Grounded<T>, PipelineFailure>");
+    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    // Phase C.2 (target §6): const-eval admits only those grounding-map kinds");
@@ -8031,9 +8031,9 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("# let _ = grounded;");
     f.doc_comment("```");
     // Phase M.3: `run` returns `Result`, which is already `#[must_use]`.
-    f.line("pub fn run<T, P, H>(");
+    f.line("pub fn run<T, P, H, const INLINE_BYTES: usize>(");
     f.line("    unit: Validated<CompileUnit, P>,");
-    f.line(") -> Result<Grounded<T>, PipelineFailure>");
+    f.line(") -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");

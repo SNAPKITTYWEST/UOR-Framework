@@ -6472,7 +6472,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("foundation's contract is about ring soundness, not domain semantics.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn tag<NewTag>(self) -> Grounded<T, NewTag> {");
+    f.line("    pub fn tag<NewTag>(self) -> Grounded<T, INLINE_BYTES, NewTag> {");
     f.line("        Grounded {");
     f.line("            validated: self.validated,");
     f.line("            bindings: self.bindings,");
@@ -6662,7 +6662,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("            jacobian_len: jac_len as u16,");
     f.line("            betti_numbers: betti,");
     f.line("            content_fingerprint,");
-    f.line("            output_payload: [0u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],");
+    f.line("            output_payload: [0u8; INLINE_BYTES],");
     f.line("            output_len: 0,");
     f.line("            _phantom: PhantomData,");
     f.line("            _tag: PhantomData,");
@@ -6679,14 +6679,14 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
         "buffer; bytes beyond `len` are zero-padded. Returns self for chaining.",
     );
     f.indented_doc_comment("");
-    f.indented_doc_comment("Panics if `bytes.len() > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES`.");
+    f.indented_doc_comment("Panics if `bytes.len() > INLINE_BYTES`.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line("    pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {");
     f.line("        let len = bytes.len();");
-    f.line("        debug_assert!(len <= crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES);");
-    f.line("        let copy_len = if len > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES {");
-    f.line("            crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES");
+    f.line("        debug_assert!(len <= INLINE_BYTES);");
+    f.line("        let copy_len = if len > INLINE_BYTES {");
+    f.line("            INLINE_BYTES");
     f.line("        } else { len };");
     f.line("        let mut i = 0;");
     f.line("        while i < copy_len {");

@@ -1662,14 +1662,14 @@ pub struct TermList {
 /// assert!(node.is_some());
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TermArena<const CAP: usize> {
+pub struct TermArena<'a, const INLINE_BYTES: usize, const CAP: usize> {
     /// Node storage. `None` slots are unused.
-    nodes: [Option<Term>; CAP],
+    nodes: [Option<Term<'a, INLINE_BYTES>>; CAP],
     /// Number of allocated nodes.
     len: u32,
 }
 
-impl<const CAP: usize> TermArena<CAP> {
+impl<'a, const INLINE_BYTES: usize, const CAP: usize> TermArena<'a, INLINE_BYTES, CAP> {
     /// Creates an empty arena.
     #[inline]
     #[must_use]
@@ -1686,7 +1686,7 @@ impl<const CAP: usize> TermArena<CAP> {
     /// # Errors
     /// Returns `None` if the arena is full.
     #[must_use]
-    pub fn push(&mut self, term: Term) -> Option<u32> {
+    pub fn push(&mut self, term: Term<'a, INLINE_BYTES>) -> Option<u32> {
         let idx = self.len;
         if (idx as usize) >= CAP {
             return None;
@@ -1699,7 +1699,7 @@ impl<const CAP: usize> TermArena<CAP> {
     /// Returns a reference to the term at `index`, or `None` if out of bounds.
     #[inline]
     #[must_use]
-    pub fn get(&self, index: u32) -> Option<&Term> {
+    pub fn get(&self, index: u32) -> Option<&Term<'a, INLINE_BYTES>> {
         self.nodes
             .get(index as usize)
             .and_then(|slot| slot.as_ref())
@@ -1725,7 +1725,7 @@ impl<const CAP: usize> TermArena<CAP> {
     /// `TermList::len` to walk the children of an Application/Match node.
     #[inline]
     #[must_use]
-    pub fn as_slice(&self) -> &[Option<Term>] {
+    pub fn as_slice(&self) -> &[Option<Term<'a, INLINE_BYTES>>] {
         &self.nodes[..self.len as usize]
     }
 
@@ -1742,8 +1742,8 @@ impl<const CAP: usize> TermArena<CAP> {
     /// output).
     #[inline]
     #[must_use]
-    pub const fn from_slice(slice: &'static [Term]) -> Self {
-        let mut nodes: [Option<Term>; CAP] = [None; CAP];
+    pub const fn from_slice(slice: &'a [Term<'a, INLINE_BYTES>]) -> Self {
+        let mut nodes: [Option<Term<'a, INLINE_BYTES>>; CAP] = [None; CAP];
         let mut i = 0usize;
         while i < slice.len() && i < CAP {
             nodes[i] = Some(slice[i]);
@@ -1762,7 +1762,7 @@ impl<const CAP: usize> TermArena<CAP> {
     }
 }
 
-impl<const CAP: usize> Default for TermArena<CAP> {
+impl<'a, const INLINE_BYTES: usize, const CAP: usize> Default for TermArena<'a, INLINE_BYTES, CAP> {
     fn default() -> Self {
         Self::new()
     }
@@ -1795,16 +1795,17 @@ impl<const CAP: usize> Default for TermArena<CAP> {
 /// ```
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Term {
+pub enum Term<'a, const INLINE_BYTES: usize> {
     /// Integer literal with Witt level annotation. Per ADR-051 the value
     /// carrier is a `TermValue` byte sequence whose length matches the declared
     /// `level`'s byte width. Use `uor_foundation::pipeline::literal_u64(value, level)`
     /// to construct a literal from a `u64` value (the narrow form).
     Literal {
-        /// The literal value as a byte sequence (ADR-051). Length equals
-        /// `level.witt_length() / 8`. Wider widths (W128, W256, …) are
-        /// natively representable without `Concat` composition.
-        value: crate::pipeline::TermValue,
+        /// The literal value as a source-polymorphic carrier (ADR-051 +
+        /// ADR-060). Inline length equals `level.witt_length() / 8`. Wider
+        /// widths (W128, W256, …) are natively representable without
+        /// `Concat` composition.
+        value: crate::pipeline::TermValue<'a, INLINE_BYTES>,
         /// The Witt level of this literal.
         level: WittLevel,
     },
@@ -6774,8 +6775,7 @@ impl MultiplicationCertificate {
 /// snapshot) so future expansions require explicit review.
 /// Wiki ADR-037: alias of [`crate::HostBounds::BETTI_DIMENSION_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const MAX_BETTI_DIMENSION: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::BETTI_DIMENSION_MAX;
+pub const MAX_BETTI_DIMENSION: usize = 8;
 
 /// Sealed newtype for the grounding completion ratio σ ∈
 /// [0.0, 1.0]. σ = 1 indicates the ground state; σ = 0 the
@@ -6976,8 +6976,7 @@ impl BettiMetric {
 /// 8 matches `MAX_BETTI_DIMENSION` and is sufficient for the v0.2.2 partition rank set.
 /// Wiki ADR-037: alias of [`crate::HostBounds::JACOBIAN_SITES_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const JACOBIAN_MAX_SITES: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::JACOBIAN_SITES_MAX;
+pub const JACOBIAN_MAX_SITES: usize = 8;
 
 /// v0.2.2 Phase E: sealed Jacobian row carrier, parametric over the
 /// WittLevel marker. Fixed-size `[i64; JACOBIAN_MAX_SITES]` backing; no
@@ -8001,15 +8000,14 @@ pub fn expand_constraints_in<R: crate::pipeline::shape_iri_registry::ShapeRegist
 /// rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
 /// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const NERVE_CONSTRAINTS_CAP: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::NERVE_CONSTRAINTS_MAX;
+pub const NERVE_CONSTRAINTS_CAP: usize = 8;
 
 /// Phase X.4: cap on site-support bitmask width (matches `u16` storage).
 /// Phase 1a (orphan-closure): inputs exceeding this cap are rejected via
 /// `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
 /// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_SITES_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const NERVE_SITES_CAP: usize = <crate::DefaultHostBounds as crate::HostBounds>::NERVE_SITES_MAX;
+pub const NERVE_SITES_CAP: usize = 8;
 
 /// Phase X.4: maximum number of 1-simplices = C(NERVE_CONSTRAINTS_CAP, 2) = 28.
 pub const NERVE_C1_MAX: usize = 28;
@@ -8861,7 +8859,7 @@ impl core::error::Error for BindingsTableError {}
 /// `<https://uor.foundation/cert/witness>`,
 /// `<https://uor.foundation/cert/searchTrace>`.
 #[derive(Debug, Clone)]
-pub struct Grounded<T: GroundedShape, Tag = T> {
+pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     /// The validated grounding certificate this wrapper carries.
     validated: Validated<GroundingCertificate>,
     /// The compile-time-materialized bindings table.
@@ -8901,7 +8899,7 @@ pub struct Grounded<T: GroundedShape, Tag = T> {
     /// result populated by `pipeline::run_route` per ADR-029's per-variant
     /// fold rules. Fixed-capacity stack buffer; the active prefix runs to
     /// `output_len` bytes. Read via [`Grounded::output_bytes`].
-    output_payload: [u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],
+    output_payload: [u8; INLINE_BYTES],
     /// Active length of `output_payload` (the route's evaluation output length).
     output_len: u16,
     /// Phantom type tying this `Grounded` to a specific `ConstrainedType`.
@@ -8911,7 +8909,7 @@ pub struct Grounded<T: GroundedShape, Tag = T> {
     _tag: PhantomData<Tag>,
 }
 
-impl<T: GroundedShape, Tag> Grounded<T, Tag> {
+impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {
     /// Returns the binding for the given query address, or `None` if not in
     /// the table. Resolves in O(log n) via binary search; for true `op:GS_5`
     /// zero-step access, downstream code uses statically-known indices.
@@ -9041,7 +9039,7 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
     /// foundation's contract is about ring soundness, not domain semantics.
     #[inline]
     #[must_use]
-    pub fn tag<NewTag>(self) -> Grounded<T, NewTag> {
+    pub fn tag<NewTag>(self) -> Grounded<T, INLINE_BYTES, NewTag> {
         Grounded {
             validated: self.validated,
             bindings: self.bindings,
@@ -9201,7 +9199,7 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
             jacobian_len: jac_len as u16,
             betti_numbers: betti,
             content_fingerprint,
-            output_payload: [0u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],
+            output_payload: [0u8; INLINE_BYTES],
             output_len: 0,
             _phantom: PhantomData,
             _tag: PhantomData,
@@ -9212,14 +9210,14 @@ impl<T: GroundedShape, Tag> Grounded<T, Tag> {
     /// Called by `pipeline::run_route` after the catamorphism evaluates the
     /// Term tree per ADR-029. The bytes are copied into the on-stack
     /// buffer; bytes beyond `len` are zero-padded. Returns self for chaining.
-    /// Panics if `bytes.len() > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES`.
+    /// Panics if `bytes.len() > INLINE_BYTES`.
     #[inline]
     #[must_use]
     pub(crate) fn with_output_bytes(mut self, bytes: &[u8]) -> Self {
         let len = bytes.len();
-        debug_assert!(len <= crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES);
-        let copy_len = if len > crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES {
-            crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES
+        debug_assert!(len <= INLINE_BYTES);
+        let copy_len = if len > INLINE_BYTES {
+            INLINE_BYTES
         } else {
             len
         };
@@ -19906,8 +19904,7 @@ impl OperadComposition {
 /// the constant is a size-budget cap matching other foundation arenas.
 /// Wiki ADR-037: alias of [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const RECURSION_TRACE_MAX_DEPTH: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::RECURSION_TRACE_DEPTH_MAX;
+pub const RECURSION_TRACE_MAX_DEPTH: usize = 16;
 
 /// Phase F.3 (target §4.7 recursion): sealed recursion trace with fixed-capacity
 /// descent-measure sequence.
@@ -20339,8 +20336,7 @@ pub enum GroundingPrimitiveOp {
 /// for nested composition while keeping `Copy` and `no_std` without alloc.
 /// Wiki ADR-037: alias of [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`] via
 /// [`crate::DefaultHostBounds`].
-pub const MAX_OP_CHAIN_DEPTH: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::OP_CHAIN_DEPTH_MAX;
+pub const MAX_OP_CHAIN_DEPTH: usize = 8;
 
 /// v0.2.2 Phase J: a single grounding primitive parametric over its output
 /// type `Out` and its type-level marker tuple `Markers`.

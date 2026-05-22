@@ -62,15 +62,13 @@ pub const REDUCTION_STAGE_IRIS: &[&str] = &[
 /// stable-Rust array-size positions. Applications declaring a custom
 /// `HostBounds` impl read `<MyBounds as HostBounds>::AFFINE_COEFFS_MAX`
 /// at instantiation sites instead.
-pub const AFFINE_MAX_COEFFS: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::AFFINE_COEFFS_MAX;
+pub const AFFINE_MAX_COEFFS: usize = 8;
 
 /// Phase 17: maximum number of `LeafConstraintRef` conjuncts a
 /// `Conjunction` can carry. Same reasoning as `AFFINE_MAX_COEFFS`.
 /// Wiki ADR-037: alias of [`HostBounds::CONJUNCTION_TERMS_MAX`] via
 /// [`DefaultHostBounds`].
-pub const CONJUNCTION_MAX_TERMS: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::CONJUNCTION_TERMS_MAX;
+pub const CONJUNCTION_MAX_TERMS: usize = 8;
 
 /// Opaque constraint reference carried by `ConstrainedTypeShape` impls.
 /// Variants mirror the v0.2.1 `type:Constraint` enumerated subclasses
@@ -586,63 +584,6 @@ pub trait PartitionProductFactor<const INDEX: usize>: PartitionProductFields {
 /// `AxisTuple` may carry. Foundation-fixed (parallel to
 /// `FOLD_UNROLL_THRESHOLD` and `UNFOLD_MAX_ITERATIONS`).
 pub const MAX_AXIS_TUPLE_ARITY: usize = 8;
-
-/// ADR-030: the upper byte ceiling on a single axis kernel's
-/// output. Sized to `TERM_VALUE_MAX_BYTES` so any kernel can
-/// populate a `TermValue` directly.
-/// Wiki ADR-037: alias of [`HostBounds::AXIS_OUTPUT_BYTES_MAX`] via
-/// [`DefaultHostBounds`]. Applications declaring a custom `HostBounds`
-/// read `<MyBounds as HostBounds>::AXIS_OUTPUT_BYTES_MAX` instead.
-pub const AXIS_OUTPUT_BYTES_CEILING: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::AXIS_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::NERVE_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_1 (Nerve)
-/// resolver output byte-buffer ceiling.
-pub const NERVE_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::CHAIN_COMPLEX_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_2 (ChainComplex)
-/// resolver output byte-buffer ceiling.
-pub const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_3 (HomologyGroups)
-/// resolver output byte-buffer ceiling.
-pub const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_5 (CochainComplex)
-/// resolver output byte-buffer ceiling.
-pub const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_6 (CohomologyGroups)
-/// resolver output byte-buffer ceiling.
-pub const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_7 (PostnikovTower)
-/// resolver output byte-buffer ceiling.
-pub const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_8 (HomotopyGroups)
-/// resolver output byte-buffer ceiling.
-pub const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX;
-
-/// Wiki ADR-037: foundation-internal alias of
-/// [`HostBounds::K_INVARIANTS_OUTPUT_BYTES_MAX`] via [`DefaultHostBounds`] — the ψ_9 (KInvariants)
-/// resolver output byte-buffer ceiling.
-pub const K_INVARIANTS_OUTPUT_BYTES_MAX: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX;
 
 /// ADR-055: substrate-Term verb body discipline. Every axis impl carries a
 /// substrate-Term decomposition the catamorphism can fuse through. Sealed —
@@ -1568,19 +1509,27 @@ impl<'a> KInvariantsBytes<'a> {
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait NerveResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait NerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: &[u8],
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_2 — SimplicialComplex → ChainComplex per ADR-035.
@@ -1591,19 +1540,27 @@ pub trait NerveResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait ChainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait ChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: SimplicialComplexBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_3 — ChainComplex → HomologyGroups per ADR-035.
@@ -1614,19 +1571,27 @@ pub trait ChainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seale
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait HomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait HomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: ChainComplexBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_5 — ChainComplex → CochainComplex per ADR-035.
@@ -1637,19 +1602,27 @@ pub trait HomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seal
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait CochainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait CochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: ChainComplexBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_6 — CochainComplex → CohomologyGroups per ADR-035.
@@ -1660,19 +1633,27 @@ pub trait CochainComplexResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sea
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait CohomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait CohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: CochainComplexBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_7 — SimplicialComplex → PostnikovTower per ADR-035.
@@ -1683,19 +1664,27 @@ pub trait CohomologyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Se
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait PostnikovResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait PostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: SimplicialComplexBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_8 — PostnikovTower → HomotopyGroups per ADR-035.
@@ -1706,19 +1695,27 @@ pub trait PostnikovResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait HomotopyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait HomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: PostnikovTowerBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 resolver trait: ψ_9 — HomotopyGroups → KInvariants per ADR-035.
@@ -1729,83 +1726,107 @@ pub trait HomotopyGroupResolver<H: crate::enforcement::Hasher>: __sdk_seal::Seal
 /// the SDK `resolver!` macro emits impls. Foundation provides a Null
 /// impl whose `resolve` emits the `RESOLVER_ABSENT` shape violation.
 ///
-/// ADR-041: `input` is a zero-cost typed carrier so ψ-stage
-/// composition is type-checked at the resolver-impl boundary.
-pub trait KInvariantResolver<H: crate::enforcement::Hasher>: __sdk_seal::Sealed {
+/// ADR-060: `resolve` takes and returns a source-polymorphic
+/// [`crate::pipeline::TermValue`] const-generic over the application's
+/// foundation-derived inline width (`INLINE_BYTES =
+/// carrier_inline_bytes::<B>()`). The resolver constructs whichever
+/// carrier variant its output requires — `Inline` for structural
+/// identities that fit the inline width, `Borrowed` into resolver-owned
+/// scratch, or `Stream` for unbounded structural sequences. There is no
+/// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
+/// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
+pub trait KInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    __sdk_seal::Sealed
+{
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
     /// cannot produce content (e.g., the foundation Null impl carrying
     /// the `RESOLVER_ABSENT` discriminator).
-    fn resolve(
-        &self,
-        input: HomotopyGroupsBytes<'_>,
-        out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation>;
+    fn resolve<'a>(
+        &'a self,
+        input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `NerveResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasNerveResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasNerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `NerveResolver` impl this ResolverTuple carries.
-    fn nerve_resolver(&self) -> &dyn NerveResolver<H>;
+    fn nerve_resolver(&self) -> &dyn NerveResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `ChainComplexResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasChainComplexResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `ChainComplexResolver` impl this ResolverTuple carries.
-    fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<H>;
+    fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `HomologyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasHomologyGroupResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasHomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `HomologyGroupResolver` impl this ResolverTuple carries.
-    fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<H>;
+    fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `CochainComplexResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasCochainComplexResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasCochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `CochainComplexResolver` impl this ResolverTuple carries.
-    fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<H>;
+    fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `CohomologyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasCohomologyGroupResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasCohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `CohomologyGroupResolver` impl this ResolverTuple carries.
-    fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<H>;
+    fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `PostnikovResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasPostnikovResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasPostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `PostnikovResolver` impl this ResolverTuple carries.
-    fn postnikov_resolver(&self) -> &dyn PostnikovResolver<H>;
+    fn postnikov_resolver(&self) -> &dyn PostnikovResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `HomotopyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasHomotopyGroupResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasHomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `HomotopyGroupResolver` impl this ResolverTuple carries.
-    fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<H>;
+    fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 marker trait: ResolverTuple positions including a `KInvariantResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasKInvariantResolver<H: crate::enforcement::Hasher>: ResolverTuple {
+pub trait HasKInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
+    ResolverTuple
+{
     /// Returns the `KInvariantResolver` impl this ResolverTuple carries.
-    fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<H>;
+    fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<INLINE_BYTES, H>;
 }
 
 /// ADR-036 Null resolver tuple — the resolver-absent default.
@@ -1843,12 +1864,14 @@ impl<H: crate::enforcement::Hasher> NullNerveResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullNerveResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> NerveResolver<H> for NullNerveResolver<H> {
-    fn resolve(
-        &self,
-        _input: &[u8],
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INLINE_BYTES, H>
+    for NullNerveResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/Nerve",
@@ -1878,12 +1901,14 @@ impl<H: crate::enforcement::Hasher> NullChainComplexResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullChainComplexResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> ChainComplexResolver<H> for NullChainComplexResolver<H> {
-    fn resolve(
-        &self,
-        _input: SimplicialComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResolver<INLINE_BYTES, H>
+    for NullChainComplexResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/ChainComplex",
@@ -1913,12 +1938,14 @@ impl<H: crate::enforcement::Hasher> NullHomologyGroupResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomologyGroupResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> HomologyGroupResolver<H> for NullHomologyGroupResolver<H> {
-    fn resolve(
-        &self,
-        _input: ChainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HomologyGroupResolver<INLINE_BYTES, H> for NullHomologyGroupResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/HomologyGroup",
@@ -1948,12 +1975,14 @@ impl<H: crate::enforcement::Hasher> NullCochainComplexResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCochainComplexResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> CochainComplexResolver<H> for NullCochainComplexResolver<H> {
-    fn resolve(
-        &self,
-        _input: ChainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    CochainComplexResolver<INLINE_BYTES, H> for NullCochainComplexResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/CochainComplex",
@@ -1983,12 +2012,14 @@ impl<H: crate::enforcement::Hasher> NullCohomologyGroupResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCohomologyGroupResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> CohomologyGroupResolver<H> for NullCohomologyGroupResolver<H> {
-    fn resolve(
-        &self,
-        _input: CochainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    CohomologyGroupResolver<INLINE_BYTES, H> for NullCohomologyGroupResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/CohomologyGroup",
@@ -2018,12 +2049,14 @@ impl<H: crate::enforcement::Hasher> NullPostnikovResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullPostnikovResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> PostnikovResolver<H> for NullPostnikovResolver<H> {
-    fn resolve(
-        &self,
-        _input: SimplicialComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver<INLINE_BYTES, H>
+    for NullPostnikovResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/Postnikov",
@@ -2053,12 +2086,14 @@ impl<H: crate::enforcement::Hasher> NullHomotopyGroupResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomotopyGroupResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> HomotopyGroupResolver<H> for NullHomotopyGroupResolver<H> {
-    fn resolve(
-        &self,
-        _input: PostnikovTowerBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HomotopyGroupResolver<INLINE_BYTES, H> for NullHomotopyGroupResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/HomotopyGroup",
@@ -2088,12 +2123,14 @@ impl<H: crate::enforcement::Hasher> NullKInvariantResolver<H> {
 
 impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullKInvariantResolver<H> {}
 
-impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullKInvariantResolver<H> {
-    fn resolve(
-        &self,
-        _input: HomotopyGroupsBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolver<INLINE_BYTES, H>
+    for NullKInvariantResolver<H>
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/KInvariant",
@@ -2110,12 +2147,14 @@ impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullKInvariantReso
 /// the `HasNerveResolver<H>` accessor can return `self` cast to `&dyn NerveResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> NerveResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: &[u8],
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/Nerve",
@@ -2128,9 +2167,11 @@ impl<H: crate::enforcement::Hasher> NerveResolver<H> for NullResolverTuple {
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasNerveResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasNerveResolver<H> for NullResolverTuple {
-    fn nerve_resolver(&self) -> &dyn NerveResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasNerveResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasNerveResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn nerve_resolver(&self) -> &dyn NerveResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2139,12 +2180,14 @@ impl<H: crate::enforcement::Hasher> HasNerveResolver<H> for NullResolverTuple {
 /// the `HasChainComplexResolver<H>` accessor can return `self` cast to `&dyn ChainComplexResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> ChainComplexResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: SimplicialComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/ChainComplex",
@@ -2157,9 +2200,11 @@ impl<H: crate::enforcement::Hasher> ChainComplexResolver<H> for NullResolverTupl
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasChainComplexResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasChainComplexResolver<H> for NullResolverTuple {
-    fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasChainComplexResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasChainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2168,12 +2213,14 @@ impl<H: crate::enforcement::Hasher> HasChainComplexResolver<H> for NullResolverT
 /// the `HasHomologyGroupResolver<H>` accessor can return `self` cast to `&dyn HomologyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> HomologyGroupResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: ChainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/HomologyGroup",
@@ -2186,9 +2233,11 @@ impl<H: crate::enforcement::Hasher> HomologyGroupResolver<H> for NullResolverTup
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasHomologyGroupResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasHomologyGroupResolver<H> for NullResolverTuple {
-    fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasHomologyGroupResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasHomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2197,12 +2246,14 @@ impl<H: crate::enforcement::Hasher> HasHomologyGroupResolver<H> for NullResolver
 /// the `HasCochainComplexResolver<H>` accessor can return `self` cast to `&dyn CochainComplexResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> CochainComplexResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: ChainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    CochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/CochainComplex",
@@ -2215,9 +2266,11 @@ impl<H: crate::enforcement::Hasher> CochainComplexResolver<H> for NullResolverTu
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasCochainComplexResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasCochainComplexResolver<H> for NullResolverTuple {
-    fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasCochainComplexResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasCochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2226,12 +2279,14 @@ impl<H: crate::enforcement::Hasher> HasCochainComplexResolver<H> for NullResolve
 /// the `HasCohomologyGroupResolver<H>` accessor can return `self` cast to `&dyn CohomologyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> CohomologyGroupResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: CochainComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    CohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/CohomologyGroup",
@@ -2244,9 +2299,11 @@ impl<H: crate::enforcement::Hasher> CohomologyGroupResolver<H> for NullResolverT
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasCohomologyGroupResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasCohomologyGroupResolver<H> for NullResolverTuple {
-    fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasCohomologyGroupResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasCohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2255,12 +2312,14 @@ impl<H: crate::enforcement::Hasher> HasCohomologyGroupResolver<H> for NullResolv
 /// the `HasPostnikovResolver<H>` accessor can return `self` cast to `&dyn PostnikovResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> PostnikovResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: SimplicialComplexBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/Postnikov",
@@ -2273,9 +2332,11 @@ impl<H: crate::enforcement::Hasher> PostnikovResolver<H> for NullResolverTuple {
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasPostnikovResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasPostnikovResolver<H> for NullResolverTuple {
-    fn postnikov_resolver(&self) -> &dyn PostnikovResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasPostnikovResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasPostnikovResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn postnikov_resolver(&self) -> &dyn PostnikovResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2284,12 +2345,14 @@ impl<H: crate::enforcement::Hasher> HasPostnikovResolver<H> for NullResolverTupl
 /// the `HasHomotopyGroupResolver<H>` accessor can return `self` cast to `&dyn HomotopyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> HomotopyGroupResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: PostnikovTowerBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/HomotopyGroup",
@@ -2302,9 +2365,11 @@ impl<H: crate::enforcement::Hasher> HomotopyGroupResolver<H> for NullResolverTup
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasHomotopyGroupResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasHomotopyGroupResolver<H> for NullResolverTuple {
-    fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasHomotopyGroupResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasHomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -2313,12 +2378,14 @@ impl<H: crate::enforcement::Hasher> HasHomotopyGroupResolver<H> for NullResolver
 /// the `HasKInvariantResolver<H>` accessor can return `self` cast to `&dyn KInvariantResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullResolverTuple {
-    fn resolve(
-        &self,
-        _input: HomotopyGroupsBytes<'_>,
-        _out: &mut [u8],
-    ) -> Result<usize, crate::enforcement::ShapeViolation> {
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolver<INLINE_BYTES, H>
+    for NullResolverTuple
+{
+    fn resolve<'a>(
+        &'a self,
+        _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
+    ) -> Result<crate::pipeline::TermValue<'a, INLINE_BYTES>, crate::enforcement::ShapeViolation>
+    {
         Err(crate::enforcement::ShapeViolation {
             shape_iri: "https://uor.foundation/resolver/RESOLVER_ABSENT",
             constraint_iri: "https://uor.foundation/resolver/KInvariant",
@@ -2331,9 +2398,11 @@ impl<H: crate::enforcement::Hasher> KInvariantResolver<H> for NullResolverTuple 
     }
 }
 
-/// ADR-036: NullResolverTuple satisfies `HasKInvariantResolver<H>` (returns `self`).
-impl<H: crate::enforcement::Hasher> HasKInvariantResolver<H> for NullResolverTuple {
-    fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<H> {
+/// ADR-036: NullResolverTuple satisfies `HasKInvariantResolver<INLINE_BYTES, H>` (returns `self`).
+impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
+    HasKInvariantResolver<INLINE_BYTES, H> for NullResolverTuple
+{
+    fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<INLINE_BYTES, H> {
         self
     }
 }
@@ -3204,11 +3273,13 @@ pub mod __sdk_seal {
 /// the equivalent of the wiki's `&'static TermArena` bound: it
 /// exposes the term tree without forcing every Route to carry the
 /// arena's `CAP` const-generic through the trait.
-pub trait FoundationClosed: __sdk_seal::Sealed {
+pub trait FoundationClosed<const INLINE_BYTES: usize>: __sdk_seal::Sealed {
     /// Returns the term-tree arena slice the `prism_model!` macro emitted for
     /// this route witness. [`run_route`] reads this to populate the
     /// `CompileUnit`'s root_term before invoking [`run`].
-    fn arena_slice() -> &'static [crate::enforcement::Term];
+    /// ADR-060: the term arena is const-generic over the application's
+    /// foundation-derived inline carrier width `INLINE_BYTES`.
+    fn arena_slice() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>];
 }
 
 /// Trait — `ConstrainedTypeShape` impls used as a `PrismModel::Input`
@@ -3225,7 +3296,7 @@ pub trait FoundationClosed: __sdk_seal::Sealed {
 /// [`MAX_BYTES`] is the maximum byte length any value of this shape can
 /// produce. [`run_route`] uses it to size the on-stack buffer and
 /// rejects inputs whose declared `MAX_BYTES` exceeds the foundation
-/// ceiling [`ROUTE_INPUT_BUFFER_BYTES`].
+/// ceiling [`INLINE_BYTES`].
 /// # Sealing
 /// Sealed via [`__sdk_seal::Sealed`] (the same supertrait as
 /// [`FoundationClosed`] and [`PrismModel`]): foundation sanctions the
@@ -3257,31 +3328,6 @@ pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
     ) -> core::result::Result<usize, crate::enforcement::ShapeViolation>;
 }
 
-/// Foundation-side ceiling for the on-stack buffer [`run_route`] uses to
-/// materialize an input value's canonical bytes per wiki ADR-023.
-/// On stable Rust 1.83 we cannot size the buffer with
-/// `[u8; <T as IntoBindingValue>::MAX_BYTES]` (that requires nightly
-/// `generic_const_exprs`). This foundation-fixed ceiling is the
-/// architecturally-equivalent stable-Rust form: inputs declaring
-/// `MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flow through the catamorphism;
-/// inputs declaring a larger `MAX_BYTES` are rejected at runtime.
-/// Wiki ADR-037: alias of [`HostBounds::ROUTE_INPUT_BUFFER_BYTES`] via
-/// [`DefaultHostBounds`].
-pub const ROUTE_INPUT_BUFFER_BYTES: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_INPUT_BUFFER_BYTES;
-
-/// Foundation-side ceiling for the on-stack buffer [`run_route`] uses to
-/// carry the catamorphism's evaluation result into the `Grounded<T>`'s
-/// output payload per wiki ADR-028. Parallel to
-/// [`ROUTE_INPUT_BUFFER_BYTES`].
-/// Output shapes whose `IntoBindingValue::MAX_BYTES` exceeds this ceiling
-/// are rejected at runtime by [`run_route`] (the symmetric output-side
-/// rejection rule paralleling ADR-023's input-side rule).
-/// Wiki ADR-037: alias of [`HostBounds::ROUTE_OUTPUT_BUFFER_BYTES`] via
-/// [`DefaultHostBounds`].
-pub const ROUTE_OUTPUT_BUFFER_BYTES: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::ROUTE_OUTPUT_BUFFER_BYTES;
-
 /// Foundation-fixed threshold for the closure-body grammar `fold_n`'s
 /// unroll-vs-`Term::Recurse` lowering rule per wiki ADR-026 G14.
 /// `fold_n` calls with const-literal counts at or below this threshold
@@ -3291,8 +3337,7 @@ pub const ROUTE_OUTPUT_BUFFER_BYTES: usize =
 /// compiling the same closure body emit the same Term tree.
 /// Wiki ADR-037: alias of [`HostBounds::FOLD_UNROLL_THRESHOLD`] via
 /// [`DefaultHostBounds`].
-pub const FOLD_UNROLL_THRESHOLD: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::FOLD_UNROLL_THRESHOLD;
+pub const FOLD_UNROLL_THRESHOLD: usize = 8;
 
 /// The application author's typed-iso contract: an `Input` feature type, an
 /// `Output` label type, and a type-level `Route` witness of the term tree
@@ -3334,6 +3379,7 @@ pub trait PrismModel<
     H,
     B,
     A,
+    const INLINE_BYTES: usize,
     R = crate::pipeline::NullResolverTuple,
     C = crate::pipeline::EmptyCommitment,
 >: __sdk_seal::Sealed where
@@ -3360,7 +3406,7 @@ pub trait PrismModel<
     /// `FoundationClosed` impl for this witness iff every node is a
     /// foundation-vocabulary item, satisfying the closure check at the
     /// application's compile time per UORassembly (TC-04).
-    type Route: FoundationClosed;
+    type Route: FoundationClosed<INLINE_BYTES>;
 
     /// The catamorphism into [`run_route`]'s runtime carrier.
     /// Implementations are emitted by the `prism_model!` macro from the
@@ -3374,7 +3420,7 @@ pub trait PrismModel<
     /// detect contradiction along the route.
     fn forward(
         input: Self::Input,
-    ) -> Result<crate::enforcement::Grounded<Self::Output>, PipelineFailure>;
+    ) -> Result<crate::enforcement::Grounded<Self::Output, INLINE_BYTES>, PipelineFailure>;
 }
 
 /// Higher-level catamorphism entry point — wiki ADR-022 D5.
@@ -3388,25 +3434,25 @@ pub trait PrismModel<
 /// wiki commits to.
 /// # Errors
 /// Returns [`PipelineFailure`] from the underlying [`run`] call.
-pub fn run_route<H, B, A, M, R, C>(
+pub fn run_route<H, B, A, M, R, C, const INLINE_BYTES: usize>(
     input: M::Input,
     resolvers: &R,
     commitment: &C,
-) -> Result<crate::enforcement::Grounded<M::Output>, PipelineFailure>
+) -> Result<crate::enforcement::Grounded<M::Output, INLINE_BYTES>, PipelineFailure>
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
     A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
-    M: PrismModel<H, B, A, R, C>,
+    M: PrismModel<H, B, A, INLINE_BYTES, R, C>,
     R: crate::pipeline::ResolverTuple
-        + crate::pipeline::HasNerveResolver<A>
-        + crate::pipeline::HasChainComplexResolver<A>
-        + crate::pipeline::HasHomologyGroupResolver<A>
-        + crate::pipeline::HasCochainComplexResolver<A>
-        + crate::pipeline::HasCohomologyGroupResolver<A>
-        + crate::pipeline::HasPostnikovResolver<A>
-        + crate::pipeline::HasHomotopyGroupResolver<A>
-        + crate::pipeline::HasKInvariantResolver<A>,
+        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,
     // Wiki ADR-048: 6th type parameter is the model's
     // `TypedCommitment` — prism's cost-model commitment surface.
     // The catamorphism evaluates `commitment.evaluate(kappa_label)`
@@ -3417,15 +3463,15 @@ where
     // `Route` (the macro-emitted witness; identity-route returns &[]),
     // build a `Validated<CompileUnit, FinalPhase>` whose root_term is
     // exactly that arena, and dispatch to `run` (the catamorphism).
-    let arena_slice = <M::Route as FoundationClosed>::arena_slice();
+    let arena_slice = <M::Route as FoundationClosed<INLINE_BYTES>>::arena_slice();
     // ADR-023: serialize the runtime input value into a transient
     // `Binding` for the route's input-parameter slot
     // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer
-    // ceiling is the foundation-side `ROUTE_INPUT_BUFFER_BYTES`
+    // ceiling is the foundation-side `INLINE_BYTES`
     // (stable-Rust equivalent of nightly's
     // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).
     let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;
-    if max_bytes > ROUTE_INPUT_BUFFER_BYTES {
+    if max_bytes > INLINE_BYTES {
         // Per ADR-023: inputs whose declared MAX_BYTES exceeds the
         // foundation-side ceiling are rejected — the canonical content
         // address cannot be derived without a buffer big enough for
@@ -3437,12 +3483,12 @@ where
                 property_iri: "https://uor.foundation/pipeline/inputMaxBytes",
                 expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
                 min_count: 0,
-                max_count: ROUTE_INPUT_BUFFER_BYTES as u32,
+                max_count: INLINE_BYTES as u32,
                 kind: crate::ViolationKind::ValueCheck,
             },
         });
     }
-    let mut buf = [0u8; ROUTE_INPUT_BUFFER_BYTES];
+    let mut buf = [0u8; INLINE_BYTES];
     let written = input
         .into_binding_bytes(&mut buf[..max_bytes])
         .map_err(|report| PipelineFailure::ShapeViolation { report })?;
@@ -3496,7 +3542,7 @@ where
     // ceiling. Parallel to ADR-023's input-side check, but checked
     // against the Output-side `IntoBindingValue::MAX_BYTES`.
     let out_max = <M::Output as IntoBindingValue>::MAX_BYTES;
-    if out_max > ROUTE_OUTPUT_BUFFER_BYTES {
+    if out_max > INLINE_BYTES {
         return Err(PipelineFailure::ShapeViolation {
             report: crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/RouteOutputBufferShape",
@@ -3504,7 +3550,7 @@ where
                 property_iri: "https://uor.foundation/pipeline/outputMaxBytes",
                 expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
                 min_count: 0,
-                max_count: ROUTE_OUTPUT_BUFFER_BYTES as u32,
+                max_count: INLINE_BYTES as u32,
                 kind: crate::ViolationKind::ValueCheck,
             },
         });
@@ -3512,7 +3558,8 @@ where
     // ADR-029: evaluate the route's Term tree as a structural fold.
     // The catamorphism's output bytes flow into the Grounded's
     // output payload (ADR-028).
-    let evaluation = evaluate_term_tree::<A, R>(arena_slice, &buf[..written], resolvers)?;
+    let evaluation =
+        evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, &buf[..written], resolvers)?;
     // Wiki ADR-048: post-resolver typed-bandwidth admission. The
     // catamorphism evaluates the model's `C: TypedCommitment` on the
     // κ-label byte sequence (the route's evaluated output, which for the
@@ -3540,23 +3587,123 @@ where
     Ok(grounded.with_output_bytes(evaluation.bytes()))
 }
 
-/// Maximum byte width any single `TermValue` carries during evaluation.
-/// Foundation-fixed at the maximum of the input/output buffer ceilings so a
-/// TermValue can carry the catamorphism's evaluation result (per ADR-028) and
-/// the input bytes a Variable/AxisInvocation consumes (per ADR-023). On stable
-/// Rust 1.83 we cannot use `max(ROUTE_INPUT_BUFFER_BYTES, ROUTE_OUTPUT_BUFFER_BYTES)`
-/// as a `const` expression in array-length position without `generic_const_exprs`,
-/// so foundation pins the value at the architectural maximum (currently 4096 — the
-/// symmetric value the input/output ceilings already commit to).
-/// Stack usage during the catamorphism's recursive descent scales as
-/// `tree_depth × TERM_VALUE_MAX_BYTES`. ADR-024's compile-time inlining bounds
-/// tree depth by the source's grammar tree depth (verb fragments are inlined at
-/// compile time, no cross-fragment runtime recursion), keeping stack usage finite.
-/// Wiki ADR-037: alias of [`HostBounds::TERM_VALUE_MAX_BYTES`] via
-/// [`DefaultHostBounds`]. Applications declaring a custom `HostBounds`
-/// read `<MyBounds as HostBounds>::TERM_VALUE_MAX_BYTES` instead.
-pub const TERM_VALUE_MAX_BYTES: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::TERM_VALUE_MAX_BYTES;
+/// ADR-060: foundation-fixed upper bound on a `Hasher`'s ASCII identifier
+/// width, used in the κ-label inline-width derivation
+/// ([`carrier_inline_bytes`]). The κ-label ASCII form is
+/// `identifier ++ ":" ++ hex(digest)`; the hex doubling of the digest
+/// dominates, but the identifier term is included so the derived inline
+/// width admits the full κ-label for every conforming `Hasher`. This is a
+/// wire-format-adjacent constant (ADR-018 carve-out): a single shared
+/// upper bound, not an application-policy capacity.
+pub const HASHER_IDENTIFIER_BYTES: usize = 32;
+
+/// ADR-060: foundation-fixed per-site wire width for the ψ-stage
+/// structural serializations (SimplicialComplex / ChainComplex / …).
+pub const SITE_DESCRIPTOR_BYTES: usize = 8;
+
+/// ADR-060: foundation-fixed per-constraint wire width for the ψ-stage
+/// structural serializations.
+pub const CONSTRAINT_DESCRIPTOR_BYTES: usize = 16;
+
+/// ADR-060: foundation-fixed per-Betti-dimension wire width for the
+/// homology/cohomology ψ-stage serializations.
+pub const BETTI_ELEMENT_BYTES: usize = 8;
+
+/// ADR-060: foundation-fixed per-stage wire-format header width shared by
+/// the ψ-stage structural serializations (stage tag + element count).
+pub const PSI_STAGE_HEADER_BYTES: usize = 16;
+
+/// ADR-060: const-fn maximum of three `usize` values. Used by
+/// [`carrier_inline_bytes`]; admissible in array-length position on stable
+/// Rust because it is a plain `const fn` (not `generic_const_exprs`).
+#[must_use]
+pub const fn max3(a: usize, b: usize, c: usize) -> usize {
+    let ab = if a > b { a } else { b };
+    if ab > c {
+        ab
+    } else {
+        c
+    }
+}
+
+/// ADR-060: foundation-derived inline-carrier width for `TermValue::Inline`,
+/// computed from the application's `HostBounds` primitives — never declared.
+/// The inline carrier admits every value class that flows inline: an integer
+/// literal at the application's maximum Witt level
+/// (`WITT_LEVEL_MAX_BITS / 8` bytes), a cryptographic digest at the maximum
+/// fingerprint width (`FINGERPRINT_MAX_BYTES`), and the κ-label ASCII
+/// serialization (`HASHER_IDENTIFIER_BYTES + 1 + 2 × FINGERPRINT_MAX_BYTES` —
+/// the hex-encoded digest doubles the fingerprint width). The derived width
+/// is the maximum over all three; larger structural / unbounded payloads flow
+/// as `TermValue::Borrowed` / `TermValue::Stream` with no carrier-side ceiling.
+/// Applications instantiate carrier-bearing types at
+/// `carrier_inline_bytes::<MyBounds>()` (a concrete `const` at the
+/// application boundary, where `MyBounds` is concrete — stable Rust, no
+/// `generic_const_exprs`).
+#[must_use]
+pub const fn carrier_inline_bytes<B: crate::HostBounds>() -> usize {
+    let witt_bytes = B::WITT_LEVEL_MAX_BITS as usize / 8;
+    let kappa_bytes = HASHER_IDENTIFIER_BYTES + 1 + 2 * B::FINGERPRINT_MAX_BYTES;
+    max3(witt_bytes, B::FINGERPRINT_MAX_BYTES, kappa_bytes)
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `nerve_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn nerve_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES
+        + B::NERVE_SITES_MAX * SITE_DESCRIPTOR_BYTES
+        + B::NERVE_CONSTRAINTS_MAX * CONSTRAINT_DESCRIPTOR_BYTES
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `chain_complex_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn chain_complex_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `homology_groups_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn homology_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `cochain_complex_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn cochain_complex_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `cohomology_groups_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn cohomology_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `postnikov_tower_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn postnikov_tower_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `homotopy_groups_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn homotopy_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
+    PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
+}
+
+/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `k_invariants_carrier_bytes`.
+/// Structural-element-count × foundation-fixed per-element wire width.
+#[must_use]
+pub const fn k_invariants_carrier_bytes<B: crate::HostBounds>() -> usize {
+    carrier_inline_bytes::<B>()
+}
 
 /// Wiki ADR-029: name-index sentinel used by `prism_model!` G7 emission to
 /// mark `recurse(measure, base, |self| step)`'s self-identifier reference.
@@ -3603,37 +3750,90 @@ pub const FIRST_ADMIT_IDX_NAME_INDEX: u32 = u32::MAX - 4;
 /// state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).
 /// Wiki ADR-037: alias of [`HostBounds::UNFOLD_ITERATIONS_MAX`] via
 /// [`DefaultHostBounds`].
-pub const UNFOLD_MAX_ITERATIONS: usize =
-    <crate::DefaultHostBounds as crate::HostBounds>::UNFOLD_ITERATIONS_MAX;
+pub const UNFOLD_MAX_ITERATIONS: usize = 256;
 
-/// Wiki ADR-029: a single Term variant's evaluated value, carried as a
-/// fixed-capacity byte buffer with an active-prefix length. The
-/// catamorphism produces a `TermValue` per variant, propagated up the
-/// term tree by the per-variant fold rules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TermValue {
-    /// Fixed-capacity byte buffer (zero-padded beyond `len`).
-    bytes: [u8; TERM_VALUE_MAX_BYTES],
-    /// Active prefix length. `u16` admits the architectural ceiling (4096 < 65536).
-    len: u16,
+/// ADR-060: a chunk-emitting source for unbounded `TermValue` payloads
+/// (tensor-data sections, large signing payloads, multi-GB messages). The
+/// `Stream` carrier references a `&dyn ChunkSource`; its carrier width is the
+/// dyn-trait descriptor size — payload-independent, with no byte-width ceiling.
+/// The σ-projection at ψ_9 folds `Stream` chunks directly into the `Hasher`
+/// via `Hasher::fold_bytes`; structural fold-rules read the chunks as a flat
+/// byte sequence via [`ChunkSource::for_each_chunk`]. Peak resident memory is
+/// `carrier_inline_bytes::<B>()` plus the source's internal state — never the
+/// full canonical byte sequence.
+pub trait ChunkSource: core::fmt::Debug {
+    /// Fold each chunk into the closure in canonical order. The total folded
+    /// byte count is unbounded; each `&[u8]` slice is valid only for the
+    /// duration of the call (not retained).
+    fn for_each_chunk(&self, f: &mut dyn FnMut(&[u8]));
+    /// Total byte count if statically known, else `None`.
+    fn total_bytes(&self) -> Option<usize> {
+        None
+    }
 }
 
-impl TermValue {
-    /// Construct an empty `TermValue` (length zero).
+/// Wiki ADR-029 + ADR-060: a single Term variant's evaluated value, carried
+/// as a **source-polymorphic** carrier const-generic over its inline width.
+/// ADR-060 replaces the pre-0.5.0 fixed-4096-byte buffer with three variants:
+/// - `Inline` — a stack buffer of `INLINE_BYTES` (foundation-derived via
+///   [`carrier_inline_bytes`]) carrying derived structural content: integer
+///   literals at any admitted Witt level, cryptographic digests at the
+///   application's hasher output width, the κ-label ASCII form, and
+///   primitive-op single-value outputs.
+/// - `Borrowed` — a slice into an upstream byte source (input bytes, a
+///   sibling ψ-stage's scratch, an axis-kernel output region). Its carrier
+///   width is `size_of::<&[u8]>()`, independent of payload size.
+/// - `Stream` — a chunk-emitting source for unbounded payloads, no ceiling.
+/// `INLINE_BYTES` is a free const-generic parameter; the application
+/// instantiates it at the boundary via `carrier_inline_bytes::<MyBounds>()`
+/// (per the min-const-generics pattern, stable Rust, no `generic_const_exprs`).
+#[derive(Debug, Clone, Copy)]
+pub enum TermValue<'a, const INLINE_BYTES: usize> {
+    /// Stack-allocated inline buffer (zero-padded beyond `len`).
+    Inline {
+        /// Fixed-capacity inline byte buffer.
+        bytes: [u8; INLINE_BYTES],
+        /// Active prefix length (`<= INLINE_BYTES`).
+        len: usize,
+    },
+    /// Borrowed slice into an upstream byte source — no byte-width ceiling.
+    Borrowed(&'a [u8]),
+    /// Chunk-emitting source for unbounded payloads — no byte-width ceiling.
+    Stream(&'a dyn ChunkSource),
+}
+
+impl<'a, const INLINE_BYTES: usize> PartialEq for TermValue<'a, INLINE_BYTES> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TermValue::Stream(a), TermValue::Stream(b)) => core::ptr::eq(
+                (*a as *const dyn ChunkSource).cast::<u8>(),
+                (*b as *const dyn ChunkSource).cast::<u8>(),
+            ),
+            (TermValue::Stream(_), _) | (_, TermValue::Stream(_)) => false,
+            _ => self.as_slice() == other.as_slice(),
+        }
+    }
+}
+impl<'a, const INLINE_BYTES: usize> Eq for TermValue<'a, INLINE_BYTES> {}
+
+impl<'a, const INLINE_BYTES: usize> TermValue<'a, INLINE_BYTES> {
+    /// Construct an empty inline `TermValue` (length zero).
     #[must_use]
     pub const fn empty() -> Self {
-        Self {
-            bytes: [0u8; TERM_VALUE_MAX_BYTES],
+        TermValue::Inline {
+            bytes: [0u8; INLINE_BYTES],
             len: 0,
         }
     }
 
-    /// Construct a `TermValue` from a slice; copies up to `TERM_VALUE_MAX_BYTES` bytes.
+    /// ADR-060: construct an `Inline` `TermValue` by copying up to
+    /// `INLINE_BYTES` bytes from `bytes`. For payloads exceeding the inline
+    /// width use [`TermValue::Borrowed`] / [`TermValue::Stream`] instead.
     #[must_use]
-    pub const fn from_slice(bytes: &[u8]) -> Self {
-        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
-        let copy_len = if bytes.len() > TERM_VALUE_MAX_BYTES {
-            TERM_VALUE_MAX_BYTES
+    pub const fn inline_from_slice(bytes: &[u8]) -> Self {
+        let mut buf = [0u8; INLINE_BYTES];
+        let copy_len = if bytes.len() > INLINE_BYTES {
+            INLINE_BYTES
         } else {
             bytes.len()
         };
@@ -3642,54 +3842,114 @@ impl TermValue {
             buf[i] = bytes[i];
             i += 1;
         }
-        Self {
+        TermValue::Inline {
             bytes: buf,
-            len: copy_len as u16,
+            len: copy_len,
         }
     }
 
-    /// ADR-051: construct a `TermValue` from a u64 value at a declared byte width.
-    /// The high (8 - width) bytes of the u64 are discarded; the low `width` bytes are
-    /// written into the value buffer in big-endian order.
+    /// Construct a zero-copy `Borrowed` `TermValue` referencing `bytes`.
+    #[must_use]
+    pub const fn borrowed(bytes: &'a [u8]) -> Self {
+        TermValue::Borrowed(bytes)
+    }
+
+    /// Construct a `Stream` `TermValue` over an unbounded chunk source.
+    #[must_use]
+    pub const fn stream(source: &'a dyn ChunkSource) -> Self {
+        TermValue::Stream(source)
+    }
+
+    /// ADR-051: construct an `Inline` `TermValue` from a u64 at a declared byte width.
     #[must_use]
     pub const fn from_u64_be(value: u64, width: usize) -> Self {
         let w = if width > 8 { 8 } else { width };
         let be = value.to_be_bytes();
-        let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+        let mut buf = [0u8; INLINE_BYTES];
+        let cap = if w > INLINE_BYTES { INLINE_BYTES } else { w };
         let mut i = 0;
-        while i < w {
+        while i < cap {
             buf[i] = be[8 - w + i];
             i += 1;
         }
-        Self {
+        TermValue::Inline {
             bytes: buf,
-            len: w as u16,
+            len: cap,
         }
     }
 
-    /// ADR-051 helper: const-constructor from a prepared big-endian byte buffer.
-    /// `len` MUST be `<= TERM_VALUE_MAX_BYTES`; the function copies the first `len`
-    /// bytes of `bytes` and records `len` as the active prefix.
+    /// ADR-060: const-constructor from a prepared inline buffer of width `INLINE_BYTES`.
     #[must_use]
-    pub const fn from_slice_const(bytes: &[u8; TERM_VALUE_MAX_BYTES], len: usize) -> Self {
-        let l = if len > TERM_VALUE_MAX_BYTES {
-            TERM_VALUE_MAX_BYTES
+    pub const fn from_inline_const(bytes: &[u8; INLINE_BYTES], len: usize) -> Self {
+        let l = if len > INLINE_BYTES {
+            INLINE_BYTES
         } else {
             len
         };
-        Self {
+        TermValue::Inline {
             bytes: *bytes,
-            len: l as u16,
+            len: l,
         }
     }
 
-    /// Returns the active byte prefix.
+    /// Returns the active byte prefix for materializable carriers
+    /// (`Inline` / `Borrowed`), or `None` for `Stream` (which has no single
+    /// contiguous slice — read it via [`TermValue::for_each_chunk`]).
     #[inline]
     #[must_use]
-    pub const fn bytes(&self) -> &[u8] {
-        let l = self.len as usize;
-        let (head, _) = self.bytes.split_at(l);
-        head
+    pub fn as_slice(&self) -> Option<&[u8]> {
+        match self {
+            TermValue::Inline { bytes, len } => Some(&bytes[..*len]),
+            TermValue::Borrowed(s) => Some(s),
+            TermValue::Stream(_) => None,
+        }
+    }
+
+    /// Returns the active byte prefix for `Inline` / `Borrowed`, or the empty
+    /// slice for `Stream`. Structural fold-rules that never produce `Stream`
+    /// use this; `Stream`-aware consumers use [`TermValue::for_each_chunk`].
+    #[inline]
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            TermValue::Inline { bytes, len } => &bytes[..*len],
+            TermValue::Borrowed(s) => s,
+            TermValue::Stream(_) => &[],
+        }
+    }
+
+    /// ADR-060: fold every byte of the carrier into `f` in canonical order,
+    /// dispatching on the variant — `Inline` / `Borrowed` emit a single chunk,
+    /// `Stream` delegates to [`ChunkSource::for_each_chunk`]. This is the
+    /// universal reader the σ-projection folds through `Hasher::fold_bytes`.
+    pub fn for_each_chunk(&self, f: &mut dyn FnMut(&[u8])) {
+        match self {
+            TermValue::Inline { bytes, len } => f(&bytes[..*len]),
+            TermValue::Borrowed(s) => f(s),
+            TermValue::Stream(src) => src.for_each_chunk(f),
+        }
+    }
+
+    /// Total byte length if known: `Inline`/`Borrowed` always; `Stream` only
+    /// when its source reports [`ChunkSource::total_bytes`].
+    #[must_use]
+    pub fn len_hint(&self) -> Option<usize> {
+        match self {
+            TermValue::Inline { len, .. } => Some(*len),
+            TermValue::Borrowed(s) => Some(s.len()),
+            TermValue::Stream(src) => src.total_bytes(),
+        }
+    }
+
+    /// ADR-060: opt-in, `alloc`-gated materialization into an owned buffer —
+    /// the only allocation surface, per caller. Folds every chunk into a
+    /// `Vec<u8>` (works for all three variants, including `Stream`).
+    #[cfg(feature = "alloc")]
+    #[must_use]
+    pub fn to_vec(&self) -> alloc::vec::Vec<u8> {
+        let mut out = alloc::vec::Vec::new();
+        self.for_each_chunk(&mut |chunk| out.extend_from_slice(chunk));
+        out
     }
 }
 
@@ -3698,13 +3958,22 @@ impl TermValue {
 /// byte width (`level.witt_length() / 8`). For widths > 8 bytes, the high bytes
 /// are zero-padded.
 #[must_use]
-pub const fn literal_u64(value: u64, level: crate::WittLevel) -> crate::enforcement::Term {
+pub const fn literal_u64<const INLINE_BYTES: usize>(
+    value: u64,
+    level: crate::WittLevel,
+) -> crate::enforcement::Term<'static, INLINE_BYTES> {
     let mut width = (level.witt_length() / 8) as usize;
     if width == 0 {
         width = 1;
     }
+    // ADR-060: literals fit inline by construction (carrier_inline_bytes >=
+    // WITT_LEVEL_MAX_BITS/8); clamp defensively so const eval never indexes
+    // past the derived inline width.
+    if width > INLINE_BYTES {
+        width = INLINE_BYTES;
+    }
     let be = value.to_be_bytes();
-    let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+    let mut buf = [0u8; INLINE_BYTES];
     // Pack the u64's big-endian bytes into the low `min(width, 8)` bytes
     // of the result, right-aligned. Widths > 8 zero-pad the high portion.
     let take = if width > 8 { 8 } else { width };
@@ -3714,19 +3983,23 @@ pub const fn literal_u64(value: u64, level: crate::WittLevel) -> crate::enforcem
         i += 1;
     }
     crate::enforcement::Term::Literal {
-        value: TermValue::from_slice_const(&buf, width),
+        value: TermValue::from_inline_const(&buf, width),
         level,
     }
 }
 
 /// ADR-051: construct a `Term::Literal` from raw bytes at a declared Witt level.
 /// `bytes` MUST have exactly `level.witt_length() / 8` bytes; mismatched lengths
-/// are silently truncated/padded by `TermValue::from_slice_const`. Use this for
-/// wide-Witt literals (W128+) that don't fit in a u64.
+/// are silently truncated/padded by `TermValue::inline_from_slice`. Use this for
+/// wide-Witt literals (W128+) that don't fit in a u64 (they fit the
+/// foundation-derived inline width per ADR-060).
 #[must_use]
-pub const fn literal_bytes(bytes: &[u8], level: crate::WittLevel) -> crate::enforcement::Term {
+pub const fn literal_bytes<const INLINE_BYTES: usize>(
+    bytes: &[u8],
+    level: crate::WittLevel,
+) -> crate::enforcement::Term<'static, INLINE_BYTES> {
     crate::enforcement::Term::Literal {
-        value: TermValue::from_slice(bytes),
+        value: TermValue::inline_from_slice(bytes),
         level,
     }
 }
@@ -3763,32 +4036,34 @@ pub const fn literal_bytes(bytes: &[u8], level: crate::WittLevel) -> crate::enfo
 /// # Errors
 /// Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds
 /// index, level mismatch, exhausted match without wildcard arm, etc.).
-pub fn evaluate_term_tree<A, R>(
-    arena: &[crate::enforcement::Term],
-    input_bytes: &[u8],
-    resolvers: &R,
-) -> Result<TermValue, PipelineFailure>
+pub fn evaluate_term_tree<'a, A, R, const INLINE_BYTES: usize>(
+    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
+    input_bytes: &'a [u8],
+    resolvers: &'a R,
+) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
-        + crate::pipeline::HasNerveResolver<A>
-        + crate::pipeline::HasChainComplexResolver<A>
-        + crate::pipeline::HasHomologyGroupResolver<A>
-        + crate::pipeline::HasCochainComplexResolver<A>
-        + crate::pipeline::HasCohomologyGroupResolver<A>
-        + crate::pipeline::HasPostnikovResolver<A>
-        + crate::pipeline::HasHomotopyGroupResolver<A>
-        + crate::pipeline::HasKInvariantResolver<A>,
+        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,
 {
     if arena.is_empty() {
-        // Identity route: output equals input bytes.
-        return Ok(TermValue::from_slice(input_bytes));
+        // ADR-060: identity route — output is the input bytes by reference
+        // (zero-copy `Borrowed`, no inline-width ceiling so arbitrarily large
+        // inputs pass through).
+        return Ok(TermValue::borrowed(input_bytes));
     }
     // Canonical convention: the root term is the last entry in the
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
-    evaluate_term_at::<A, R>(
+    evaluate_term_at::<A, R, INLINE_BYTES>(
         arena,
         root_idx,
         input_bytes,
@@ -3801,27 +4076,27 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn evaluate_term_at<A, R>(
-    arena: &[crate::enforcement::Term],
+fn evaluate_term_at<'a, A, R, const INLINE_BYTES: usize>(
+    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     idx: usize,
-    input_bytes: &[u8],
-    recurse_value: Option<&[u8]>,
-    recurse_idx_value: Option<&[u8]>,
-    unfold_value: Option<&[u8]>,
-    first_admit_idx_value: Option<&[u8]>,
-    resolvers: &R,
-) -> Result<TermValue, PipelineFailure>
+    input_bytes: &'a [u8],
+    recurse_value: Option<&'a [u8]>,
+    recurse_idx_value: Option<&'a [u8]>,
+    unfold_value: Option<&'a [u8]>,
+    first_admit_idx_value: Option<&'a [u8]>,
+    resolvers: &'a R,
+) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
-        + crate::pipeline::HasNerveResolver<A>
-        + crate::pipeline::HasChainComplexResolver<A>
-        + crate::pipeline::HasHomologyGroupResolver<A>
-        + crate::pipeline::HasCochainComplexResolver<A>
-        + crate::pipeline::HasCohomologyGroupResolver<A>
-        + crate::pipeline::HasPostnikovResolver<A>
-        + crate::pipeline::HasHomotopyGroupResolver<A>
-        + crate::pipeline::HasKInvariantResolver<A>,
+        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,
 {
     if idx >= arena.len() {
         return Err(PipelineFailure::ShapeViolation {
@@ -3838,11 +4113,11 @@ where
     }
     match arena[idx] {
         crate::enforcement::Term::Literal { value, level: _ } => {
-            // ADR-051: the literal's value carrier is a `TermValue` whose
-            // byte length matches `level.witt_length() / 8`. The fold-rule
-            // emits the carrier bytes directly — no width-aware encoding
-            // (which was the pre-ADR-051 truncation logic).
-            Ok(TermValue::from_slice(value.bytes()))
+            // ADR-051 + ADR-060: the literal's value IS a source-polymorphic
+            // carrier (`TermValue<'a, INLINE_BYTES>`, Copy) whose byte length
+            // matches `level.witt_length() / 8`. The fold-rule returns it
+            // directly, preserving the carrier variant.
+            Ok(value)
         }
         crate::enforcement::Term::Variable { name_index } => {
             // ADR-022 D3 G2: name_index = 0 is the route input slot.
@@ -3857,25 +4132,25 @@ where
             // splice into the calling arena (so the binding's value-tree
             // root is what the catamorphism actually walks).
             if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {
-                return Ok(TermValue::from_slice(recurse_value.unwrap_or(&[])));
+                return Ok(TermValue::borrowed(recurse_value.unwrap_or(&[])));
             }
             // ADR-034 Mechanism 1: iteration-counter binding for Recurse.
             if name_index == RECURSE_IDX_NAME_INDEX {
-                return Ok(TermValue::from_slice(recurse_idx_value.unwrap_or(&[])));
+                return Ok(TermValue::borrowed(recurse_idx_value.unwrap_or(&[])));
             }
             if name_index == UNFOLD_PLACEHOLDER_NAME_INDEX {
-                return Ok(TermValue::from_slice(unfold_value.unwrap_or(&[])));
+                return Ok(TermValue::borrowed(unfold_value.unwrap_or(&[])));
             }
             // ADR-034 Mechanism 2: candidate-value binding for FirstAdmit.
             if name_index == FIRST_ADMIT_IDX_NAME_INDEX {
-                return Ok(TermValue::from_slice(first_admit_idx_value.unwrap_or(&[])));
+                return Ok(TermValue::borrowed(first_admit_idx_value.unwrap_or(&[])));
             }
-            Ok(TermValue::from_slice(input_bytes))
+            Ok(TermValue::borrowed(input_bytes))
         }
         crate::enforcement::Term::Application { operator, args } => {
             let start = args.start as usize;
             let len = args.len as usize;
-            apply_primitive_op::<A, R>(
+            apply_primitive_op::<A, R, INLINE_BYTES>(
                 arena,
                 operator,
                 start,
@@ -3892,7 +4167,7 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A, R>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 operand_index as usize,
                 input_bytes,
@@ -3903,14 +4178,14 @@ where
                 resolvers,
             )?;
             let target_width = (target.witt_length() / 8) as usize;
-            let target_width = if target_width > TERM_VALUE_MAX_BYTES {
-                TERM_VALUE_MAX_BYTES
+            let target_width = if target_width > INLINE_BYTES {
+                INLINE_BYTES
             } else if target_width == 0 {
                 1
             } else {
                 target_width
             };
-            let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut buf = [0u8; INLINE_BYTES];
             // Big-endian zero-extend: pad the high bytes with zeros.
             let src = v.bytes();
             let pad = target_width.saturating_sub(src.len());
@@ -3928,7 +4203,7 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A, R>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 operand_index as usize,
                 input_bytes,
@@ -3939,8 +4214,8 @@ where
                 resolvers,
             )?;
             let target_width = (target.witt_length() / 8) as usize;
-            let target_width = if target_width > TERM_VALUE_MAX_BYTES {
-                TERM_VALUE_MAX_BYTES
+            let target_width = if target_width > INLINE_BYTES {
+                INLINE_BYTES
             } else if target_width == 0 {
                 1
             } else {
@@ -3949,13 +4224,13 @@ where
             let src = v.bytes();
             // Big-endian truncation: take the trailing `target_width` bytes.
             let take_from = src.len().saturating_sub(target_width);
-            Ok(TermValue::from_slice(&src[take_from..]))
+            Ok(TermValue::borrowed(&src[take_from..]))
         }
         crate::enforcement::Term::Match {
             scrutinee_index,
             arms,
         } => {
-            let scrutinee = evaluate_term_at::<A, R>(
+            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 scrutinee_index as usize,
                 input_bytes,
@@ -3977,7 +4252,7 @@ where
                     crate::enforcement::Term::Variable { name_index } if name_index == u32::MAX
                 );
                 if is_wildcard {
-                    return evaluate_term_at::<A, R>(
+                    return evaluate_term_at::<A, R, INLINE_BYTES>(
                         arena,
                         body_idx,
                         input_bytes,
@@ -3988,7 +4263,7 @@ where
                         resolvers,
                     );
                 }
-                let pattern_val = evaluate_term_at::<A, R>(
+                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     pattern_idx,
                     input_bytes,
@@ -3999,7 +4274,7 @@ where
                     resolvers,
                 )?;
                 if pattern_val.bytes() == scrutinee.bytes() {
-                    return evaluate_term_at::<A, R>(
+                    return evaluate_term_at::<A, R, INLINE_BYTES>(
                         arena,
                         body_idx,
                         input_bytes,
@@ -4041,7 +4316,7 @@ where
             // arm). The outer recurse_value is preserved for nested Recurse
             // forms within the measure/base computations; step body uses the
             // iteration's accumulator.
-            let measure = evaluate_term_at::<A, R>(
+            let measure = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 measure_index as usize,
                 input_bytes,
@@ -4052,7 +4327,7 @@ where
                 resolvers,
             )?;
             let n = bytes_to_u64_be(measure.bytes());
-            let base_val = evaluate_term_at::<A, R>(
+            let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 base_index as usize,
                 input_bytes,
@@ -4068,7 +4343,7 @@ where
             // Iterate step N times. Each iteration's `current` becomes the
             // next iteration's recurse_value. The descent measure is the
             // bound; well-foundedness holds by monotonic decrease.
-            let mut current_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut current_buf = [0u8; INLINE_BYTES];
             let mut current_len = base_val.bytes().len();
             let mut k = 0;
             while k < current_len {
@@ -4084,7 +4359,7 @@ where
                 // u64 packing so callers can read it as a u64-shaped value.
                 let descent_measure: u64 = n - iter;
                 let descent_bytes = descent_measure.to_be_bytes();
-                let next = evaluate_term_at::<A, R>(
+                let next = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     step_index as usize,
                     input_bytes,
@@ -4095,8 +4370,8 @@ where
                     resolvers,
                 )?;
                 let nb = next.bytes();
-                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES {
-                    TERM_VALUE_MAX_BYTES
+                let copy_len = if nb.len() > INLINE_BYTES {
+                    INLINE_BYTES
                 } else {
                     nb.len()
                 };
@@ -4108,7 +4383,7 @@ where
                 current_len = copy_len;
                 iter += 1;
             }
-            Ok(TermValue::from_slice(&current_buf[..current_len]))
+            Ok(TermValue::inline_from_slice(&current_buf[..current_len]))
         }
         crate::enforcement::Term::Unfold {
             seed_index,
@@ -4122,7 +4397,7 @@ where
             // The outer unfold_value is preserved for nested Unfold forms
             // within the seed; step body's state placeholder uses the
             // iteration's accumulator.
-            let seed_val = evaluate_term_at::<A, R>(
+            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 seed_index as usize,
                 input_bytes,
@@ -4132,7 +4407,7 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut state_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut state_buf = [0u8; INLINE_BYTES];
             let mut state_len = seed_val.bytes().len();
             let mut k = 0;
             while k < state_len {
@@ -4141,7 +4416,7 @@ where
             }
             let mut iter = 0usize;
             while iter < UNFOLD_MAX_ITERATIONS {
-                let next = evaluate_term_at::<A, R>(
+                let next = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     step_index as usize,
                     input_bytes,
@@ -4154,10 +4429,10 @@ where
                 let nb = next.bytes();
                 // Kleene fixpoint check: if step(state) == state, return.
                 if nb.len() == state_len && nb == &state_buf[..state_len] {
-                    return Ok(TermValue::from_slice(&state_buf[..state_len]));
+                    return Ok(TermValue::inline_from_slice(&state_buf[..state_len]));
                 }
-                let copy_len = if nb.len() > TERM_VALUE_MAX_BYTES {
-                    TERM_VALUE_MAX_BYTES
+                let copy_len = if nb.len() > INLINE_BYTES {
+                    INLINE_BYTES
                 } else {
                     nb.len()
                 };
@@ -4169,13 +4444,13 @@ where
                 state_len = copy_len;
                 iter += 1;
             }
-            Ok(TermValue::from_slice(&state_buf[..state_len]))
+            Ok(TermValue::inline_from_slice(&state_buf[..state_len]))
         }
         crate::enforcement::Term::Try {
             body_index,
             handler_index,
         } => {
-            match evaluate_term_at::<A, R>(
+            match evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 body_index as usize,
                 input_bytes,
@@ -4190,7 +4465,7 @@ where
                     if handler_index == u32::MAX {
                         Err(e)
                     } else {
-                        evaluate_term_at::<A, R>(
+                        evaluate_term_at::<A, R, INLINE_BYTES>(
                             arena,
                             handler_index as usize,
                             input_bytes,
@@ -4221,7 +4496,7 @@ where
             // `axis!` SDK macro extend the dispatch surface to additional
             // (axis_index, kernel_id) combinations and may provide substrate-
             // Term bodies the catamorphism walks structurally.
-            let v = evaluate_term_at::<A, R>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 input_index as usize,
                 input_bytes,
@@ -4234,7 +4509,7 @@ where
             let body = <A as crate::pipeline::AxisTuple>::body_arena_at(axis_index);
             if body.is_empty() {
                 // Primitive fast-path: dispatch the kernel function directly.
-                let mut out = [0u8; AXIS_OUTPUT_BYTES_CEILING];
+                let mut out = [0u8; INLINE_BYTES];
                 let written = match <A as crate::pipeline::AxisTuple>::dispatch(
                     axis_index,
                     kernel_id,
@@ -4244,18 +4519,18 @@ where
                     Ok(n) => n,
                     Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
                 };
-                let width = if written > TERM_VALUE_MAX_BYTES {
-                    TERM_VALUE_MAX_BYTES
+                let width = if written > INLINE_BYTES {
+                    INLINE_BYTES
                 } else {
                     written
                 };
-                Ok(TermValue::from_slice(&out[..width]))
+                Ok(TermValue::inline_from_slice(&out[..width]))
             } else {
                 // ADR-055 recursive-fold path: walk the axis's substrate-Term
                 // body with the evaluated kernel input bound in scope. The
                 // body's root term is by convention the last entry in the arena.
                 let root = body.len() - 1;
-                evaluate_term_at::<A, R>(
+                evaluate_term_at::<A, R, INLINE_BYTES>(
                     body,
                     root,
                     v.bytes(),
@@ -4273,7 +4548,7 @@ where
             byte_length,
         } => {
             // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].
-            let v = evaluate_term_at::<A, R>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 source_index as usize,
                 input_bytes,
@@ -4300,7 +4575,7 @@ where
                     },
                 });
             }
-            Ok(TermValue::from_slice(&bytes[start..end]))
+            Ok(TermValue::borrowed(&bytes[start..end]))
         }
         crate::enforcement::Term::FirstAdmit {
             domain_size_index,
@@ -4313,7 +4588,7 @@ where
             // non-zero predicate result (the "found" coproduct value
             // 0x01 || idx_bytes); after exhausting the domain return the
             // "not-found" coproduct value 0x00 || idx-width zero bytes.
-            let domain_size = evaluate_term_at::<A, R>(
+            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 domain_size_index as usize,
                 input_bytes,
@@ -4341,7 +4616,7 @@ where
             while idx_iter < n {
                 let idx_bytes_full = idx_iter.to_be_bytes();
                 let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];
-                let pred_val = evaluate_term_at::<A, R>(
+                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES>(
                     arena,
                     predicate_index as usize,
                     input_bytes,
@@ -4365,37 +4640,33 @@ where
                     bi += 1;
                 }
                 if admitted {
-                    let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];
+                    let mut out_buf = [0u8; INLINE_BYTES];
                     out_buf[0] = 0x01;
                     let mut k = 0;
                     while k < idx_byte_width {
                         out_buf[1 + k] = idx_bytes[k];
                         k += 1;
                     }
-                    return Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]));
+                    return Ok(TermValue::inline_from_slice(&out_buf[..1 + idx_byte_width]));
                 }
                 idx_iter += 1;
             }
             // No idx admitted — emit not-found coproduct value.
-            let mut out_buf = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut out_buf = [0u8; INLINE_BYTES];
             out_buf[0] = 0x00;
             // bytes 1..1+idx_byte_width remain zero (structural padding).
-            Ok(TermValue::from_slice(&out_buf[..1 + idx_byte_width]))
+            Ok(TermValue::inline_from_slice(&out_buf[..1 + idx_byte_width]))
         }
         crate::enforcement::Term::Nerve { value_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 value_index as usize,
                 input_bytes,
@@ -4405,37 +4676,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf =
-                [0u8; <crate::DefaultHostBounds as crate::HostBounds>::NERVE_OUTPUT_BYTES_MAX];
-            match resolvers
-                .nerve_resolver()
-                .resolve(operand.bytes(), &mut out_buf)
-            {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.nerve_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::ChainComplex { simplicial_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 simplicial_index as usize,
                 input_bytes,
@@ -4445,37 +4700,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::CHAIN_COMPLEX_OUTPUT_BYTES_MAX];
-            match resolvers.chain_complex_resolver().resolve(
-                crate::pipeline::SimplicialComplexBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.chain_complex_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::HomologyGroups { chain_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 chain_index as usize,
                 input_bytes,
@@ -4485,37 +4724,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers.homology_group_resolver().resolve(
-                crate::pipeline::ChainComplexBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.homology_group_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::CochainComplex { chain_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 chain_index as usize,
                 input_bytes,
@@ -4525,37 +4748,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::COCHAIN_COMPLEX_OUTPUT_BYTES_MAX];
-            match resolvers.cochain_complex_resolver().resolve(
-                crate::pipeline::ChainComplexBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.cochain_complex_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::CohomologyGroups { cochain_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 cochain_index as usize,
                 input_bytes,
@@ -4565,37 +4772,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers.cohomology_group_resolver().resolve(
-                crate::pipeline::CochainComplexBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.cohomology_group_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::PostnikovTower { simplicial_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 simplicial_index as usize,
                 input_bytes,
@@ -4605,37 +4796,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::POSTNIKOV_TOWER_OUTPUT_BYTES_MAX];
-            match resolvers.postnikov_resolver().resolve(
-                crate::pipeline::SimplicialComplexBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.postnikov_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::HomotopyGroups { postnikov_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 postnikov_index as usize,
                 input_bytes,
@@ -4645,37 +4820,21 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX];
-            match resolvers.homotopy_group_resolver().resolve(
-                crate::pipeline::PostnikovTowerBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.homotopy_group_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
         crate::enforcement::Term::KInvariants { homotopy_index } => {
-            // ADR-035 + ADR-036 + ADR-041: resolver-bound ψ-Term variant.
-            // Evaluate the operand subtree, wrap the resulting bytes in the
-            // ADR-041 typed-coordinate carrier for this ψ-stage's expected
-            // input, then dispatch through the application's resolver via the
-            // `Has<Category>Resolver` accessor. The resolver's output bytes
-            // populate the variant's `TermValue`; resolver-side `Err`
-            // propagates as `PipelineFailure::ShapeViolation` (the Null
-            // defaults emit `RESOLVER_ABSENT`, recoverable via `Term::Try`'s
-            // default-propagation handler).
-            //
-            // ADR-037: scratch buffer sized at `<crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX`
-            // — per-ψ-stage cap from the application's selected HostBounds.
-            let operand = evaluate_term_at::<A, R>(
+            // ADR-035 + ADR-036 + ADR-060: resolver-bound ψ-Term variant.
+            // Evaluate the operand subtree to a source-polymorphic carrier,
+            // then dispatch it through the application's resolver via the
+            // `Has<Category>Resolver` accessor. The resolver returns the
+            // variant's `TermValue` directly (Inline / Borrowed / Stream);
+            // resolver-side `Err` propagates as
+            // `PipelineFailure::ShapeViolation` (the Null defaults emit
+            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 homotopy_index as usize,
                 input_bytes,
@@ -4685,20 +4844,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let mut out_buf = [0u8;
-                <crate::DefaultHostBounds as crate::HostBounds>::K_INVARIANTS_OUTPUT_BYTES_MAX];
-            match resolvers.k_invariant_resolver().resolve(
-                crate::pipeline::HomotopyGroupsBytes(operand.bytes()),
-                &mut out_buf,
-            ) {
-                Ok(written) => {
-                    let width = if written > TERM_VALUE_MAX_BYTES {
-                        TERM_VALUE_MAX_BYTES
-                    } else {
-                        written
-                    };
-                    Ok(TermValue::from_slice(&out_buf[..width]))
-                }
+            match resolvers.k_invariant_resolver().resolve(operand) {
+                Ok(tv) => Ok(tv),
                 Err(report) => Err(PipelineFailure::ShapeViolation { report }),
             }
         }
@@ -4709,7 +4856,7 @@ where
             // serialization per the homology bridge's wire format)
             // are returned as-is; downstream consumers slice the
             // Betti tuple positions out of the result.
-            let v = evaluate_term_at::<A, R>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
                 arena,
                 homology_index as usize,
                 input_bytes,
@@ -4725,29 +4872,29 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_primitive_op<A, R>(
-    arena: &[crate::enforcement::Term],
+fn apply_primitive_op<'a, A, R, const INLINE_BYTES: usize>(
+    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     operator: crate::PrimitiveOp,
     args_start: usize,
     args_len: usize,
-    input_bytes: &[u8],
-    recurse_value: Option<&[u8]>,
-    recurse_idx_value: Option<&[u8]>,
-    unfold_value: Option<&[u8]>,
-    first_admit_idx_value: Option<&[u8]>,
-    resolvers: &R,
-) -> Result<TermValue, PipelineFailure>
+    input_bytes: &'a [u8],
+    recurse_value: Option<&'a [u8]>,
+    recurse_idx_value: Option<&'a [u8]>,
+    unfold_value: Option<&'a [u8]>,
+    first_admit_idx_value: Option<&'a [u8]>,
+    resolvers: &'a R,
+) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
     A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,
     R: crate::pipeline::ResolverTuple
-        + crate::pipeline::HasNerveResolver<A>
-        + crate::pipeline::HasChainComplexResolver<A>
-        + crate::pipeline::HasHomologyGroupResolver<A>
-        + crate::pipeline::HasCochainComplexResolver<A>
-        + crate::pipeline::HasCohomologyGroupResolver<A>
-        + crate::pipeline::HasPostnikovResolver<A>
-        + crate::pipeline::HasHomotopyGroupResolver<A>
-        + crate::pipeline::HasKInvariantResolver<A>,
+        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>
+        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,
 {
     // Unary ops: 1 arg. Binary ops: 2 args.
     let arity = match operator {
@@ -4785,7 +4932,7 @@ where
         });
     }
     if arity == 1 {
-        let v = evaluate_term_at::<A, R>(
+        let v = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start,
             input_bytes,
@@ -4817,9 +4964,9 @@ where
             };
         let width = v.bytes().len().clamp(1, 8);
         let arr = r.to_be_bytes();
-        Ok(TermValue::from_slice(&arr[8 - width..]))
+        Ok(TermValue::inline_from_slice(&arr[8 - width..]))
     } else {
-        let lhs = evaluate_term_at::<A, R>(
+        let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start,
             input_bytes,
@@ -4829,7 +4976,7 @@ where
             first_admit_idx_value,
             resolvers,
         )?;
-        let rhs = evaluate_term_at::<A, R>(
+        let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(
             arena,
             args_start + 1,
             input_bytes,
@@ -4845,19 +4992,19 @@ where
         match operator {
             crate::PrimitiveOp::Concat => {
                 // Concat: emit lhs.bytes() ⧺ rhs.bytes(), bounded by
-                // TERM_VALUE_MAX_BYTES (truncates excess; runtime callers
+                // INLINE_BYTES (truncates excess; runtime callers
                 // declaring shapes whose composite length exceeds the
                 // ceiling are rejected at validation time per ADR-028's
                 // symmetric output ceiling check).
                 let lb = lhs.bytes();
                 let rb = rhs.bytes();
                 let total = lb.len() + rb.len();
-                let cap = if total > TERM_VALUE_MAX_BYTES {
-                    TERM_VALUE_MAX_BYTES
+                let cap = if total > INLINE_BYTES {
+                    INLINE_BYTES
                 } else {
                     total
                 };
-                let mut buf = [0u8; TERM_VALUE_MAX_BYTES];
+                let mut buf = [0u8; INLINE_BYTES];
                 let mut i = 0;
                 while i < lb.len() && i < cap {
                     buf[i] = lb[i];
@@ -4869,7 +5016,7 @@ where
                     i += 1;
                     j += 1;
                 }
-                return Ok(TermValue::from_slice(&buf[..cap]));
+                return Ok(TermValue::inline_from_slice(&buf[..cap]));
             }
             crate::PrimitiveOp::Le
             | crate::PrimitiveOp::Lt
@@ -4886,7 +5033,7 @@ where
                     crate::PrimitiveOp::Gt => u8::from(cmp == core::cmp::Ordering::Greater),
                     _ => 0,
                 };
-                return Ok(TermValue::from_slice(&[result_byte]));
+                return Ok(TermValue::inline_from_slice(&[result_byte]));
             }
             // ADR-053 substrate amendment: Div/Mod reject b = 0 with
             // a ShapeViolation. Per ADR-050, division semantics are
@@ -4926,7 +5073,7 @@ where
         // operands (Limbs<N>-backed levels W160..W32768) compute
         // correctly under Z/(2^(8·width))Z without truncating to u64.
         if width > 8 {
-            return byte_arith_be(operator, lhs.bytes(), rhs.bytes(), width);
+            return byte_arith_be::<INLINE_BYTES>(operator, lhs.bytes(), rhs.bytes(), width);
         }
         let a = bytes_to_u64_be(lhs.bytes());
         let b = bytes_to_u64_be(rhs.bytes());
@@ -4965,7 +5112,7 @@ where
                 }),
             };
         let arr = r.to_be_bytes();
-        Ok(TermValue::from_slice(&arr[8 - width..]))
+        Ok(TermValue::inline_from_slice(&arr[8 - width..]))
     }
 }
 
@@ -4974,17 +5121,17 @@ where
 /// semantics but operates on the runtime catamorphism's `TermValue` byte slices
 /// rather than on typed `Limbs<N>` values.
 #[allow(clippy::too_many_lines)]
-fn byte_arith_be(
+fn byte_arith_be<'a, const INLINE_BYTES: usize>(
     operator: crate::PrimitiveOp,
     lhs: &[u8],
     rhs: &[u8],
     width: usize,
-) -> Result<TermValue, PipelineFailure> {
+) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure> {
     // Pad both operands to `width` bytes (leading zeros, big-endian).
-    let mut a = [0u8; TERM_VALUE_MAX_BYTES];
-    let mut b = [0u8; TERM_VALUE_MAX_BYTES];
-    let w = if width > TERM_VALUE_MAX_BYTES {
-        TERM_VALUE_MAX_BYTES
+    let mut a = [0u8; INLINE_BYTES];
+    let mut b = [0u8; INLINE_BYTES];
+    let w = if width > INLINE_BYTES {
+        INLINE_BYTES
     } else {
         width
     };
@@ -5008,7 +5155,7 @@ fn byte_arith_be(
             i += 1;
         }
     }
-    let mut out = [0u8; TERM_VALUE_MAX_BYTES];
+    let mut out = [0u8; INLINE_BYTES];
     match operator {
         crate::PrimitiveOp::And => {
             let mut i = 0;
@@ -5066,7 +5213,7 @@ fn byte_arith_be(
             // a[w-1-i] * b[w-1-j] contributes to output position
             // (w-1)-(i+j) when (i+j) < w; otherwise it overflows the
             // ring modulus and is discarded.
-            let mut tmp = [0u32; TERM_VALUE_MAX_BYTES];
+            let mut tmp = [0u32; INLINE_BYTES];
             let mut i: usize = 0;
             while i < w {
                 let mut j: usize = 0;
@@ -5090,8 +5237,8 @@ fn byte_arith_be(
         }
         crate::PrimitiveOp::Div | crate::PrimitiveOp::Mod => {
             // Binary long division MSB→LSB over the byte slice.
-            let mut q = [0u8; TERM_VALUE_MAX_BYTES];
-            let mut r = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut q = [0u8; INLINE_BYTES];
+            let mut r = [0u8; INLINE_BYTES];
             let total_bits = w * 8;
             let mut i = 0;
             while i < total_bits {
@@ -5125,9 +5272,9 @@ fn byte_arith_be(
             // Square-and-multiply over byte-slice operands. Exponent
             // bits walked LSB→MSB; each iteration squares the running
             // base and conditionally multiplies into the accumulator.
-            let mut result = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut result = [0u8; INLINE_BYTES];
             result[w - 1] = 1;
-            let mut base = [0u8; TERM_VALUE_MAX_BYTES];
+            let mut base = [0u8; INLINE_BYTES];
             let mut k = 0;
             while k < w {
                 base[k] = a[k];
@@ -5139,8 +5286,12 @@ fn byte_arith_be(
                 let mut bit = 0u32;
                 while bit < 8 {
                     if ((b[byte] >> bit) & 1) == 1 {
-                        let prod =
-                            byte_arith_be(crate::PrimitiveOp::Mul, &result[..w], &base[..w], w)?;
+                        let prod = byte_arith_be::<INLINE_BYTES>(
+                            crate::PrimitiveOp::Mul,
+                            &result[..w],
+                            &base[..w],
+                            w,
+                        )?;
                         let pb = prod.bytes();
                         let dst_off = w - pb.len().min(w);
                         let mut j = 0;
@@ -5154,7 +5305,12 @@ fn byte_arith_be(
                             j2 += 1;
                         }
                     }
-                    let sq = byte_arith_be(crate::PrimitiveOp::Mul, &base[..w], &base[..w], w)?;
+                    let sq = byte_arith_be::<INLINE_BYTES>(
+                        crate::PrimitiveOp::Mul,
+                        &base[..w],
+                        &base[..w],
+                        w,
+                    )?;
                     let sb = sq.bytes();
                     let dst_off = w - sb.len().min(w);
                     let mut j = 0;
@@ -5191,7 +5347,7 @@ fn byte_arith_be(
             })
         }
     }
-    Ok(TermValue::from_slice(&out[..w]))
+    Ok(TermValue::inline_from_slice(&out[..w]))
 }
 
 fn bytes_shl1(buf: &mut [u8], w: usize) {
@@ -7842,7 +7998,9 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 ///     .expect("pipeline admits");
 /// # let _ = grounded;
 /// ```
-pub fn run<T, P, H>(unit: Validated<CompileUnit, P>) -> Result<Grounded<T>, PipelineFailure>
+pub fn run<T, P, H, const INLINE_BYTES: usize>(
+    unit: Validated<CompileUnit, P>,
+) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
@@ -9141,9 +9299,9 @@ where
 /// Returns `PipelineFailure::ShapeMismatch` when the unit's declared
 /// `result_type_iri` does not match `T::IRI`, or propagates any
 /// failure from the reduction stage executor.
-pub fn run_const<T, M, H>(
+pub fn run_const<T, M, H, const INLINE_BYTES: usize>(
     unit: &Validated<CompileUnit, CompileTime>,
-) -> Result<Grounded<T>, PipelineFailure>
+) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     // Phase C.2 (target §6): const-eval admits only those grounding-map kinds
