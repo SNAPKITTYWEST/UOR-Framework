@@ -2,6 +2,73 @@
 
 All notable changes to UOR-Framework are documented in this file.
 
+## 0.5.0 — ADR-060 source-polymorphic value carrier — 2026-05-22
+
+Breaking release. Replaces the contrived fixed 4096-byte `TermValue`
+ceiling and the `DefaultHostBounds` "default application" with a
+**source-polymorphic value carrier**, enabling allocation-free streaming
+of arbitrarily large payloads through the catamorphism. The inline carrier
+width is now derived per application from its selected `HostBounds`.
+Conformance reports **546 passed, 0 warnings, 0 failed**.
+
+### Breaking
+
+- **`DefaultHostBounds` removed.** There is no "default" application; every
+  consumer declares its own `impl HostBounds` and threads its constants
+  explicitly. `DefaultHostTypes` is unchanged.
+- **`HostBounds` reduced to 14 consts.** The 12 byte-width caps are gone:
+  `TERM_VALUE_MAX_BYTES`, `AXIS_OUTPUT_BYTES_CEILING`,
+  `ROUTE_INPUT_BUFFER_BYTES`, `ROUTE_OUTPUT_BUFFER_BYTES`, and the eight
+  per-ψ-stage `*_OUTPUT_BYTES_MAX` constants no longer exist.
+- **`TermValue` is now an enum** `TermValue<'a, const INLINE_BYTES: usize>`
+  with `Inline` / `Borrowed` / `Stream` variants (was a fixed 4096-byte
+  struct). A new `ChunkSource` trait backs the unbounded `Stream` variant.
+- **`const INLINE_BYTES: usize` threaded through the carrier surface:**
+  `Term<'a, N>`, `TermArena<'a, N, CAP>`, `Grounded<T, N, Tag = T>`,
+  `CompileUnit<'a, N>`, `PrismModel<H, B, A, N>`, `FoundationClosed<N>`,
+  the eight ψ-resolver traits + `Has*Resolver<N, H>` markers, `Sinking<N>`,
+  `EmitThrough<N, H>`, and every driver (`run`, `run_const`, `run_parallel`,
+  `run_stream`, `run_interactive`, `StreamDriver`, `InteractionDriver`,
+  `evaluate_term_tree`) gain the trailing carrier-width parameter.
+- Resolver `resolve` signature is uniformly
+  `fn resolve<'a>(&'a self, TermValue<'a, N>) -> Result<TermValue<'a, N>, ShapeViolation>`.
+
+### Added
+
+- `pipeline::carrier_inline_bytes::<B: HostBounds>() -> usize` — the const fn
+  that derives the inline-carrier width from an application's `HostBounds`
+  (max of the Witt-level byte width, fingerprint width, and content-address
+  envelope). Applications instantiate `INLINE_BYTES` from it.
+- Eight app-facing per-ψ-stage carrier-width helpers (`nerve_carrier_bytes`,
+  `chain_complex_carrier_bytes`, …, `k_invariants_carrier_bytes`) for sizing
+  resolver-owned scratch — each a structural-count × foundation-fixed
+  per-element wire width, never a contrived literal.
+- Descriptor constants `HASHER_IDENTIFIER_BYTES`, `SITE_DESCRIPTOR_BYTES`,
+  `CONSTRAINT_DESCRIPTOR_BYTES`, `BETTI_ELEMENT_BYTES`, `PSI_STAGE_HEADER_BYTES`.
+- `TermValue::to_vec()` — the only allocation surface, gated behind the
+  optional `alloc` feature. The default no-`std` path and the principal data
+  path (`Inline` / `Borrowed` / `Stream` + `for_each_chunk`) stay
+  allocation-free.
+- `foundation/tests/behavior_adr_060_arbitrary_scaling.rs` — folds an 8 MiB
+  `ChunkSource` stream through a hasher with bounded resident memory (chunk
+  size, not total), proving lossless content-addressing at scales orders of
+  magnitude beyond the retired 4096-byte cap.
+
+### Migration
+
+- Consumers that used `DefaultHostBounds` now declare an `impl HostBounds`
+  and pass `carrier_inline_bytes::<MyBounds>()` as the `INLINE_BYTES`
+  argument. A test-only `ReferenceHostBounds` + `REFERENCE_INLINE_BYTES`
+  reproducing the prior defaults (16/32/256/64) ships in
+  `uor-foundation-test-helpers`.
+
+### Internal
+
+- Public-API snapshots, `endpoint_coverage.toml`, and the
+  phantom-tag / driver-shape / driver-must-use / bridge-namespace /
+  pipeline-run-threads-input conformance validators updated for the new
+  signatures.
+
 ## Phase 18 — Documentation, contract tests, publish-readiness — 2026-04-28
 
 Closes the published-crate-completion plan. Public API documentation
