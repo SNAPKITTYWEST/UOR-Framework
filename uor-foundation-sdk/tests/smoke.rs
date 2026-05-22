@@ -2622,85 +2622,46 @@ fn adr042_dispatch_through_table_routes_through_three_decider_arms() {
 /// is a compile-time error. This test names the wiki commitment — the
 /// per-stage type-checking is verified by the workspace building cleanly
 /// (this assertion is itself the surface pin).
-// Type aliases for each resolver's `fn`-pointer signature per ADR-041.
-type NerveSig = fn(
-    &uor_foundation::pipeline::NullNerveResolver<SmokeHasher>,
-    &[u8],
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type ChainSig = fn(
-    &uor_foundation::pipeline::NullChainComplexResolver<SmokeHasher>,
-    SimplicialComplexBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type HomologySig = fn(
-    &uor_foundation::pipeline::NullHomologyGroupResolver<SmokeHasher>,
-    ChainComplexBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type CochainSig = fn(
-    &uor_foundation::pipeline::NullCochainComplexResolver<SmokeHasher>,
-    ChainComplexBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type CohomologySig = fn(
-    &uor_foundation::pipeline::NullCohomologyGroupResolver<SmokeHasher>,
-    CochainComplexBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type PostnikovSig = fn(
-    &uor_foundation::pipeline::NullPostnikovResolver<SmokeHasher>,
-    SimplicialComplexBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type HomotopySig = fn(
-    &uor_foundation::pipeline::NullHomotopyGroupResolver<SmokeHasher>,
-    PostnikovTowerBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
-type KInvariantSig = fn(
-    &uor_foundation::pipeline::NullKInvariantResolver<SmokeHasher>,
-    HomotopyGroupsBytes<'_>,
-    &mut [u8],
-) -> Result<usize, ShapeViolation>;
+// ADR-060: the eight ψ-stage resolver traits share a single uniform
+// signature — `resolve<'a>(&'a self, TermValue<'a, INLINE_BYTES>) ->
+// Result<TermValue<'a, INLINE_BYTES>, ShapeViolation>` (the ADR-041 typed-input
+// distinction is superseded by the source-polymorphic carrier). Each Null
+// impl's `resolve` coerces to this higher-ranked `fn`-pointer shape at the
+// suite's reference inline width `SMOKE_IB`.
+type ResolveSig<R> = for<'a> fn(
+    &'a R,
+    uor_foundation::pipeline::TermValue<'a, SMOKE_IB>,
+) -> Result<uor_foundation::pipeline::TermValue<'a, SMOKE_IB>, ShapeViolation>;
 
 #[test]
-fn adr041_resolver_trait_signatures_type_check_psi_stage_composition() {
-    // For each resolver trait, coerce the foundation Null impl's
-    // `resolve` method to the wiki-mandated `fn`-pointer signature.
-    // A regression in the trait shape surfaces as a coercion failure
-    // here at compile time — the per-stage type-checking is verified
-    // by the workspace building cleanly.
+fn adr060_resolver_trait_signatures_type_check_psi_stage_composition() {
+    // For each resolver trait, coerce the foundation Null impl's `resolve`
+    // method to the ADR-060 source-polymorphic `fn`-pointer signature. A
+    // regression in the unified trait shape surfaces as a coercion failure
+    // here at compile time.
     use uor_foundation::pipeline::{
         ChainComplexResolver, CochainComplexResolver, CohomologyGroupResolver,
         HomologyGroupResolver, HomotopyGroupResolver, KInvariantResolver, NerveResolver,
-        PostnikovResolver,
+        NullChainComplexResolver, NullCohomologyGroupResolver, NullCochainComplexResolver,
+        NullHomologyGroupResolver, NullHomotopyGroupResolver, NullKInvariantResolver,
+        NullNerveResolver, NullPostnikovResolver, PostnikovResolver,
     };
-    let _nerve_sig: NerveSig =
-        <uor_foundation::pipeline::NullNerveResolver<SmokeHasher> as NerveResolver<SmokeHasher>>::resolve;
-    let _chain_sig: ChainSig =
-        <uor_foundation::pipeline::NullChainComplexResolver<SmokeHasher> as ChainComplexResolver<
-            SmokeHasher,
-        >>::resolve;
-    let _homology_sig: HomologySig = <uor_foundation::pipeline::NullHomologyGroupResolver<
-        SmokeHasher,
-    > as HomologyGroupResolver<SmokeHasher>>::resolve;
-    let _cochain_sig: CochainSig = <uor_foundation::pipeline::NullCochainComplexResolver<
-        SmokeHasher,
-    > as CochainComplexResolver<SmokeHasher>>::resolve;
-    let _cohomology_sig: CohomologySig = <uor_foundation::pipeline::NullCohomologyGroupResolver<
-        SmokeHasher,
-    > as CohomologyGroupResolver<SmokeHasher>>::resolve;
-    let _postnikov_sig: PostnikovSig =
-        <uor_foundation::pipeline::NullPostnikovResolver<SmokeHasher> as PostnikovResolver<
-            SmokeHasher,
-        >>::resolve;
-    let _homotopy_sig: HomotopySig = <uor_foundation::pipeline::NullHomotopyGroupResolver<
-        SmokeHasher,
-    > as HomotopyGroupResolver<SmokeHasher>>::resolve;
-    let _kinvariant_sig: KInvariantSig = <uor_foundation::pipeline::NullKInvariantResolver<
-        SmokeHasher,
-    > as KInvariantResolver<SmokeHasher>>::resolve;
+    let _nerve_sig: ResolveSig<NullNerveResolver<SmokeHasher>> =
+        <NullNerveResolver<SmokeHasher> as NerveResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _chain_sig: ResolveSig<NullChainComplexResolver<SmokeHasher>> =
+        <NullChainComplexResolver<SmokeHasher> as ChainComplexResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _homology_sig: ResolveSig<NullHomologyGroupResolver<SmokeHasher>> =
+        <NullHomologyGroupResolver<SmokeHasher> as HomologyGroupResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _cochain_sig: ResolveSig<NullCochainComplexResolver<SmokeHasher>> =
+        <NullCochainComplexResolver<SmokeHasher> as CochainComplexResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _cohomology_sig: ResolveSig<NullCohomologyGroupResolver<SmokeHasher>> =
+        <NullCohomologyGroupResolver<SmokeHasher> as CohomologyGroupResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _postnikov_sig: ResolveSig<NullPostnikovResolver<SmokeHasher>> =
+        <NullPostnikovResolver<SmokeHasher> as PostnikovResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _homotopy_sig: ResolveSig<NullHomotopyGroupResolver<SmokeHasher>> =
+        <NullHomotopyGroupResolver<SmokeHasher> as HomotopyGroupResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _kinvariant_sig: ResolveSig<NullKInvariantResolver<SmokeHasher>> =
+        <NullKInvariantResolver<SmokeHasher> as KInvariantResolver<SMOKE_IB, SmokeHasher>>::resolve;
 }
 
 /// Pin the wiki ADR-040 closed-catalog extension: the 7th BoundShape
@@ -3116,15 +3077,15 @@ fn axis_macro_emits_axis_extension_blanket_impl() {
     // blanket so any axis impl is consumable through the foundation's
     // `dispatch_kernel` surface. Verify the blanket is in scope by
     // coercing the trait surface to AxisExtension at compile time.
-    fn _requires_axis_extension<T: AxisExtension>() {}
+    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB>>() {}
     _requires_axis_extension::<ProbeImpl>();
     // `AXIS_ADDRESS` and `MAX_OUTPUT_BYTES` flow through from the
     // trait's const items.
     assert_eq!(
-        <ProbeImpl as AxisExtension>::AXIS_ADDRESS,
+        <ProbeImpl as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SampleProbeAxis"
     );
-    assert_eq!(<ProbeImpl as AxisExtension>::MAX_OUTPUT_BYTES, 16);
+    assert_eq!(<ProbeImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES, 16);
 }
 
 #[test]
@@ -3135,14 +3096,14 @@ fn axis_macro_dispatch_kernel_routes_by_id() {
     let mut out = [0u8; 32];
     // Route through KERNEL_PROBE_BIT — expect bit 0 of input.
     let bit_input = [0x01u8];
-    let n = <ProbeImpl as AxisExtension>::dispatch_kernel(KERNEL_PROBE_BIT, &bit_input, &mut out)
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(KERNEL_PROBE_BIT, &bit_input, &mut out)
         .expect("dispatch_kernel routes to probe_bit");
     assert_eq!(n, 1);
     assert_eq!(out[0], 0x01);
 
     // Route through KERNEL_PROBE_BYTE — expect a byte copy.
     let byte_input = [0xa1u8, 0xb2, 0xc3];
-    let n = <ProbeImpl as AxisExtension>::dispatch_kernel(KERNEL_PROBE_BYTE, &byte_input, &mut out)
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(KERNEL_PROBE_BYTE, &byte_input, &mut out)
         .expect("dispatch_kernel routes to probe_byte");
     assert_eq!(n, 3);
     assert_eq!(&out[..3], &[0xa1, 0xb2, 0xc3]);
@@ -3154,7 +3115,7 @@ fn axis_macro_dispatch_kernel_rejects_unknown_kernel_id() {
     // surface as `ShapeViolation` with the canonical AxisExtensionShape
     // IRI per the macro's dispatch_kernel routing.
     let mut out = [0u8; 8];
-    let result = <ProbeImpl as AxisExtension>::dispatch_kernel(99, &[], &mut out);
+    let result = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(99, &[], &mut out);
     let err = result.expect_err("unknown kernel_id must surface a ShapeViolation");
     assert_eq!(
         err.shape_iri,
@@ -3204,7 +3165,7 @@ fn axis_macro_handles_single_kernel_trait_correctly() {
     assert_eq!(KERNEL_ONLY_KERNEL, 0);
     // Dispatch routes correctly.
     let mut out = [0u8; 4];
-    let n = <SingleKernelImpl as AxisExtension>::dispatch_kernel(
+    let n = <SingleKernelImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
         KERNEL_ONLY_KERNEL,
         &[0x42, 0x43],
         &mut out,
@@ -3235,12 +3196,12 @@ fn axis_macro_blanket_impl_propagates_axis_address_and_max_bytes() {
     // and `AxisExtension::MAX_OUTPUT_BYTES` flow through from the
     // axis trait's const items. Foundation-bound static-dispatch
     // consumers (`Term::AxisInvocation` fold-rules in particular)
-    // read these constants from `<A as AxisExtension>::*`.
+    // read these constants from `<A as AxisExtension<SMOKE_IB>>::*`.
     assert_eq!(
-        <SingleKernelImpl as AxisExtension>::AXIS_ADDRESS,
+        <SingleKernelImpl as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SingleKernelAxis"
     );
-    assert_eq!(<SingleKernelImpl as AxisExtension>::MAX_OUTPUT_BYTES, 4);
+    assert_eq!(<SingleKernelImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES, 4);
 }
 
 // ── ADR-052: axis_extension_impl_for_*!(@generic …) parametric form ───
@@ -3283,15 +3244,15 @@ axis_extension_impl_for_sample_probe_axis!(@generic GenericProbeImpl<W>, [const 
 #[test]
 fn axis_macro_generic_form_emits_parametric_axis_extension_impl() {
     // ADR-052: GenericProbeImpl<W> satisfies AxisExtension for every W.
-    fn _requires_axis_extension<T: AxisExtension>() {}
+    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB>>() {}
     _requires_axis_extension::<GenericProbeImpl<16>>();
     _requires_axis_extension::<GenericProbeImpl<32>>();
     assert_eq!(
-        <GenericProbeImpl<16> as AxisExtension>::AXIS_ADDRESS,
+        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SampleProbeAxis"
     );
     assert_eq!(
-        <GenericProbeImpl<16> as AxisExtension>::MAX_OUTPUT_BYTES,
+        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES,
         16
     );
 }
@@ -3303,7 +3264,7 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
     // bytes through both kernels.
     let mut out = [0u8; 32];
     let bit_input = [0x01u8];
-    let n = <GenericProbeImpl<16> as AxisExtension>::dispatch_kernel(
+    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::dispatch_kernel(
         KERNEL_PROBE_BIT,
         &bit_input,
         &mut out,
@@ -3313,7 +3274,7 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
     assert_eq!(out[0], 0x01);
 
     let byte_input = [0xa1u8, 0xb2, 0xc3];
-    let n = <GenericProbeImpl<16> as AxisExtension>::dispatch_kernel(
+    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::dispatch_kernel(
         KERNEL_PROBE_BYTE,
         &byte_input,
         &mut out,

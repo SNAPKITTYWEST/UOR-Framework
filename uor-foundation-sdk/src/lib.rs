@@ -5714,7 +5714,15 @@ impl Parse for AxisInput {
 #[proc_macro]
 pub fn axis(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as AxisInput);
-    let trait_decl = parsed.trait_decl;
+    let mut trait_decl = parsed.trait_decl;
+    // ADR-060: `AxisExtension` is now const-generic over `INLINE_BYTES`, so it
+    // can no longer be a plain supertrait of the axis trait (the axis trait
+    // isn't generic over `INLINE_BYTES`). Strip the `: AxisExtension`
+    // supertrait from the re-emitted trait; the `AxisExtension<INLINE_BYTES>`
+    // relationship is provided per-struct (blanket over `INLINE_BYTES`) by the
+    // macro-emitted companion impl, not by a trait-level supertrait bound.
+    trait_decl.supertraits = syn::punctuated::Punctuated::new();
+    trait_decl.colon_token = None;
     let trait_name = trait_decl.ident.clone();
     let body_clause = parsed.body;
     // Collect method idents (kernel names).
