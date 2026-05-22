@@ -19,8 +19,10 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::enums::ViolationKind;
 use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn assert_missing(err: ShapeViolation, expected_property_iri: &str) {
@@ -42,7 +44,7 @@ fn assert_missing(err: ShapeViolation, expected_property_iri: &str) {
 #[test]
 fn compile_unit_rejects_missing_root_term() {
     // Use the pipeline's const validator (the only const path for CompileUnit).
-    let builder = CompileUnitBuilder::new()
+    let builder: CompileUnitBuilder<'_, N> = CompileUnitBuilder::new()
         .witt_level_ceiling(WittLevel::W8)
         .thermodynamic_budget(100)
         .target_domains(SENTINEL_DOMAINS)
@@ -154,7 +156,7 @@ fn effect_rejects_missing_commutes() {
 
 #[test]
 fn dispatch_rejects_missing_predicate() {
-    let builder = DispatchDeclarationBuilder::new()
+    let builder: DispatchDeclarationBuilder<'_, N> = DispatchDeclarationBuilder::new()
         .target_resolver("https://uor.foundation/resolver/TwoSatDecider")
         .priority(0);
     let err = builder
@@ -200,7 +202,7 @@ fn predicate_rejects_missing_input_type() {
 
 #[test]
 fn predicate_rejects_missing_evaluator() {
-    let builder = PredicateDeclarationBuilder::new()
+    let builder: PredicateDeclarationBuilder<'_, N> = PredicateDeclarationBuilder::new()
         .input_type("https://uor.foundation/type/ConstrainedType")
         .termination_witness("https://uor.foundation/proof/Primitive");
     let err = builder

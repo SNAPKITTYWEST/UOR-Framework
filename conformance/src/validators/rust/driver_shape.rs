@@ -70,22 +70,32 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ("InteractionDriver<T, P>", "pub struct InteractionDriver<"),
         (
             "StreamDriver Iterator impl",
-            "Iterator for StreamDriver<T, P, H>",
+            "Iterator for StreamDriver<T, P, H, INLINE_BYTES>",
         ),
         // Pipeline entry points.
         // v0.2.2 T6.1: every driver entry point threads an `H: Hasher` type
-        // parameter for the parametric substrate fingerprint.
-        ("pipeline::run", "pub fn run<T, P, H>("),
-        ("pipeline::run_parallel", "pub fn run_parallel<T, P, H>("),
-        ("pipeline::run_stream", "pub fn run_stream<T, P, H>("),
+        // parameter for the parametric substrate fingerprint. ADR-060 adds the
+        // `const INLINE_BYTES: usize` carrier-width parameter.
+        (
+            "pipeline::run",
+            "pub fn run<T, P, H, const INLINE_BYTES: usize>(",
+        ),
+        (
+            "pipeline::run_parallel",
+            "pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(",
+        ),
+        (
+            "pipeline::run_stream",
+            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(",
+        ),
         (
             "pipeline::run_interactive",
-            "pub fn run_interactive<T, P, H>(",
+            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(",
         ),
         // InteractionDriver methods.
         (
             "InteractionDriver::step",
-            "pub fn step(&mut self, input: PeerInput) -> StepResult<T>",
+            "pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES>",
         ),
         (
             "InteractionDriver::is_converged",
@@ -93,7 +103,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ),
         (
             "InteractionDriver::finalize",
-            "pub fn finalize(self) -> Result<Grounded<T>, PipelineFailure>",
+            "pub fn finalize(self) -> Result<Grounded<T, INLINE_BYTES>, PipelineFailure>",
         ),
     ];
 

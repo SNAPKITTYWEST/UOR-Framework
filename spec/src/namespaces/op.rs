@@ -1419,8 +1419,9 @@ fn raw_individuals_vec() -> Vec<Individual> {
             comment: "Byte-sequence concatenation: concat(x, y) = x ⧺ y. \
                       The substrate's byte-packing primitive — admits header \
                       serialization and other byte-array construction patterns. \
-                      Result length is len(x) + len(y), bounded by the foundation's \
-                      TERM_VALUE_MAX_BYTES ceiling.",
+                      Result length is len(x) + len(y), carried by the \
+                      source-polymorphic TermValue (inline up to the application's \
+                      carrier width, else borrowed or streamed — no fixed ceiling).",
             properties: &[
                 ("https://uor.foundation/op/arity", IndividualValue::Int(2)),
                 ("https://uor.foundation/op/isRingOp", IndividualValue::Bool(false)),

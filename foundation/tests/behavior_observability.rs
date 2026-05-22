@@ -24,12 +24,13 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::{run_const, validate_compile_unit_const};
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build() -> Validated<CompileUnit<'static>, CompileTime> {
+fn build() -> Validated<CompileUnit<'static, N>, CompileTime> {
     let b = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(WittLevel::W16)
@@ -77,7 +78,7 @@ fn subscription_receives_events_from_real_pipeline_trace() {
     });
 
     let unit = build();
-    let grounded = run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&unit)
+    let grounded = run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
         .expect("run_const succeeds");
     let trace: uor_foundation::Trace = grounded.derivation().replay();
 

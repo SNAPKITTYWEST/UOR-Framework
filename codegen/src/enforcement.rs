@@ -771,14 +771,18 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
          \x20   Grounded, Sinking, Utf8ProjectionMap, ConstrainedTypeInput,\n\
          };\n\
          \n\
+         // ADR-060: `Sinking` and `Grounded` carry an `INLINE_BYTES`\n\
+         // const-generic the application derives from its `HostBounds`; this\n\
+         // example fixes a concrete width.\n\
+         const N: usize = 32;\n\
          struct MyJsonSink;\n\
          \n\
-         impl Sinking for MyJsonSink {\n\
+         impl Sinking<N> for MyJsonSink {\n\
          \x20   type Source = ConstrainedTypeInput;\n\
          \x20   type ProjectionMap = Utf8ProjectionMap;\n\
          \x20   type Output = String;\n\
          \n\
-         \x20   fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> String {\n\
+         \x20   fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {\n\
          \x20       format!(\"{:?}\", grounded.unit_address())\n\
          \x20   }\n\
          }",
@@ -809,7 +813,9 @@ fn generate_grounding_types(f: &mut RustFile, ontology: &Ontology) {
          input is unforgeable (Grounded is sealed per §2) — no raw data can be\n\
          laundered through this contract.",
     );
-    f.line("    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;");
+    f.line(
+        "    fn project(&self, grounded: &Grounded<Self::Source, INLINE_BYTES>) -> Self::Output;",
+    );
     f.line("}");
     f.blank();
 
@@ -892,7 +898,11 @@ fn generate_witness_types(f: &mut RustFile) {
          // Validated<T> proves that a value passed conformance checking.\n\
          // You cannot construct one directly — only builder validate() methods\n\
          // and the minting boundary produce them.\n\
-         let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
+         // ADR-060: `Term` carries an `INLINE_BYTES` const-generic the\n\
+         // application derives from its `HostBounds`; fix a concrete width.\n\
+         const N: usize = 32;\n\
+         let terms: [Term<'static, N>; 1] =\n\
+         \x20   [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
          let domains = [VerificationDomain::Enumerative];\n\
          \n\
          let validated = CompileUnitBuilder::new()\n\
@@ -1786,7 +1796,11 @@ fn generate_term_ast(f: &mut RustFile) {
          use uor_foundation::{WittLevel, PrimitiveOp};\n\
          \n\
          // Build the expression `add(3, 5)` bottom-up in an arena.\n\
-         let mut arena = TermArena::<4>::new();\n\
+         // ADR-060: `TermArena` carries `<'a, INLINE_BYTES, CAP>`; the\n\
+         // application derives `INLINE_BYTES` from its `HostBounds`. Here we\n\
+         // fix a concrete inline width `N` and a capacity of 4.\n\
+         const N: usize = 32;\n\
+         let mut arena = TermArena::<N, 4>::new();\n\
          \n\
          // Push leaves first:\n\
          let idx_3 = arena.push(uor_foundation::pipeline::literal_u64(3, WittLevel::W8));\n\
@@ -1812,7 +1826,9 @@ fn generate_term_ast(f: &mut RustFile) {
     f.line("    len: u32,");
     f.line("}");
     f.blank();
-    f.line("impl<'a, const INLINE_BYTES: usize, const CAP: usize> TermArena<'a, INLINE_BYTES, CAP> {");
+    f.line(
+        "impl<'a, const INLINE_BYTES: usize, const CAP: usize> TermArena<'a, INLINE_BYTES, CAP> {",
+    );
     f.indented_doc_comment("Creates an empty arena.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
@@ -1922,21 +1938,31 @@ fn generate_term_ast(f: &mut RustFile) {
         "use uor_foundation::enforcement::{Term, TermList};\n\
          use uor_foundation::{WittLevel, PrimitiveOp};\n\
          \n\
+         // ADR-060: `Term` carries `<'a, const INLINE_BYTES: usize>`. The\n\
+         // application instantiates `INLINE_BYTES` from its selected\n\
+         // `HostBounds` via `pipeline::carrier_inline_bytes::<B>()`; this\n\
+         // example fixes a concrete width.\n\
+         const N: usize = 32;\n\
+         \n\
          // Literal: an integer value tagged with a Witt level.\n\
-         let lit = uor_foundation::pipeline::literal_u64(42, WittLevel::W8);\n\
+         let lit: Term<'static, N> =\n\
+         \x20   uor_foundation::pipeline::literal_u64(42, WittLevel::W8);\n\
          \n\
          // Application: an operation applied to arguments.\n\
          // `args` is a TermList { start, len } pointing into a TermArena.\n\
-         let app = Term::Application {\n\
+         let app: Term<'static, N> = Term::Application {\n\
          \x20   operator: PrimitiveOp::Mul,\n\
          \x20   args: TermList { start: 0, len: 2 },\n\
          };\n\
          \n\
          // Lift: canonical injection from a lower to a higher Witt level.\n\
-         let lift = Term::Lift { operand_index: 0, target: WittLevel::new(32) };\n\
+         let lift: Term<'static, N> =\n\
+         \x20   Term::Lift { operand_index: 0, target: WittLevel::new(32) };\n\
          \n\
          // Project: canonical surjection from a higher to a lower level.\n\
-         let proj = Term::Project { operand_index: 0, target: WittLevel::W8 };",
+         let proj: Term<'static, N> =\n\
+         \x20   Term::Project { operand_index: 0, target: WittLevel::W8 };\n\
+         let _ = (lit, app, lift, proj);",
         "rust",
     );
     // ADR-051 + ADR-060: `Term::Literal` carries a source-polymorphic
@@ -2492,10 +2518,15 @@ fn generate_builders(f: &mut RustFile) {
          \n\
          // A CompileUnit packages a term graph for reduction admission.\n\
          // The builder enforces that all required fields are present.\n\
-         let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
+         // ADR-060: `Term`/`CompileUnitBuilder` carry an `INLINE_BYTES`\n\
+         // const-generic the application derives from its `HostBounds`; fix\n\
+         // a concrete width.\n\
+         const N: usize = 32;\n\
+         let terms: [Term<'static, N>; 1] =\n\
+         \x20   [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];\n\
          let domains = [VerificationDomain::Enumerative];\n\
          \n\
-         let unit = CompileUnitBuilder::new()\n\
+         let unit = CompileUnitBuilder::<N>::new()\n\
          \x20   .root_term(&terms)\n\
          \x20   .witt_level_ceiling(WittLevel::W8)\n\
          \x20   .thermodynamic_budget(1024)\n\
@@ -2506,7 +2537,7 @@ fn generate_builders(f: &mut RustFile) {
          \n\
          // Omitting a required field produces a ShapeViolation\n\
          // with the exact conformance IRI that failed:\n\
-         let err = CompileUnitBuilder::new()\n\
+         let err = CompileUnitBuilder::<N>::new()\n\
          \x20   .witt_level_ceiling(WittLevel::W8)\n\
          \x20   .thermodynamic_budget(1024)\n\
          \x20   .target_domains(&domains)\n\
@@ -2913,7 +2944,9 @@ fn generate_builders(f: &mut RustFile) {
     f.blank();
 
     // Default impl for CompileUnitBuilder
-    f.line("impl<'a, const INLINE_BYTES: usize> Default for CompileUnitBuilder<'a, INLINE_BYTES> {");
+    f.line(
+        "impl<'a, const INLINE_BYTES: usize> Default for CompileUnitBuilder<'a, INLINE_BYTES> {",
+    );
     f.line("    fn default() -> Self {");
     f.line("        Self::new()");
     f.line("    }");
@@ -3467,7 +3500,9 @@ fn generate_simple_builder(
     f.blank();
 
     // Default impl
-    f.line(&format!("impl{lt_def} Default for {builder_name}{lt_use} {{"));
+    f.line(&format!(
+        "impl{lt_def} Default for {builder_name}{lt_use} {{"
+    ));
     f.line("    fn default() -> Self {");
     f.line("        Self::new()");
     f.line("    }");
@@ -4651,7 +4686,9 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("    impl Sealed for super::PartitionProductWitness {}");
     f.line("    impl Sealed for super::PartitionCoproductWitness {}");
     f.line("    impl Sealed for super::CartesianProductWitness {}");
-    f.line("    impl<const INLINE_BYTES: usize> Sealed for super::CompileUnit<'_, INLINE_BYTES> {}");
+    f.line(
+        "    impl<const INLINE_BYTES: usize> Sealed for super::CompileUnit<'_, INLINE_BYTES> {}",
+    );
     f.line("}");
     f.blank();
     for (name, _) in &all_shims {
@@ -5020,8 +5057,8 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("capacity properties; the constant is `pub` (part of the public-API");
     f.doc_comment("snapshot) so future expansions require explicit review.");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::BETTI_DIMENSION_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::BETTI_DIMENSION_MAX`].");
     f.line(
         "pub const MAX_BETTI_DIMENSION: usize = \
          8;",
@@ -5249,8 +5286,8 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment(
         "8 matches `MAX_BETTI_DIMENSION` and is sufficient for the v0.2.2 partition rank set.",
     );
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::JACOBIAN_SITES_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::JACOBIAN_SITES_MAX`].");
     f.line(
         "pub const JACOBIAN_MAX_SITES: usize = \
          8;",
@@ -5552,13 +5589,13 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("```");
     f.doc_comment("");
     f.doc_comment("Above, `Hasher` is reached through its default const-generic");
-    f.doc_comment("`<FP_MAX = 32>`, which is the `DefaultHostBounds::FINGERPRINT_MAX_BYTES`");
-    f.doc_comment("value. Applications that select a different `HostBounds` impl write");
+    f.doc_comment("`<FP_MAX = 32>` (the conventional 32-byte fingerprint width).");
+    f.doc_comment("Applications that select a different `HostBounds` impl write");
     f.doc_comment("`impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}> for MyHasher`.");
     // Wiki ADR-018 conformance: `Hasher` is parametric over the fingerprint
     // output width, which the application's `HostBounds` impl chooses.
-    // `<const FP_MAX: usize = 32>` resolves to the `DefaultHostBounds`
-    // value when no override is supplied. Applications that select a
+    // `<const FP_MAX: usize = 32>` resolves to the conventional 32-byte
+    // width when no override is supplied. Applications that select a
     // different `HostBounds` impl declare their hasher as
     // `Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}>`.
     f.line("pub trait Hasher<const FP_MAX: usize = 32> {");
@@ -5666,7 +5703,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Wraps a fixed-capacity byte buffer of `FP_MAX` bytes plus the");
     f.doc_comment("active width in bytes. `FP_MAX` is the const-generic that carries");
     f.doc_comment("the application's selected `HostBounds::FINGERPRINT_MAX_BYTES`");
-    f.doc_comment("(default = 32, matching `DefaultHostBounds`). The active width");
+    f.doc_comment("(default = 32, the conventional fingerprint width). The active width");
     f.doc_comment("is set by the producing `Hasher::OUTPUT_BYTES` and recorded so");
     f.doc_comment("downstream can distinguish \"this is a 128-bit fingerprint\" from");
     f.doc_comment("\"this is a 256-bit fingerprint\" without inspecting trailing zeros.");
@@ -6348,7 +6385,9 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    _tag: PhantomData<Tag>,");
     f.line("}");
     f.blank();
-    f.line("impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {");
+    f.line(
+        "impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {",
+    );
     f.indented_doc_comment("Returns the binding for the given query address, or `None` if not in");
     f.indented_doc_comment("the table. Resolves in O(log n) via binary search; for true `op:GS_5`");
     f.indented_doc_comment("zero-step access, downstream code uses statically-known indices.");
@@ -7132,7 +7171,9 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("            P: crate::enforcement::ValidationPhase,");
     f.line("            H: crate::enforcement::Hasher,");
     f.line("        {");
-    f.line("            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)");
+    f.line(
+        "            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)",
+    );
     f.line("                .map(|v| Certified::new(*v.inner()))");
     f.line("                .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))");
     f.line("        }");
@@ -7827,8 +7868,8 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("primitive. Phase 1a (orphan-closure): inputs exceeding this cap are");
     f.doc_comment("rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::NERVE_CONSTRAINTS_MAX`].");
     f.line(
         "pub const NERVE_CONSTRAINTS_CAP: usize = \
          8;",
@@ -7838,8 +7879,8 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("Phase 1a (orphan-closure): inputs exceeding this cap are rejected via");
     f.doc_comment("`NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::NERVE_SITES_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::NERVE_SITES_MAX`].");
     f.line(
         "pub const NERVE_SITES_CAP: usize = \
          8;",
@@ -10603,7 +10644,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("no heap. Produced by `Derivation::replay()` and consumed by");
     f.doc_comment("`uor-foundation-verify`. `TR_MAX` is the const-generic that carries");
     f.doc_comment("the application's selected `<MyBounds as HostBounds>::TRACE_MAX_EVENTS`;");
-    f.doc_comment("the default const-generic resolves to `DefaultHostBounds`'s 256.");
+    f.doc_comment("the default const-generic resolves to the conventional 256.");
     f.doc_comment("");
     f.doc_comment("Carries `witt_level_bits` and `content_fingerprint` so `verify_trace`");
     f.doc_comment("can reconstruct the source `GroundingCertificate` via structural-");
@@ -10773,7 +10814,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     );
     f.indented_doc_comment("Callers either annotate the binding (`let trace: Trace = ...;` picks");
     f.indented_doc_comment(
-        "`DefaultHostBounds`'s 256) or use turbofish (`derivation.replay::<1024>()`).",
+        "`Trace`'s default `TR_MAX` of 256) or use turbofish (`derivation.replay::<1024>()`).",
     );
     f.indented_doc_comment("");
     f.indented_doc_comment("# Example");
@@ -10793,23 +10834,32 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
     f.indented_doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] } }");
     f.indented_doc_comment(
-        "static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];",
+        "// ADR-060: `Term`/`Grounded` carry an `INLINE_BYTES` const-generic the",
     );
     f.indented_doc_comment(
-        "static DOMS: &[VerificationDomain] = &[VerificationDomain::Enumerative];",
+        "// application derives from its `HostBounds`; fix a concrete width and",
+    );
+    f.indented_doc_comment("// thread it through `run`'s 4th const argument.");
+    f.indented_doc_comment("const N: usize = 32;");
+    f.indented_doc_comment(
+        "let terms: [Term<'static, N>; 1] = \
+         [uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];",
+    );
+    f.indented_doc_comment(
+        "let doms: [VerificationDomain; 1] = [VerificationDomain::Enumerative];",
     );
     f.indented_doc_comment("");
-    f.indented_doc_comment("let unit = CompileUnitBuilder::new()");
-    f.indented_doc_comment("    .root_term(TERMS).witt_level_ceiling(WittLevel::W32)");
-    f.indented_doc_comment("    .thermodynamic_budget(1024).target_domains(DOMS)");
+    f.indented_doc_comment("let unit = CompileUnitBuilder::<N>::new()");
+    f.indented_doc_comment("    .root_term(&terms).witt_level_ceiling(WittLevel::W32)");
+    f.indented_doc_comment("    .thermodynamic_budget(1024).target_domains(&doms)");
     f.indented_doc_comment("    .result_type::<ConstrainedTypeInput>()");
     f.indented_doc_comment("    .validate().expect(\"unit well-formed\");");
-    f.indented_doc_comment("let grounded: Grounded<ConstrainedTypeInput> =");
-    f.indented_doc_comment("    run::<ConstrainedTypeInput, _, H>(unit).expect(\"grounds\");");
+    f.indented_doc_comment("let grounded: Grounded<ConstrainedTypeInput, N> =");
+    f.indented_doc_comment("    run::<ConstrainedTypeInput, _, H, N>(unit).expect(\"grounds\");");
     f.indented_doc_comment("");
     f.indented_doc_comment("// Replay → round-trip verification. The trace's event-count");
     f.indented_doc_comment("// capacity comes from the application's `HostBounds`; here the");
-    f.indented_doc_comment("// type-annotated binding inherits `DefaultHostBounds`'s 256.");
+    f.indented_doc_comment("// type-annotated binding defaults `Trace`'s `TR_MAX` to 256.");
     f.indented_doc_comment("let trace: Trace = grounded.derivation().replay();");
     f.indented_doc_comment(
         "let recert = replay::certify_from_trace(&trace).expect(\"valid trace\");",
@@ -11433,8 +11483,8 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("witness. Bounded by the declared descent budget at builder-validate time;");
     f.doc_comment("the constant is a size-budget cap matching other foundation arenas.");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`].");
     f.line(
         "pub const RECURSION_TRACE_MAX_DEPTH: usize = \
          16;",
@@ -11858,8 +11908,8 @@ fn generate_grounding_combinator_surface(f: &mut RustFile) {
     f.doc_comment("`AndThen(leaf, leaf)`) are the exercised shape today; 8 gives headroom");
     f.doc_comment("for nested composition while keeping `Copy` and `no_std` without alloc.");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`] via");
-    f.doc_comment("[`crate::DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`crate::HostBounds::OP_CHAIN_DEPTH_MAX`].");
     f.line(
         "pub const MAX_OP_CHAIN_DEPTH: usize = \
          8;",

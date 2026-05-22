@@ -24,6 +24,47 @@ use uor_foundation::enforcement::__test_helpers;
 use uor_foundation::enforcement::{
     ContentFingerprint, Hasher, MulContext, Trace, TraceEvent, Validated,
 };
+use uor_foundation::HostBounds;
+
+/// Test-only reference [`HostBounds`] impl.
+///
+/// ADR-060 removed `DefaultHostBounds`: the architecture admits no "default"
+/// application, so every consumer declares its own `impl HostBounds` and
+/// threads its constants explicitly. This reference impl reproduces the
+/// pre-ADR-060 default values (16/32/256/64 for the four ADR-018 axes, plus
+/// conservative structural-count ceilings for the ten retained ADR-037
+/// bounds) so the foundation's own integration tests, the verifier, and the
+/// conformance round-trip suite have a stable, named `HostBounds` to thread.
+///
+/// It is TEST-ONLY — production consumers select their own bounds against
+/// their collision-probability target and capacity budget.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReferenceHostBounds;
+
+impl HostBounds for ReferenceHostBounds {
+    const FINGERPRINT_MIN_BYTES: usize = 16;
+    const FINGERPRINT_MAX_BYTES: usize = 32;
+    const TRACE_MAX_EVENTS: usize = 256;
+    const WITT_LEVEL_MAX_BITS: u32 = 64;
+    const FOLD_UNROLL_THRESHOLD: usize = 8;
+    const BETTI_DIMENSION_MAX: usize = 8;
+    const NERVE_CONSTRAINTS_MAX: usize = 8;
+    const NERVE_SITES_MAX: usize = 8;
+    const JACOBIAN_SITES_MAX: usize = 8;
+    const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+    const OP_CHAIN_DEPTH_MAX: usize = 8;
+    const AFFINE_COEFFS_MAX: usize = 8;
+    const CONJUNCTION_TERMS_MAX: usize = 8;
+    const UNFOLD_ITERATIONS_MAX: usize = 256;
+}
+
+/// ADR-060 inline-carrier width for [`ReferenceHostBounds`], computed by
+/// `pipeline::carrier_inline_bytes::<ReferenceHostBounds>()`. Consumers
+/// thread this as the `INLINE_BYTES` const-generic argument
+/// (`PrismModel<.., REFERENCE_INLINE_BYTES, ..>`, `Term<'_, REFERENCE_INLINE_BYTES>`,
+/// `Grounded<_, REFERENCE_INLINE_BYTES>`, …).
+pub const REFERENCE_INLINE_BYTES: usize =
+    uor_foundation::pipeline::carrier_inline_bytes::<ReferenceHostBounds>();
 
 /// Test-only ctor: build a Trace from a slice of events with a
 /// `ContentFingerprint::zero()` placeholder. Tests that need a non-zero
@@ -83,11 +124,11 @@ pub fn validated_runtime<T>(inner: T) -> Validated<T> {
 /// Not a production substrate. Production deployments use a cryptographic
 /// hash (BLAKE3 recommended). FNV-1a is non-cryptographic — the test impl
 /// exists only to satisfy
-/// `Hasher::OUTPUT_BYTES >= <DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES`
+/// `Hasher::OUTPUT_BYTES >= <ReferenceHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES`
 /// without pulling in a crypto dependency.
 ///
 /// Implements `Hasher` at its default const-generic `<FP_MAX = 32>`
-/// (the `DefaultHostBounds::FINGERPRINT_MAX_BYTES` value); the 128-bit
+/// (the `ReferenceHostBounds::FINGERPRINT_MAX_BYTES` value); the 128-bit
 /// FNV-1a output occupies bytes 0..16 of the 32-byte buffer, with bytes
 /// 16..32 zero per the `Hasher::finalize` contract.
 #[derive(Debug, Clone, Copy, Default)]
@@ -136,7 +177,7 @@ impl Hasher for Fnv1aHasher16 {
 /// strength, only deterministic 32-byte output.
 ///
 /// Implements `Hasher` at its default const-generic `<FP_MAX = 32>`
-/// (the `DefaultHostBounds::FINGERPRINT_MAX_BYTES` value); the full 32-byte
+/// (the `ReferenceHostBounds::FINGERPRINT_MAX_BYTES` value); the full 32-byte
 /// output is the lo+hi lane concatenation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Fnv1aHasher32 {

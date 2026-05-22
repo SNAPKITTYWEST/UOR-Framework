@@ -14,13 +14,13 @@ use uor_foundation::pipeline::{
     run_interactive, run_parallel, run_stream, InteractionDeclaration, InteractionDriver,
     ParallelDeclaration, StreamDeclaration, StreamDriver,
 };
-use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
+use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
 #[test]
 fn phase_m_run_stream_returns_named_sealed_stream_driver() {
-    let unit: Validated<StreamDeclaration> =
+    let unit: Validated<StreamDeclaration<'static, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(2));
-    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_stream(unit);
+    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
     // StreamDriver is the named return — no `impl Trait` hiding heap.
     let _ = driver;
 }
@@ -37,7 +37,7 @@ fn phase_m_run_parallel_returns_result_grounded() {
             "https://uor.foundation/parallel/ParallelDisjointnessWitness",
         ));
     let result =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("parallel walks");
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("parallel walks");
     let _ = result;
 }
 
@@ -46,7 +46,8 @@ fn phase_m_run_interactive_returns_named_sealed_interaction_driver() {
     // Phase M.2: run_interactive now returns InteractionDriver (not PeerPayload).
     let unit: Validated<InteractionDeclaration> =
         validated_runtime(InteractionDeclaration::new::<ConstrainedTypeInput>(42));
-    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_interactive(unit);
+    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
+        run_interactive(unit);
     let _ = driver;
 }
 
@@ -57,12 +58,16 @@ fn phase_m_drivers_have_named_return_types() {
     // phase is made concrete so there are no inference placeholders.
     use uor_foundation::enforcement::Runtime;
     let _run_stream_ty: fn(
-        Validated<StreamDeclaration, Runtime>,
-    ) -> StreamDriver<ConstrainedTypeInput, Runtime, Fnv1aHasher16> = run_stream;
+        Validated<StreamDeclaration<'static, N>, Runtime>,
+    ) -> StreamDriver<ConstrainedTypeInput, Runtime, Fnv1aHasher16, N> = run_stream;
     let _run_interactive_ty: fn(
         Validated<InteractionDeclaration, Runtime>,
-    )
-        -> InteractionDriver<ConstrainedTypeInput, Runtime, Fnv1aHasher16> = run_interactive;
+    ) -> InteractionDriver<
+        ConstrainedTypeInput,
+        Runtime,
+        Fnv1aHasher16,
+        N,
+    > = run_interactive;
 }
 
 #[test]

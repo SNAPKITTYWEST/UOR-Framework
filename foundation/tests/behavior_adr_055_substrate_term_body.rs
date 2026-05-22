@@ -19,6 +19,7 @@
 
 use uor_foundation::enforcement::{HashAxis, Hasher};
 use uor_foundation::pipeline::{AxisExtension, AxisTuple, SubstrateTermBody};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
 /// Foundation-internal sample Hasher used to instantiate `HashAxis<H>`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -47,9 +48,9 @@ fn substrate_term_body_trait_is_publicly_reachable() {
     // axis! macro emission's `impl SubstrateTermBody for $struct_ident` is
     // legible to external crates. Coerce body_arena to a function pointer
     // to pin both the path and the signature at the type level.
-    let body_fn: fn() -> &'static [uor_foundation::enforcement::Term] =
-        <HashAxis<ProbeHasher> as SubstrateTermBody>::body_arena;
-    let arena: &'static [uor_foundation::enforcement::Term] = body_fn();
+    let body_fn: fn() -> &'static [uor_foundation::enforcement::Term<'static, N>] =
+        <HashAxis<ProbeHasher> as SubstrateTermBody<N>>::body_arena;
+    let arena: &'static [uor_foundation::enforcement::Term<'static, N>] = body_fn();
     assert_eq!(arena.len(), 0);
 }
 
@@ -59,13 +60,13 @@ fn axis_extension_requires_substrate_term_body_supertrait() {
     // SubstrateTermBody. If the supertrait bound is missing this fails to
     // compile. Coerce one method from each trait to assert both surfaces
     // are reachable through the joint bound.
-    fn pair_check<T: AxisExtension + SubstrateTermBody>() -> (
+    fn pair_check<T: AxisExtension<N> + SubstrateTermBody<N>>() -> (
         &'static str,
-        fn() -> &'static [uor_foundation::enforcement::Term],
+        fn() -> &'static [uor_foundation::enforcement::Term<'static, N>],
     ) {
         (
-            <T as AxisExtension>::AXIS_ADDRESS,
-            <T as SubstrateTermBody>::body_arena,
+            <T as AxisExtension<N>>::AXIS_ADDRESS,
+            <T as SubstrateTermBody<N>>::body_arena,
         )
     }
     let (addr, body_fn) = pair_check::<HashAxis<ProbeHasher>>();
@@ -78,7 +79,7 @@ fn hash_axis_body_arena_is_empty_primitive_fast_path() {
     // ADR-055 carves out empty body_arena as the primitive-fast-path
     // interpretation. HashAxis is the canonical example: its body is
     // byte-output-equivalent to `fold_bytes` ∘ `finalize`.
-    let body = <HashAxis<ProbeHasher> as SubstrateTermBody>::body_arena();
+    let body = <HashAxis<ProbeHasher> as SubstrateTermBody<N>>::body_arena();
     assert!(
         body.is_empty(),
         "HashAxis body_arena must be empty (primitive fast-path)"
@@ -90,8 +91,8 @@ fn axis_tuple_exposes_body_arena_at_per_position() {
     // AxisTuple::body_arena_at(axis_index) delegates to the per-axis
     // SubstrateTermBody impl. For a 1-tuple, axis_index = 0 routes to A0;
     // out-of-range indices return &[].
-    let body0 = <(HashAxis<ProbeHasher>,) as AxisTuple>::body_arena_at(0);
-    let body1 = <(HashAxis<ProbeHasher>,) as AxisTuple>::body_arena_at(1);
+    let body0 = <(HashAxis<ProbeHasher>,) as AxisTuple<N>>::body_arena_at(0);
+    let body1 = <(HashAxis<ProbeHasher>,) as AxisTuple<N>>::body_arena_at(1);
     assert!(body0.is_empty());
     assert!(body1.is_empty());
 }
@@ -100,7 +101,7 @@ fn axis_tuple_exposes_body_arena_at_per_position() {
 fn hasher_blanket_axis_tuple_body_arena_at_returns_empty() {
     // The foundation-built `impl<H: Hasher> AxisTuple for H` blanket has the
     // ADR-055 body_arena_at signature too — empty for the canonical hash axis.
-    let body = <ProbeHasher as AxisTuple>::body_arena_at(0);
+    let body = <ProbeHasher as AxisTuple<N>>::body_arena_at(0);
     assert!(body.is_empty());
 }
 
@@ -120,9 +121,12 @@ fn axis_invocation_fold_rule_uses_dispatch_kernel_when_body_empty() {
             input_index: 0,
         },
     ];
-    let result =
-        evaluate_term_tree::<ProbeHasher, NullResolverTuple>(&arena, &[0x42u8], &NullResolverTuple)
-            .expect("AxisInvocation primitive-fast-path evaluates");
+    let result = evaluate_term_tree::<ProbeHasher, NullResolverTuple, N>(
+        &arena,
+        &[0x42u8],
+        &NullResolverTuple,
+    )
+    .expect("AxisInvocation primitive-fast-path evaluates");
     // ProbeHasher's finalize() emits the fixed pattern in OUTPUT_BYTES=4.
     assert_eq!(result.bytes(), &[0x11, 0x22, 0x33, 0x44][..]);
 }

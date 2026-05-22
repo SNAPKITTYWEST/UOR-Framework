@@ -437,7 +437,7 @@ behavior = "behavior_grammar_surface_roundtrip"
 # Foundation exposes no free-standing capacity constants — collapsing the
 # substitution axis is exactly what ADR-018 rejects.
 [coverage.host_bounds]
-symbols = ["DefaultHostBounds"]
+symbols = ["HostBounds"]
 behavior = "behavior_host_bounds"
 
 # ─── Mapping: PrismModel + FoundationClosed (wiki ADR-019 + ADR-020) ───
@@ -467,7 +467,7 @@ behavior = "behavior_prism_model"
 # D3 G2). The trait is sealed via the same `__sdk_seal::Sealed`
 # supertrait as `FoundationClosed` and `PrismModel`.
 [coverage.into_binding_value]
-symbols = ["IntoBindingValue", "ROUTE_INPUT_BUFFER_BYTES"]
+symbols = ["IntoBindingValue"]
 behavior = "behavior_into_binding_value"
 
 # ─── Mapping: catamorphism evaluator (wiki ADR-029) ────────────────────
@@ -479,16 +479,20 @@ behavior = "behavior_into_binding_value"
 # evaluation result. `TERM_VALUE_MAX_BYTES` is the foundation-fixed
 # per-value byte ceiling.
 [coverage.catamorphism_evaluator]
-symbols = ["evaluate_term_tree", "TermValue", "TERM_VALUE_MAX_BYTES"]
+symbols = ["evaluate_term_tree", "TermValue"]
 behavior = "behavior_catamorphism_evaluator"
 
-# ─── Mapping: route output payload (wiki ADR-028) ──────────────────────
+# ─── Mapping: route output payload (wiki ADR-028 + ADR-060) ────────────
 # ADR-028 commits the Grounded<T> to carry the catamorphism's evaluation
-# result as a fixed-capacity output payload alongside the metadata
-# fingerprint. `ROUTE_OUTPUT_BUFFER_BYTES` is the foundation-side ceiling
-# (parallel to `ROUTE_INPUT_BUFFER_BYTES` from ADR-023).
+# result as an output payload alongside the metadata fingerprint. ADR-060
+# replaced the fixed `ROUTE_OUTPUT_BUFFER_BYTES` ceiling with the
+# source-polymorphic `TermValue<'a, INLINE_BYTES>` carrier whose inline
+# width is derived by `carrier_inline_bytes::<B>()` (collapsed to the
+# `const fn` symbol in the snapshot). The output payload now rides the
+# `Grounded` carrier directly. The behavior test is exercised via the
+# `Grounded` / `const fn` mappings above.
 [coverage.route_output_payload]
-symbols = ["ROUTE_OUTPUT_BUFFER_BYTES"]
+symbols = ["GroundingProgramRun"]
 behavior = "behavior_route_output_payload"
 
 # ─── Mapping: closure-body grammar fold-unroll (wiki ADR-026 G14) ──────
@@ -519,11 +523,12 @@ behavior = "behavior_catamorphism_evaluator"
 # single `Hasher` to an open `AxisTuple` of substrate-extension axes.
 # `AxisExtension` is the per-axis sealed trait; `AxisTuple` is the
 # tuple dispatcher; `HashAxis<H>` adapts existing `Hasher` impls.
-# `MAX_AXIS_TUPLE_ARITY` and `AXIS_OUTPUT_BYTES_CEILING` are the
-# foundation-fixed bounds. `Term::AxisInvocation` (replaces the legacy
-# `HasherProjection`) encodes the route-level axis selection.
+# `MAX_AXIS_TUPLE_ARITY` is the foundation-fixed bound (ADR-060 removed the
+# `AXIS_OUTPUT_BYTES_CEILING` byte cap; axis outputs now ride the
+# source-polymorphic `TermValue` carrier). `Term::AxisInvocation` (replaces
+# the legacy `HasherProjection`) encodes the route-level axis selection.
 [coverage.adr030_axis_extension]
-symbols = ["AxisExtension", "AxisTuple", "HashAxis", "MAX_AXIS_TUPLE_ARITY", "AXIS_OUTPUT_BYTES_CEILING"]
+symbols = ["AxisExtension", "AxisTuple", "HashAxis", "MAX_AXIS_TUPLE_ARITY"]
 behavior = "behavior_catamorphism_evaluator"
 
 # ─── Mapping: ADR-055 universal substrate-Term verb body discipline ────
@@ -871,26 +876,27 @@ symbols = [
 ]
 behavior = "behavior_constraintref_fixed_arrays"
 
-# ─── Mapping: ADR-037 — HostBounds-parametric capacity bounds. Foundation
-# emits eight `pub const`s aliasing `<DefaultHostBounds as HostBounds>::*_OUTPUT_BYTES_MAX`
-# (one per resolver-bound ψ-Term variant per ADR-035 + ADR-036). Each
-# fold-rule in `pipeline::evaluate_term_at` sizes its `out_buf` scratch at
-# the per-stage cap; the catamorphism-evaluator behavior test exercises
-# every fold-rule path end-to-end (resolver-bound ψ-Terms emit
-# RESOLVER_ABSENT under NullResolverTuple), so coverage is satisfied
-# transitively.
-[coverage.adr037_psi_stage_output_caps]
+# ─── Mapping: ADR-060 — source-polymorphic value carrier. ADR-060 supersedes
+# the ADR-037 byte-width-cap family (the fixed 4096-byte `TERM_VALUE_MAX_BYTES`
+# / `ROUTE_*_BUFFER_BYTES` / per-ψ-stage `*_OUTPUT_BYTES_MAX` ceilings are
+# REMOVED). The carrier is now `TermValue<'a, INLINE_BYTES>` (Inline / Borrowed
+# / Stream); `carrier_inline_bytes::<B>()` derives the foundation inline width
+# from the application's `HostBounds` from the descriptor constants below
+# (`HASHER_IDENTIFIER_BYTES`, `SITE_DESCRIPTOR_BYTES`, `CONSTRAINT_DESCRIPTOR_BYTES`,
+# `BETTI_ELEMENT_BYTES`, `PSI_STAGE_HEADER_BYTES`). The catamorphism-evaluator
+# behavior test exercises the carrier end-to-end (every fold-rule path,
+# resolver-bound ψ-Terms emit RESOLVER_ABSENT under NullResolverTuple), so
+# coverage is satisfied transitively.
+[coverage.adr060_value_carrier]
 symbols = [
-    "NERVE_OUTPUT_BYTES_MAX",
-    "CHAIN_COMPLEX_OUTPUT_BYTES_MAX",
-    "HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
-    "COCHAIN_COMPLEX_OUTPUT_BYTES_MAX",
-    "COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX",
-    "POSTNIKOV_TOWER_OUTPUT_BYTES_MAX",
-    "HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX",
-    "K_INVARIANTS_OUTPUT_BYTES_MAX",
+    "ChunkSource",
+    "HASHER_IDENTIFIER_BYTES",
+    "SITE_DESCRIPTOR_BYTES",
+    "CONSTRAINT_DESCRIPTOR_BYTES",
+    "BETTI_ELEMENT_BYTES",
+    "PSI_STAGE_HEADER_BYTES",
 ]
-behavior = "behavior_catamorphism_evaluator"
+behavior = "behavior_adr_060_arbitrary_scaling"
 
 # ─── Mapping: ADR-041 — typed-coordinate resolver carriers. Nine
 # `#[repr(transparent)]` newtypes wrap byte slices to type-check ψ-stage

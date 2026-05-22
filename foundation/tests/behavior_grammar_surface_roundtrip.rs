@@ -20,8 +20,10 @@ use uor_foundation::enforcement::{
     PredicateDeclarationBuilder, StreamDeclarationBuilder, Term, WittLevelDeclarationBuilder,
 };
 use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 // ─── CompileUnit ────────────────────────────────────────────────────────

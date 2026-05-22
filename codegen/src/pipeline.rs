@@ -822,7 +822,9 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("v0.2.2 Phase F: outcome of a single `InteractionDriver::step` call.");
     f.line("#[derive(Debug, Clone)]");
     f.line("#[non_exhaustive]");
-    f.line("pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {");
+    f.line(
+        "pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {",
+    );
     f.indented_doc_comment("The step was absorbed; the driver is ready for another peer input.");
     f.line("    Continue,");
     f.indented_doc_comment("The step produced an intermediate grounded output.");
@@ -1290,7 +1292,12 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("        \"https://uor.foundation/parallel/ParallelDisjointnessWitness\",");
     f.doc_comment("    ),");
     f.doc_comment(");");
-    f.doc_comment("let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(decl)");
+    f.doc_comment("// ADR-060: `Grounded` carries an `INLINE_BYTES` const-generic the");
+    f.doc_comment("// application derives from its `HostBounds`; thread it through");
+    f.doc_comment("// `run_parallel`'s 4th const argument.");
+    f.doc_comment(
+        "let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32>(decl)",
+    );
     f.doc_comment("    .expect(\"partition admits\");");
     f.doc_comment("# let _ = grounded;");
     f.doc_comment("```");
@@ -1515,7 +1522,7 @@ fn emit_constraint_ref(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Wiki ADR-037: the canonical source of truth for this cap is");
     f.doc_comment("[`HostBounds::AFFINE_COEFFS_MAX`]; this `pub const` is a foundation-");
-    f.doc_comment("internal convenience alias derived from [`DefaultHostBounds`] for");
+    f.doc_comment("internal foundation-fixed conservative default for");
     f.doc_comment("stable-Rust array-size positions. Applications declaring a custom");
     f.doc_comment("`HostBounds` impl read `<MyBounds as HostBounds>::AFFINE_COEFFS_MAX`");
     f.doc_comment("at instantiation sites instead.");
@@ -1527,8 +1534,8 @@ fn emit_constraint_ref(f: &mut RustFile) {
     f.doc_comment("Phase 17: maximum number of `LeafConstraintRef` conjuncts a");
     f.doc_comment("`Conjunction` can carry. Same reasoning as `AFFINE_MAX_COEFFS`.");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::CONJUNCTION_TERMS_MAX`] via");
-    f.doc_comment("[`DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`HostBounds::CONJUNCTION_TERMS_MAX`].");
     f.line(
         "pub const CONJUNCTION_MAX_TERMS: usize = \
          8;",
@@ -4311,8 +4318,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("measure-bounded fold. The fixed threshold means two implementations");
     f.doc_comment("compiling the same closure body emit the same Term tree.");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::FOLD_UNROLL_THRESHOLD`] via");
-    f.doc_comment("[`DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`HostBounds::FOLD_UNROLL_THRESHOLD`].");
     f.line(
         "pub const FOLD_UNROLL_THRESHOLD: usize = \
          8;",
@@ -4792,8 +4799,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("ceiling is hit, at which point evaluation returns the most-recent");
     f.doc_comment("state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).");
     f.doc_comment("");
-    f.doc_comment("Wiki ADR-037: alias of [`HostBounds::UNFOLD_ITERATIONS_MAX`] via");
-    f.doc_comment("[`DefaultHostBounds`].");
+    f.doc_comment("Wiki ADR-037: a foundation-fixed conservative default for");
+    f.doc_comment("[`HostBounds::UNFOLD_ITERATIONS_MAX`].");
     f.line(
         "pub const UNFOLD_MAX_ITERATIONS: usize = \
          256;",
@@ -4836,7 +4843,10 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("  sibling ψ-stage's scratch, an axis-kernel output region). Its carrier");
     f.doc_comment("  width is `size_of::<&[u8]>()`, independent of payload size.");
     f.doc_comment("- `Stream` — a chunk-emitting source for unbounded payloads, no ceiling.");
-    f.doc_comment("");
+    // Literal blank doc line (a `doc_comment("")` call is a no-op because
+    // `"".lines()` yields nothing); needed so clippy does not read the
+    // following paragraph as an unindented continuation of the last list item.
+    f.line("///");
     f.doc_comment("`INLINE_BYTES` is a free const-generic parameter; the application");
     f.doc_comment("instantiates it at the boundary via `carrier_inline_bytes::<MyBounds>()`");
     f.doc_comment("(per the min-const-generics pattern, stable Rust, no `generic_const_exprs`).");
@@ -4945,7 +4955,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("    }");
     f.blank();
-    f.indented_doc_comment("Returns the active byte prefix for `Inline` / `Borrowed`, or the empty");
+    f.indented_doc_comment(
+        "Returns the active byte prefix for `Inline` / `Borrowed`, or the empty",
+    );
     f.indented_doc_comment("slice for `Stream`. Structural fold-rules that never produce `Stream`");
     f.indented_doc_comment("use this; `Stream`-aware consumers use [`TermValue::for_each_chunk`].");
     f.line("    #[inline]");
@@ -4959,7 +4971,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    }");
     f.blank();
     f.indented_doc_comment("ADR-060: fold every byte of the carrier into `f` in canonical order,");
-    f.indented_doc_comment("dispatching on the variant — `Inline` / `Borrowed` emit a single chunk,");
+    f.indented_doc_comment(
+        "dispatching on the variant — `Inline` / `Borrowed` emit a single chunk,",
+    );
     f.indented_doc_comment("`Stream` delegates to [`ChunkSource::for_each_chunk`]. This is the");
     f.indented_doc_comment("universal reader the σ-projection folds through `Hasher::fold_bytes`.");
     f.line("    pub fn for_each_chunk(&self, f: &mut dyn FnMut(&[u8])) {");
@@ -5184,7 +5198,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // splice into the calling arena (so the binding's value-tree");
     f.line("            // root is what the catamorphism actually walks).");
     f.line("            if name_index == RECURSE_PLACEHOLDER_NAME_INDEX {");
-    f.line("                return Ok(TermValue::inline_from_slice(recurse_value.unwrap_or(&[])));");
+    f.line(
+        "                return Ok(TermValue::inline_from_slice(recurse_value.unwrap_or(&[])));",
+    );
     f.line("            }");
     f.line("            // ADR-034 Mechanism 1: iteration-counter binding for Recurse.");
     f.line("            if name_index == RECURSE_IDX_NAME_INDEX {");
@@ -5430,7 +5446,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    Ok(n) => n,");
     f.line("                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),");
     f.line("                };");
-    f.line("                let width = if written > INLINE_BYTES { INLINE_BYTES } else { written };");
+    f.line(
+        "                let width = if written > INLINE_BYTES { INLINE_BYTES } else { written };",
+    );
     f.line("                Ok(TermValue::inline_from_slice(&out[..width]))");
     f.line("            } else {");
     f.line("                // ADR-055 recursive-fold path: walk the axis's substrate-Term");
@@ -5569,7 +5587,11 @@ fn emit_prism_model(f: &mut RustFile) {
     // defaults emit `RESOLVER_ABSENT` on `resolve`, propagated and recoverable
     // via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
     let resolver_bound_variants: &[(&str, &str, &str)] = &[
-        ("Term::Nerve { value_index }", "value_index", "nerve_resolver"),
+        (
+            "Term::Nerve { value_index }",
+            "value_index",
+            "nerve_resolver",
+        ),
         (
             "Term::ChainComplex { simplicial_index }",
             "simplicial_index",
@@ -6147,7 +6169,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("The identity route's `arena_slice()` returns `&[]` — no terms, no");
     f.doc_comment("transformation, input passes through to output unchanged.");
     f.line("impl __sdk_seal::Sealed for ConstrainedTypeInput {}");
-    f.line("impl<const INLINE_BYTES: usize> FoundationClosed<INLINE_BYTES> for ConstrainedTypeInput {");
+    f.line(
+        "impl<const INLINE_BYTES: usize> FoundationClosed<INLINE_BYTES> for ConstrainedTypeInput {",
+    );
     f.line("    fn arena_slice() -> &'static [crate::enforcement::Term<'static, INLINE_BYTES>] {");
     f.line("        &[]");
     f.line("    }");
@@ -8017,20 +8041,26 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("#     fn fold_byte(self, _: u8) -> Self { self }");
     f.doc_comment("#     fn finalize(self) -> [u8; 32] { [0; 32] }");
     f.doc_comment("# }");
+    f.doc_comment("// ADR-060: `Term`/`CompileUnit`/`Grounded` carry an `INLINE_BYTES`");
+    f.doc_comment("// const-generic the application derives from its `HostBounds`; this");
+    f.doc_comment("// example fixes a concrete width and threads it through `run`'s 4th");
+    f.doc_comment("// const argument.");
+    f.doc_comment("const N: usize = 32;");
     f.doc_comment(
-        "static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];",
+        "let terms: [Term<'static, N>; 1] = \
+         [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];",
     );
-    f.doc_comment("static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];");
+    f.doc_comment("let domains: [VerificationDomain; 1] = [VerificationDomain::Enumerative];");
     f.doc_comment("");
-    f.doc_comment("let unit = CompileUnitBuilder::new()");
-    f.doc_comment("    .root_term(TERMS)");
+    f.doc_comment("let unit = CompileUnitBuilder::<N>::new()");
+    f.doc_comment("    .root_term(&terms)");
     f.doc_comment("    .witt_level_ceiling(WittLevel::W32)");
     f.doc_comment("    .thermodynamic_budget(1024)");
-    f.doc_comment("    .target_domains(DOMAINS)");
+    f.doc_comment("    .target_domains(&domains)");
     f.doc_comment("    .result_type::<ConstrainedTypeInput>()");
     f.doc_comment("    .validate()");
     f.doc_comment("    .expect(\"unit well-formed\");");
-    f.doc_comment("let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit)");
+    f.doc_comment("let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit)");
     f.doc_comment("    .expect(\"pipeline admits\");");
     f.doc_comment("# let _ = grounded;");
     f.doc_comment("```");

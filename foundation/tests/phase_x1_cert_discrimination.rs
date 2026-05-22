@@ -23,6 +23,7 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::{ConstrainedTypeShape, ConstraintRef};
 use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
 
 type H = Fnv1aHasher16;
@@ -154,11 +155,14 @@ fn geodesic_validator_produces_geodesic_certificate() {
 // ──────────────────────────────────────────────────────────────────────────
 
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
-static ROOT_TERMS: &[uor_foundation::enforcement::Term] =
+// ADR-060: `TermValue` holds a `dyn ChunkSource` and is therefore not `Sync`,
+// so the term slice lives in a `const` (no `Sync` requirement) rather than a
+// `static`.
+const ROOT_TERMS: &[uor_foundation::enforcement::Term<'static, N>] =
     &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 
 fn probe_unit(
-) -> uor_foundation::enforcement::Validated<uor_foundation::enforcement::CompileUnit<'static>> {
+) -> uor_foundation::enforcement::Validated<uor_foundation::enforcement::CompileUnit<'static, N>> {
     CompileUnitBuilder::new()
         .root_term(ROOT_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -173,28 +177,28 @@ fn probe_unit(
 fn session_produces_grounding_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::session::certify::<_, H>(&u);
+        resolver::session::certify::<_, H, N>(&u);
 }
 
 #[test]
 fn superposition_produces_born_rule_verification() {
     let u = probe_unit();
     let _r: Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>> =
-        resolver::superposition::certify::<_, H>(&u);
+        resolver::superposition::certify::<_, H, N>(&u);
 }
 
 #[test]
 fn measurement_produces_measurement_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::measurement::certify::<_, H>(&u);
+        resolver::measurement::certify::<_, H, N>(&u);
 }
 
 #[test]
 fn witt_level_produces_grounding_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::witt_level_resolver::certify::<_, H>(&u);
+        resolver::witt_level_resolver::certify::<_, H, N>(&u);
 }
 
 // ──────────────────────────────────────────────────────────────────────────

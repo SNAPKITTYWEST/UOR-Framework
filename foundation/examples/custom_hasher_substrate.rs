@@ -15,6 +15,7 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
 /// Minimal FNV-1a 128-bit substrate — two 64-bit FNV-1a lanes for pedagogical
 /// simplicity. Production deployments use BLAKE3 or SHA-256.
@@ -44,9 +45,11 @@ impl Hasher for MyFnv1aHasher {
         self
     }
 
-    // 32 = `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES`, the
-    // default const-generic on `Hasher`. Applications selecting a different
-    // `HostBounds` impl declare `impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}>`.
+    // 32 = the `Hasher` finalize buffer width (the `FINGERPRINT_MAX_BYTES`
+    // value of a typical `HostBounds`). ADR-060 removed `DefaultHostBounds`:
+    // every application declares its own `impl HostBounds`. Applications
+    // selecting a different fingerprint width declare
+    // `impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}>`.
     fn finalize(self) -> [u8; 32] {
         let mut buf = [0u8; 32];
         buf[..8].copy_from_slice(&self.lane_a.to_be_bytes());
@@ -56,7 +59,9 @@ impl Hasher for MyFnv1aHasher {
     }
 }
 
-static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+// ADR-060: `Term` carries the inline-carrier width `N` and is no longer `Sync`,
+// so the term arena is `const` (not `static`).
+const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {
@@ -67,8 +72,8 @@ fn main() {
         .target_domains(DOMAINS)
         .result_type::<ConstrainedTypeInput>();
     let unit: Validated<_> = builder.validate().expect("unit well-formed");
-    let grounded: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, MyFnv1aHasher>(unit).expect("custom hasher pipeline");
+    let grounded: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, MyFnv1aHasher, N>(unit).expect("custom hasher pipeline");
 
     println!("Content fingerprint (using custom FNV-1a):");
     println!(

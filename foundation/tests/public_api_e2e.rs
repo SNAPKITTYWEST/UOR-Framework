@@ -29,14 +29,15 @@ use uor_foundation::pipeline::{
     StepResult, StreamDeclaration, StreamDriver,
 };
 use uor_foundation::{DefaultHostTypes, VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
+use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
 // Phase 9 pinned: hand-written tests exercise the default-host (f64) path.
 type Calibration = uor_foundation::enforcement::Calibration<DefaultHostTypes>;
 
 /// v0.2.2 T6: shared sentinel terms + domains for tests that build
 /// fully-specified CompileUnits via the runtime `validate()` path.
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 /// v0.2.2 T6: helper — build a Validated<CompileUnit, CompileTime> with all
@@ -46,7 +47,7 @@ static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerati
 fn build_compile_unit(
     level: WittLevel,
     budget: u64,
-) -> Validated<CompileUnit<'static>, CompileTime> {
+) -> Validated<CompileUnit<'static, N>, CompileTime> {
     let builder = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(level)
@@ -119,11 +120,11 @@ fn phase_e_run_const_grounded_metrics_differ_by_witt_level() {
     assert_eq!(validated_w8.inner().thermodynamic_budget(), 100);
     assert_eq!(validated_w32.inner().thermodynamic_budget(), 200);
 
-    let g_w8: Grounded<ConstrainedTypeInput> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&validated_w8)
+    let g_w8: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w8)
             .expect("w8 grounds");
-    let g_w32: Grounded<ConstrainedTypeInput> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&validated_w32)
+    let g_w32: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w32)
             .expect("w32 grounds");
 
     // unit_address differs because run_const folds the full unit state.
@@ -166,20 +167,20 @@ fn phase_f_run_parallel_unit_address_depends_on_site_count() {
         validated_runtime(ParallelDeclaration::new_with_partition::<
             ConstrainedTypeInput,
         >(PARTITION_7, WITNESS));
-    let g_3: Grounded<ConstrainedTypeInput> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_3)
+    let g_3: Grounded<ConstrainedTypeInput, N> =
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_3)
             .expect("3-site parallel walks");
-    let g_7: Grounded<ConstrainedTypeInput> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_7)
+    let g_7: Grounded<ConstrainedTypeInput, N> =
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_7)
             .expect("7-site parallel walks");
     assert_ne!(g_3.unit_address(), g_7.unit_address());
 }
 
 #[test]
 fn phase_f_stream_driver_yields_distinct_grounded() {
-    let unit: Validated<StreamDeclaration> =
+    let unit: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(3));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
     let g1 = driver.next().expect("step 1").expect("step 1 ok");
     let g2 = driver.next().expect("step 2").expect("step 2 ok");
     let g3 = driver.next().expect("step 3").expect("step 3 ok");
@@ -201,7 +202,7 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
     let unit: Validated<InteractionDeclaration> = validated_runtime(InteractionDeclaration::new::<
         ConstrainedTypeInput,
     >(0xDEAD_BEEF));
-    let mut driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16> =
+    let mut driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
         run_interactive(unit);
     assert_eq!(driver.peer_step_count(), 0);
     assert!(!driver.is_converged());
@@ -227,7 +228,7 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
     assert_eq!(driver.peer_step_count(), 2);
 
     // finalize returns Ok with non-zero unit_address.
-    let final_grounded: Grounded<ConstrainedTypeInput> = driver.finalize().expect("converged");
+    let final_grounded: Grounded<ConstrainedTypeInput, N> = driver.finalize().expect("converged");
     assert_ne!(final_grounded.unit_address(), ContentAddress::zero());
     // T6.1: finalize produces a real substrate fingerprint.
     assert!(!final_grounded.content_fingerprint().is_zero());
@@ -237,9 +238,10 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
 fn phase_f_interaction_driver_finalize_rejects_unconverged() {
     let unit: Validated<InteractionDeclaration> =
         validated_runtime(InteractionDeclaration::new::<ConstrainedTypeInput>(0));
-    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_interactive(unit);
+    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
+        run_interactive(unit);
     assert!(!driver.is_converged());
-    let result: Result<Grounded<ConstrainedTypeInput>, _> = driver.finalize();
+    let result: Result<Grounded<ConstrainedTypeInput, N>, _> = driver.finalize();
     assert!(result.is_err(), "unconverged driver finalize must error");
 }
 
@@ -253,15 +255,15 @@ fn phase_g_certify_const_functions_carry_unit_level() {
     assert_eq!(validated.inner().witt_level(), WittLevel::W32);
 
     let cert: Validated<GroundingCertificate, CompileTime> =
-        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16>(&validated);
+        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
     assert_eq!(cert.inner().witt_bits(), 32);
 
     let inhab: Validated<GroundingCertificate, CompileTime> =
-        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16>(&validated);
+        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
     assert_eq!(inhab.inner().witt_bits(), 32);
 
     let mult: Validated<MultiplicationCertificate, CompileTime> =
-        certify_multiplication_const::<ConstrainedTypeInput, Fnv1aHasher16>(&validated);
+        certify_multiplication_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
     assert_eq!(mult.inner().witt_bits(), 32);
 }
 
@@ -301,12 +303,14 @@ fn phase_j_grounding_program_compiles_for_digest_map() {
 #[test]
 fn t5_pipeline_run_threads_constraints_into_unit_address() {
     use uor_foundation::pipeline::run;
-    let unit_100: Validated<CompileUnit<'static>> = build_compile_unit(WittLevel::W8, 100).into();
-    let unit_200: Validated<CompileUnit<'static>> = build_compile_unit(WittLevel::W8, 200).into();
-    let g_100: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_100).expect("100 grounds");
-    let g_200: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_200).expect("200 grounds");
+    let unit_100: Validated<CompileUnit<'static, N>> =
+        build_compile_unit(WittLevel::W8, 100).into();
+    let unit_200: Validated<CompileUnit<'static, N>> =
+        build_compile_unit(WittLevel::W8, 200).into();
+    let g_100: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_100).expect("100 grounds");
+    let g_200: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_200).expect("200 grounds");
     assert_ne!(
         g_100.unit_address(),
         g_200.unit_address(),
@@ -324,9 +328,9 @@ fn t5_pipeline_run_threads_constraints_into_unit_address() {
 #[test]
 fn t5_grounded_derivation_replay_round_trips_via_verify_trace() {
     use uor_foundation::pipeline::run;
-    let unit: Validated<CompileUnit<'static>> = build_compile_unit(WittLevel::W8, 100).into();
-    let grounded: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("grounds");
+    let unit: Validated<CompileUnit<'static, N>> = build_compile_unit(WittLevel::W8, 100).into();
+    let grounded: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("grounds");
     let trace: uor_foundation::Trace = grounded.derivation().replay();
     let reverified =
         uor_foundation::enforcement::replay::certify_from_trace(&trace).expect("re-verifies");
@@ -345,11 +349,11 @@ fn t5_distinct_widths_produce_distinct_fingerprints_for_same_unit() {
     use uor_foundation::pipeline::run_const;
     use uor_foundation_test_helpers::Fnv1aHasher32;
     let validated = build_compile_unit(WittLevel::W8, 100);
-    let g_16: Grounded<ConstrainedTypeInput> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&validated)
+    let g_16: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated)
             .expect("16");
-    let g_32: Grounded<ConstrainedTypeInput> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher32>(&validated)
+    let g_32: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher32, N>(&validated)
             .expect("32");
     assert_eq!(g_16.content_fingerprint().width_bytes(), 16);
     assert_eq!(g_32.content_fingerprint().width_bytes(), 32);
@@ -364,9 +368,9 @@ fn t5_distinct_widths_produce_distinct_fingerprints_for_same_unit() {
 fn t5_certify_distinguishes_certificate_kinds() {
     let validated = build_compile_unit(WittLevel::W32, 42);
     let c_tower: Validated<GroundingCertificate, CompileTime> =
-        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16>(&validated);
+        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
     let c_inhab: Validated<GroundingCertificate, CompileTime> =
-        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16>(&validated);
+        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
     assert_ne!(
         c_tower.inner().content_fingerprint(),
         c_inhab.inner().content_fingerprint(),
@@ -376,9 +380,9 @@ fn t5_certify_distinguishes_certificate_kinds() {
 
 #[test]
 fn t5_stream_driver_is_terminated_observable_without_consumption() {
-    let unit: Validated<StreamDeclaration> =
+    let unit: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(2));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
     assert!(!driver.is_terminated());
     let _ = driver.next().expect("step 1");
     assert!(!driver.is_terminated());
@@ -470,7 +474,7 @@ fn t6_grounded_with_bindings_attaches_downstream_table() {
     use uor_foundation::enforcement::{BindingEntry, BindingsTable, ContentAddress};
     let unit = build_compile_unit(WittLevel::W8, 1024);
     let grounded =
-        uor_foundation::pipeline::run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).unwrap();
+        uor_foundation::pipeline::run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).unwrap();
     let original_fp = grounded.content_fingerprint();
     static ENTRIES: &[BindingEntry] = &[
         BindingEntry {
@@ -505,9 +509,10 @@ fn t5_short_path_re_exports_resolve() {
     // T6.6: ContentFingerprint::zero() is pub(crate).
     use uor_foundation::{
         BindingsTableError, CalibrationError, Certificate, CertificateKind, ContentFingerprint,
-        DefaultHostBounds, Hasher, HostBounds, LandauerBudget, Nanos, PipelineFailure, PrimitiveOp,
-        Term, TermArena, TermList, WittLevel,
+        Hasher, HostBounds, LandauerBudget, Nanos, PipelineFailure, PrimitiveOp, Term, TermArena,
+        TermList, WittLevel,
     };
+    use uor_foundation_test_helpers::ReferenceHostBounds;
     fn _accept_certificate<C: Certificate>() {}
     fn _accept_hasher<H: Hasher>() {}
     let _: BindingsTableError = BindingsTableError::Unsorted { at: 1 };
@@ -515,10 +520,11 @@ fn t5_short_path_re_exports_resolve() {
     let _: CertificateKind = CertificateKind::Grounding;
     // Capacity bounds are reached through the `HostBounds` substitution
     // axis (wiki ADR-018); there are no free-standing capacity constants
-    // on the public surface.
-    let _: usize = <DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES;
-    let _: usize = <DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES;
-    let _: usize = <DefaultHostBounds as HostBounds>::TRACE_MAX_EVENTS;
+    // on the public surface. ADR-060 removed `DefaultHostBounds`; the
+    // test-only `ReferenceHostBounds` carries the canonical values.
+    let _: usize = <ReferenceHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES;
+    let _: usize = <ReferenceHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES;
+    let _: usize = <ReferenceHostBounds as HostBounds>::TRACE_MAX_EVENTS;
     let _: PrimitiveOp = PrimitiveOp::Add;
     let _: WittLevel = WittLevel::W8;
     // The remaining types are just imported to verify they resolve.
@@ -526,7 +532,7 @@ fn t5_short_path_re_exports_resolve() {
     let _ = core::any::type_name::<LandauerBudget>();
     let _ = core::any::type_name::<Nanos>();
     let _ = core::any::type_name::<PipelineFailure>();
-    let _ = core::any::type_name::<Term>();
-    let _ = core::any::type_name::<TermArena<4>>();
+    let _ = core::any::type_name::<Term<N>>();
+    let _ = core::any::type_name::<TermArena<N, 4>>();
     let _ = core::any::type_name::<TermList>();
 }

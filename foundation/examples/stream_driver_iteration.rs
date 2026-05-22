@@ -10,19 +10,19 @@
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Grounded, Validated};
 use uor_foundation::pipeline::{run_stream, StreamDeclaration, StreamDriver};
-use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
+use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
 fn main() {
     // Productivity bound = 5 — the driver yields at most 5 grounded steps.
-    let decl: Validated<StreamDeclaration> =
+    let decl: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(5));
 
-    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16> = run_stream(decl);
+    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(decl);
 
     let mut step = 0u32;
     let mut last_address = None;
     for result in driver {
-        let grounded: Grounded<ConstrainedTypeInput> = result.expect("step succeeds");
+        let grounded: Grounded<ConstrainedTypeInput, N> = result.expect("step succeeds");
         println!(
             "step {step}: unit_address={:?} witt_bits={}",
             grounded.unit_address(),

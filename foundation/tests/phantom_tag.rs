@@ -9,6 +9,7 @@
 //!   `certificate` all return the same values after `tag()`).
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Grounded};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Domain tags owned by the test crate (NOT by the foundation).
@@ -30,20 +31,20 @@ fn _default_tag_is_self<T: uor_foundation::enforcement::GroundedShape>() {
     }
     trait SameAs<X> {}
     impl<X> SameAs<X> for X {}
-    assert_same::<Grounded<T>, Grounded<T, T>>();
+    assert_same::<Grounded<T, N>, Grounded<T, N, T>>();
 }
 
 /// Compile-time witness that two distinct tags create distinct Rust types.
 /// (If they were the same type, the function below would be a duplicate definition.)
-fn accepts_block_hash(_g: &Grounded<ConstrainedTypeInput, BlockHashTag>) {}
-fn accepts_pixel(_g: &Grounded<ConstrainedTypeInput, PixelTag>) {}
+fn accepts_block_hash(_g: &Grounded<ConstrainedTypeInput, N, BlockHashTag>) {}
+fn accepts_pixel(_g: &Grounded<ConstrainedTypeInput, N, PixelTag>) {}
 
 #[test]
 fn distinct_tags_are_distinct_types_at_compile_time() {
     // The fact that the two function signatures coexist without conflict is
     // already the assertion. Reference them so they're not dead code.
-    let _f1: fn(&Grounded<ConstrainedTypeInput, BlockHashTag>) = accepts_block_hash;
-    let _f2: fn(&Grounded<ConstrainedTypeInput, PixelTag>) = accepts_pixel;
+    let _f1: fn(&Grounded<ConstrainedTypeInput, N, BlockHashTag>) = accepts_block_hash;
+    let _f2: fn(&Grounded<ConstrainedTypeInput, N, PixelTag>) = accepts_pixel;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -54,9 +55,9 @@ fn distinct_tags_are_distinct_types_at_compile_time() {
 fn tag_coercion_is_zero_cost() {
     // The phantom Tag parameter must not affect memory layout.
     // sizeof Grounded<T, T> == sizeof Grounded<T, OtherTag> for any T and OtherTag.
-    let default_size = core::mem::size_of::<Grounded<ConstrainedTypeInput>>();
-    let block_hash_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, BlockHashTag>>();
-    let pixel_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, PixelTag>>();
+    let default_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N>>();
+    let block_hash_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N, BlockHashTag>>();
+    let pixel_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N, PixelTag>>();
     assert_eq!(default_size, block_hash_size);
     assert_eq!(default_size, pixel_size);
 }
@@ -76,19 +77,21 @@ fn grounded_sealed_field_count_unchanged() {
     // We can't make this assertion exact without inspecting Grounded's
     // private fields, but we assert that adding the Tag parameter didn't
     // somehow grow the struct beyond what the underlying fields require.
-    let g_size = core::mem::size_of::<Grounded<ConstrainedTypeInput>>();
+    let g_size = core::mem::size_of::<Grounded<ConstrainedTypeInput, N>>();
     // Lower bound: at least 16 bytes (u128) + 2 bytes (u16) + alignment + ZST fields.
     assert!(
         g_size >= 18,
         "Grounded must hold at least the witt_bits + unit_address"
     );
     // Upper bound: per ADR-028 the Grounded carries an output-value
-    // payload of capacity `pipeline::ROUTE_OUTPUT_BUFFER_BYTES` (the
-    // catamorphism's evaluation result, populated by `pipeline::run_route`
-    // per ADR-029). The struct's footprint is the metadata fields plus
-    // the output buffer plus alignment overhead.
+    // payload (the catamorphism's evaluation result, populated by
+    // `pipeline::run_route` per ADR-029). ADR-060 sizes the inline output
+    // payload by the application's derived inline-carrier width
+    // (`carrier_inline_bytes::<B>()` = `REFERENCE_INLINE_BYTES` here), not a
+    // foundation-fixed buffer ceiling. The struct's footprint is the
+    // metadata fields plus the output buffer plus alignment overhead.
     let metadata_overhead = 1024usize; // generous budget for the metadata fields
-    let max_size = uor_foundation::pipeline::ROUTE_OUTPUT_BUFFER_BYTES + metadata_overhead;
+    let max_size = N + metadata_overhead;
     assert!(
         g_size <= max_size,
         "Grounded must fit in {max_size} bytes (no_std discipline + ADR-028 output payload), got {g_size}",
@@ -104,9 +107,12 @@ fn tag_method_is_in_public_api() {
     // The `tag::<NewTag>()` method must be reachable on Grounded<T> (default
     // tag = T) and produce a Grounded<T, NewTag>. We can't actually call it
     // without a real Grounded value, but we can assert the method's type.
-    fn _coerce(g: Grounded<ConstrainedTypeInput>) -> Grounded<ConstrainedTypeInput, BlockHashTag> {
+    fn _coerce(
+        g: Grounded<ConstrainedTypeInput, N>,
+    ) -> Grounded<ConstrainedTypeInput, N, BlockHashTag> {
         g.tag::<BlockHashTag>()
     }
-    let _f: fn(Grounded<ConstrainedTypeInput>) -> Grounded<ConstrainedTypeInput, BlockHashTag> =
-        _coerce;
+    let _f: fn(
+        Grounded<ConstrainedTypeInput, N>,
+    ) -> Grounded<ConstrainedTypeInput, N, BlockHashTag> = _coerce;
 }

@@ -20,12 +20,17 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::validate_compile_unit_const;
 use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+// ADR-060: `TermValue` holds a `dyn ChunkSource` and is therefore not `Sync`,
+// so the term slice lives in a `const` (no `Sync` requirement) rather than a
+// `static`.
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_unit() -> Validated<CompileUnit<'static>, CompileTime> {
+fn build_unit() -> Validated<CompileUnit<'static, N>, CompileTime> {
     let builder = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(WittLevel::W8)
@@ -70,7 +75,7 @@ macro_rules! cu_resolver_test {
         #[test]
         fn $test_name() {
             let unit = build_unit();
-            let cert = $module::certify::<_, Fnv1aHasher16>(&unit)
+            let cert = $module::certify::<_, Fnv1aHasher16, N>(&unit)
                 .expect(concat!(stringify!($module), " must certify unit"));
             assert_ne!(cert.certificate().witt_bits(), 0);
         }

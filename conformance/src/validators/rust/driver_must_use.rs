@@ -40,8 +40,14 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
     // StreamDriver and InteractionDriver are plain structs, so they DO
     // need the attribute on their factory functions.
     let drivers = [
-        ("run_stream", "pub fn run_stream<T, P, H>("),
-        ("run_interactive", "pub fn run_interactive<T, P, H>("),
+        (
+            "run_stream",
+            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(",
+        ),
+        (
+            "run_interactive",
+            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(",
+        ),
     ];
 
     let mut missing: Vec<String> = Vec::new();

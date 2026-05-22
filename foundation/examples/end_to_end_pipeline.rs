@@ -14,9 +14,11 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
+// ADR-060: `Term` carries the inline-carrier width `N` and is no longer `Sync`,
+// so the term arena is `const` (not `static`).
+const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {
@@ -32,8 +34,8 @@ fn main() {
     let unit: Validated<_> = builder.validate().expect("unit is well-formed");
 
     // Step 3: run through the pipeline.
-    let grounded: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("pipeline admits the unit");
+    let grounded: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
 
     // Step 4: inspect the BaseMetric accessors.
     println!("Witt level bits: {}", grounded.witt_level_bits());

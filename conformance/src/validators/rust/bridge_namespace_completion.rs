@@ -37,10 +37,10 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
     };
 
     let required: &[(&str, &str)] = &[
-        // Constants. Wiki ADR-037 migrated the literal 8 to a
-        // `<DefaultHostBounds as HostBounds>::BETTI_DIMENSION_MAX` /
-        // `JACOBIAN_SITES_MAX` derivation, so the anchor matches the
-        // `<crate::DefaultHostBounds` prefix the alias emits.
+        // Constants. Wiki ADR-037 names `HostBounds::BETTI_DIMENSION_MAX` /
+        // `JACOBIAN_SITES_MAX` as the canonical capacity bounds; these
+        // foundation-internal `pub const`s carry conservative defaults for
+        // stable-Rust array-size positions (ADR-060 removed `DefaultHostBounds`).
         (
             "MAX_BETTI_DIMENSION constant",
             "pub const MAX_BETTI_DIMENSION: usize =",
@@ -88,12 +88,15 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "pub const MAX_COHOMOLOGY_DIMENSION: u32 = 32;",
         ),
         // Target §3 Sink/Sinking hardening.
-        ("Sinking trait", "pub trait Sinking {"),
+        (
+            "Sinking trait",
+            "pub trait Sinking<const INLINE_BYTES: usize> {",
+        ),
         ("MorphismKind trait", "pub trait MorphismKind:"),
         ("ProjectionMapKind trait", "pub trait ProjectionMapKind:"),
         (
             "EmitThrough trait",
-            "pub trait EmitThrough<H: crate::HostTypes>:",
+            "pub trait EmitThrough<const INLINE_BYTES: usize, H: crate::HostTypes>:",
         ),
         (
             "IntegerProjectionMap marker",

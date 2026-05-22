@@ -209,6 +209,7 @@ mod catamorphism {
     use uor_foundation::enforcement::{Hasher, Term, TermList};
     use uor_foundation::pipeline::{evaluate_term_tree, NullResolverTuple, TermValue};
     use uor_foundation::{PipelineFailure, PrimitiveOp, WittLevel};
+    use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
     #[derive(Debug, Clone, Copy, Default)]
     struct ZeroHasher;
@@ -225,8 +226,8 @@ mod catamorphism {
         }
     }
 
-    fn eval(arena: &[Term]) -> Result<TermValue, PipelineFailure> {
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple>(arena, &[], &NullResolverTuple)
+    fn eval<'a>(arena: &'a [Term<'a, N>]) -> Result<TermValue<'a, N>, PipelineFailure> {
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(arena, &[], &NullResolverTuple)
     }
 
     #[test]

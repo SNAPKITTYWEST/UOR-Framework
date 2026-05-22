@@ -8150,7 +8150,7 @@ def compose_op : UOR.Kernel.Op.SessionCompositionOperation UOR.Prims.Standard :=
   isRingOp := none
 }
 
--- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling.
+-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), carried by the source-polymorphic TermValue (inline up to the application's carrier width, else borrowed or streamed — no fixed ceiling).
 def concat : UOR.Kernel.Op.BinaryOp UOR.Prims.Standard := {
   commutative := none
   associative := some (true)

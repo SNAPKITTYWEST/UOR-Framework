@@ -25,7 +25,7 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::{run_const, validate_compile_unit_const};
 use uor_foundation::{DefaultHostTypes, VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
 // Phase 9 pinned the carrier types to `<DefaultHostTypes>` for hand-written
 // behavioral tests that exercise the f64 default-host path.
@@ -33,10 +33,11 @@ type Calibration = uor_foundation::enforcement::Calibration<DefaultHostTypes>;
 type LandauerBudget = uor_foundation::enforcement::LandauerBudget<DefaultHostTypes>;
 type UorTime = uor_foundation::enforcement::UorTime<DefaultHostTypes>;
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static>, CompileTime> {
+fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N>, CompileTime> {
     let builder = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(level)
@@ -46,9 +47,9 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static>, 
     validate_compile_unit_const(&builder).expect("fixture: fully-specified builder validates")
 }
 
-fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput> {
+fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
-    run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&unit)
+    run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
         .expect("fixture: run_const must succeed for vacuous input")
 }
 

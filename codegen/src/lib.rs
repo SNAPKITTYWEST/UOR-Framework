@@ -347,10 +347,28 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
          //! architecture admits no capacity bound outside `HostBounds`.\n\
          //!\n\
          //! ```no_run\n\
-         //! use uor_foundation::{{HostBounds, DefaultHostBounds}};\n\
+         //! use uor_foundation::HostBounds;\n\
          //!\n\
-         //! type B = DefaultHostBounds;\n\
-         //! assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);\n\
+         //! // ADR-060: every application declares its own `impl HostBounds`;\n\
+         //! // there is no `DefaultHostBounds`.\n\
+         //! struct MyBounds;\n\
+         //! impl HostBounds for MyBounds {{\n\
+         //!     const FINGERPRINT_MIN_BYTES: usize = 16;\n\
+         //!     const FINGERPRINT_MAX_BYTES: usize = 32;\n\
+         //!     const TRACE_MAX_EVENTS: usize = 256;\n\
+         //!     const WITT_LEVEL_MAX_BITS: u32 = 64;\n\
+         //!     const FOLD_UNROLL_THRESHOLD: usize = 8;\n\
+         //!     const BETTI_DIMENSION_MAX: usize = 8;\n\
+         //!     const NERVE_CONSTRAINTS_MAX: usize = 8;\n\
+         //!     const NERVE_SITES_MAX: usize = 8;\n\
+         //!     const JACOBIAN_SITES_MAX: usize = 8;\n\
+         //!     const RECURSION_TRACE_DEPTH_MAX: usize = 16;\n\
+         //!     const OP_CHAIN_DEPTH_MAX: usize = 8;\n\
+         //!     const AFFINE_COEFFS_MAX: usize = 8;\n\
+         //!     const CONJUNCTION_TERMS_MAX: usize = 8;\n\
+         //!     const UNFOLD_ITERATIONS_MAX: usize = 256;\n\
+         //! }}\n\
+         //! assert_eq!(<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES, 32);\n\
          //! ```\n\
          //!\n\
          //!\n\
@@ -929,24 +947,17 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.doc_comment("# Example");
     f.doc_comment("");
     f.doc_comment("```");
-    f.doc_comment("use uor_foundation::{HostBounds, DefaultHostBounds};");
+    f.doc_comment("use uor_foundation::HostBounds;");
     f.doc_comment("");
-    f.doc_comment("// Inherit the canonical defaults (16 / 32 / 256 / 64).");
-    f.doc_comment("type B = DefaultHostBounds;");
-    f.doc_comment("assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);");
-    f.doc_comment("");
-    f.doc_comment("// Or declare an application-specific capacity profile:");
+    f.doc_comment("// ADR-060: there is no `DefaultHostBounds`. Every application declares");
+    f.doc_comment("// its own capacity profile; the foundation supplies no default policy.");
     f.doc_comment("struct BitcoinPow;");
     f.doc_comment("impl HostBounds for BitcoinPow {");
     f.doc_comment("    const FINGERPRINT_MIN_BYTES: usize = 32;");
     f.doc_comment("    const FINGERPRINT_MAX_BYTES: usize = 32;");
     f.doc_comment("    const TRACE_MAX_EVENTS: usize = 1024;");
     f.doc_comment("    const WITT_LEVEL_MAX_BITS: u32 = 256;");
-    f.doc_comment("    // ADR-037: 14 data-shape capacity caps. Match the");
-    f.doc_comment("    // DefaultHostBounds defaults unless the application has a");
-    f.doc_comment("    // specific reason to vary them.");
-    f.doc_comment("    const TERM_VALUE_MAX_BYTES: usize = 4096;");
-    f.doc_comment("    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;");
+    f.doc_comment("    // ADR-060: 10 retained structural-count / catamorphism-trace caps.");
     f.doc_comment("    const FOLD_UNROLL_THRESHOLD: usize = 8;");
     f.doc_comment("    const BETTI_DIMENSION_MAX: usize = 8;");
     f.doc_comment("    const NERVE_CONSTRAINTS_MAX: usize = 8;");
@@ -956,19 +967,9 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.doc_comment("    const OP_CHAIN_DEPTH_MAX: usize = 8;");
     f.doc_comment("    const AFFINE_COEFFS_MAX: usize = 8;");
     f.doc_comment("    const CONJUNCTION_TERMS_MAX: usize = 8;");
-    f.doc_comment("    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;");
-    f.doc_comment("    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;");
     f.doc_comment("    const UNFOLD_ITERATIONS_MAX: usize = 256;");
-    f.doc_comment("    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.");
-    f.doc_comment("    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;");
-    f.doc_comment("    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;");
     f.doc_comment("}");
+    f.doc_comment("assert_eq!(<BitcoinPow as HostBounds>::FINGERPRINT_MAX_BYTES, 32);");
     f.doc_comment("```");
     f.line("pub trait HostBounds {");
     f.indented_doc_comment("Minimum content-fingerprint width in bytes that the application's");
@@ -987,8 +988,8 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     f.line("    const TRACE_MAX_EVENTS: usize;");
     f.blank();
     f.indented_doc_comment("Algebraic-level bit-width ceiling. Caps the Witt-level any value");
-    f.indented_doc_comment("along the principal data path may compute against. The");
-    f.indented_doc_comment("`DefaultHostBounds` value of 64 corresponds to `WittLevel::W64`.");
+    f.indented_doc_comment("along the principal data path may compute against. A value of 64");
+    f.indented_doc_comment("corresponds to `WittLevel::W64`.");
     f.line("    const WITT_LEVEL_MAX_BITS: u32;");
     f.blank();
     // ADR-060: 10 retained data-shape capacity caps (structural-count and

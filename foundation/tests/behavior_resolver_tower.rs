@@ -24,11 +24,17 @@ use uor_foundation::enforcement::{
 use uor_foundation::pipeline::validate_compile_unit_const;
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+// ADR-060: `TermValue` holds a `dyn ChunkSource` and is therefore not `Sync`,
+// so the term slice cannot live in a `static`. A `const` array (no `Sync`
+// requirement) referenced from a `const` item yields the `'static` borrow the
+// builder needs.
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_unit() -> Validated<CompileUnit<'static>, uor_foundation::enforcement::CompileTime> {
+fn build_unit() -> Validated<CompileUnit<'static, N>, uor_foundation::enforcement::CompileTime> {
     let b = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -101,13 +107,13 @@ fn compile_unit_resolvers_produce_distinct_fingerprints() {
     let unit = build_unit();
 
     let grounding =
-        resolver::grounding_aware::certify::<_, Fnv1aHasher16>(&unit).expect("grounding");
-    let session = resolver::session::certify::<_, Fnv1aHasher16>(&unit).expect("session");
+        resolver::grounding_aware::certify::<_, Fnv1aHasher16, N>(&unit).expect("grounding");
+    let session = resolver::session::certify::<_, Fnv1aHasher16, N>(&unit).expect("session");
     let superp =
-        resolver::superposition::certify::<_, Fnv1aHasher16>(&unit).expect("superposition");
-    let meas = resolver::measurement::certify::<_, Fnv1aHasher16>(&unit).expect("measurement");
+        resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superposition");
+    let meas = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("measurement");
     let witt_l =
-        resolver::witt_level_resolver::certify::<_, Fnv1aHasher16>(&unit).expect("witt_level");
+        resolver::witt_level_resolver::certify::<_, Fnv1aHasher16, N>(&unit).expect("witt_level");
 
     let fps = [
         (

@@ -13,9 +13,11 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
+// ADR-060: `Term` carries the inline-carrier width `N` and is no longer `Sync`,
+// so the term arena is `const` (not `static`).
+const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 fn main() {
@@ -27,12 +29,14 @@ fn main() {
         .target_domains(DOMAINS)
         .result_type::<ConstrainedTypeInput>();
     let unit: Validated<_> = builder.validate().expect("unit well-formed");
-    let grounded: Grounded<ConstrainedTypeInput> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("pipeline admits");
+    let grounded: Grounded<ConstrainedTypeInput, N> =
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits");
 
     // Replay: extract a Trace from the grounded derivation. Type-annotate
     // so `replay::<TR_MAX>` infers `TR_MAX` from `Trace`'s default
-    // const-generic (= `<DefaultHostBounds>::TRACE_MAX_EVENTS`).
+    // const-generic. ADR-060 removed `DefaultHostBounds`; applications declare
+    // their own `HostBounds` (here the test-only `ReferenceHostBounds`, whose
+    // `TRACE_MAX_EVENTS` backs `Trace`'s default const-generic).
     let trace: uor_foundation::Trace = grounded.derivation().replay();
     println!(
         "Trace: {} event(s) at witt_level_bits={}",

@@ -18,17 +18,19 @@
 //! 6. `TERM_VALUE_MAX_BYTES` is the foundation-fixed per-value ceiling.
 
 use uor_foundation::enforcement::{Hasher, Term, TermList};
-use uor_foundation::pipeline::{
-    evaluate_term_tree, NullResolverTuple, TermValue, TERM_VALUE_MAX_BYTES,
-};
+use uor_foundation::pipeline::{evaluate_term_tree, NullResolverTuple, TermValue};
 use uor_foundation::{PipelineFailure, PrimitiveOp, WittLevel};
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
 /// Thin wrapper around `evaluate_term_tree` that defaults the resolver
 /// tuple to `NullResolverTuple` — keeps these test bodies focused on the
 /// catamorphism's term-tree fold-rules (the resolver-bound ψ-Term variants
 /// are exercised by dedicated tests that supply real resolvers).
-fn eval_zero(arena: &[Term], input_bytes: &[u8]) -> Result<TermValue, PipelineFailure> {
-    evaluate_term_tree::<ZeroHasher, NullResolverTuple>(arena, input_bytes, &NullResolverTuple)
+fn eval_zero<'a>(
+    arena: &'a [Term<'a, N>],
+    input_bytes: &'a [u8],
+) -> Result<TermValue<'a, N>, PipelineFailure> {
+    evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(arena, input_bytes, &NullResolverTuple)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -56,22 +58,25 @@ impl Hasher for ZeroHasher {
 
 #[test]
 fn evaluator_surface_resolves_at_crate_root() {
-    // The function exists at the foundation public path.
-    let _: fn(&[Term], &[u8], &NullResolverTuple) -> _ =
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple>;
-    // Pin the constant: TERM_VALUE_MAX_BYTES must be at least the maximum
-    // of ROUTE_INPUT_BUFFER_BYTES and ROUTE_OUTPUT_BUFFER_BYTES so a
-    // TermValue can carry both input bytes (ADR-023) and the catamorphism's
-    // evaluation result (ADR-028) without truncation.
-    assert_eq!(TERM_VALUE_MAX_BYTES, 4096);
-    assert_eq!(
-        TERM_VALUE_MAX_BYTES,
-        uor_foundation::pipeline::ROUTE_INPUT_BUFFER_BYTES,
-    );
-    assert_eq!(
-        TERM_VALUE_MAX_BYTES,
-        uor_foundation::pipeline::ROUTE_OUTPUT_BUFFER_BYTES,
-    );
+    // The function exists at the foundation public path and evaluates the
+    // identity (empty) route to the threaded input bytes.
+    let out =
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(&[], &[0xaa], &NullResolverTuple)
+            .expect("identity route resolves at crate root");
+    assert_eq!(out.bytes(), &[0xaa][..]);
+    // ADR-060 removed the fixed `TERM_VALUE_MAX_BYTES` / `ROUTE_*_BUFFER_BYTES`
+    // 4096-byte ceiling in favour of the source-polymorphic `TermValue<'a, N>`
+    // carrier whose inline width is the application's `carrier_inline_bytes`.
+    // The empty inline carrier and a foundation-derived inline width pin that
+    // the source-polymorphic carrier is reachable at the crate root.
+    let empty = TermValue::<N>::empty();
+    assert_eq!(empty.bytes().len(), 0);
+    const {
+        assert!(
+            N > 0,
+            "carrier_inline_bytes must be a positive inline width"
+        )
+    };
 }
 
 #[test]
@@ -129,12 +134,12 @@ fn hasher_projection_delegates_to_substitution_axis() {
 
 #[test]
 fn term_value_carries_active_prefix_only() {
-    // `TermValue::from_slice` copies up to `TERM_VALUE_MAX_BYTES` bytes
+    // `TermValue::inline_from_slice` copies up to `INLINE_BYTES` bytes
     // and reports the active prefix length via `bytes()`.
-    let v = TermValue::from_slice(&[1, 2, 3, 4, 5]);
+    let v = TermValue::<N>::inline_from_slice(&[1, 2, 3, 4, 5]);
     assert_eq!(v.bytes(), &[1, 2, 3, 4, 5][..]);
     assert_eq!(v.bytes().len(), 5);
-    let empty = TermValue::empty();
+    let empty = TermValue::<N>::empty();
     assert_eq!(empty.bytes().len(), 0);
 }
 
@@ -482,7 +487,7 @@ fn project_field_out_of_bounds_rejects() {
 
 // ── PrimitiveOp coverage (ADR-013/TR-08 substrate amendment) ─────────────
 
-fn binary_op_arena(op: PrimitiveOp, lhs: u64, rhs: u64) -> [Term; 3] {
+fn binary_op_arena(op: PrimitiveOp, lhs: u64, rhs: u64) -> [Term<'static, N>; 3] {
     [
         uor_foundation::pipeline::literal_u64(lhs, WittLevel::W8),
         uor_foundation::pipeline::literal_u64(rhs, WittLevel::W8),
@@ -594,7 +599,7 @@ fn resolver_bound_psi_term_consults_resolver_tuple() {
     ];
     let input = [0x11u8, 0x22, 0x33];
     let result =
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple>(&arena, &input, &NullResolverTuple);
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(&arena, &input, &NullResolverTuple);
     match result {
         Err(PipelineFailure::ShapeViolation { report }) => {
             assert_eq!(

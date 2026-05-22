@@ -25,11 +25,15 @@ use uor_foundation::enforcement::{
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
-static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
+// ADR-060: `TermValue` holds a `dyn ChunkSource` and is therefore not `Sync`,
+// so the term slice lives in a `const` (no `Sync` requirement) rather than a
+// `static`.
+const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn grounded_probe() -> Grounded<ConstrainedTypeInput> {
+fn grounded_probe() -> Grounded<ConstrainedTypeInput, N> {
     let unit = CompileUnitBuilder::new()
         .root_term(ROOT_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -38,7 +42,7 @@ fn grounded_probe() -> Grounded<ConstrainedTypeInput> {
         .result_type::<ConstrainedTypeInput>()
         .validate()
         .expect("unit valid");
-    run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("pipeline admits")
+    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -114,24 +118,24 @@ const _: () = {
 
 struct AddressToStringSink;
 
-impl Sinking for AddressToStringSink {
+impl Sinking<N> for AddressToStringSink {
     type Source = ConstrainedTypeInput;
     type ProjectionMap = Utf8ProjectionMap;
     type Output = String;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> String {
+    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {
         format!("address={:?}", grounded.unit_address())
     }
 }
 
 struct FingerprintToBytesSink;
 
-impl Sinking for FingerprintToBytesSink {
+impl Sinking<N> for FingerprintToBytesSink {
     type Source = ConstrainedTypeInput;
     type ProjectionMap = BinaryProjectionMap;
     type Output = Vec<u8>;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> Vec<u8> {
+    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> Vec<u8> {
         grounded.content_fingerprint().as_bytes().to_vec()
     }
 }
@@ -186,15 +190,15 @@ fn sinking_is_content_deterministic() {
 ///     BinaryProjectionMap, ConstrainedTypeInput, Grounded, Sinking,
 /// };
 /// struct RawSink;
-/// impl Sinking for RawSink {
+/// impl Sinking<97> for RawSink {
 ///     type Source = ConstrainedTypeInput;
 ///     type ProjectionMap = BinaryProjectionMap;
 ///     type Output = Vec<u8>;
-///     fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> Vec<u8> {
+///     fn project(&self, grounded: &Grounded<ConstrainedTypeInput, 97>) -> Vec<u8> {
 ///         Vec::new()
 ///     }
 /// }
-/// // This fails to compile: 0i64 is not &Grounded<ConstrainedTypeInput>.
+/// // This fails to compile: 0i64 is not &Grounded<ConstrainedTypeInput, 97>.
 /// let _ = RawSink.project(&0i64);
 /// ```
 #[allow(dead_code)]

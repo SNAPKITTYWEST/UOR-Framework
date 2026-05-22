@@ -7,30 +7,39 @@
 //! `ContentFingerprint`, and `Trace`; the application's `HostBounds` impl
 //! populates the const-generic with `<MyBounds as HostBounds>::CONST`.
 //!
-//! This test pins:
+//! This test pins (ADR-060: `DefaultHostBounds` is removed; the test-only
+//! `ReferenceHostBounds` carries the canonical values the architecture no
+//! longer ships a default for):
 //!
 //! 1. The `HostBounds` trait is reachable at the crate root.
-//! 2. `DefaultHostBounds` carries the canonical 16/32/256/64 values.
+//! 2. `ReferenceHostBounds` carries the canonical 16/32/256/64 values.
 //! 3. The default const-generics on `Hasher`, `ContentFingerprint`, and
-//!    `Trace` resolve to the `DefaultHostBounds` values.
+//!    `Trace` resolve to those canonical values.
 //! 4. An application crate can declare a custom `HostBounds` impl and
 //!    select different capacity values without touching foundation source.
 
-use uor_foundation::{ContentFingerprint, DefaultHostBounds, HostBounds, Trace};
+use uor_foundation::{ContentFingerprint, HostBounds, Trace};
+use uor_foundation_test_helpers::ReferenceHostBounds;
 
 #[test]
-fn default_host_bounds_carry_canonical_values() {
-    assert_eq!(<DefaultHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES, 16);
-    assert_eq!(<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES, 32);
-    assert_eq!(<DefaultHostBounds as HostBounds>::TRACE_MAX_EVENTS, 256);
-    assert_eq!(<DefaultHostBounds as HostBounds>::WITT_LEVEL_MAX_BITS, 64);
+fn reference_host_bounds_carry_canonical_values() {
+    assert_eq!(
+        <ReferenceHostBounds as HostBounds>::FINGERPRINT_MIN_BYTES,
+        16
+    );
+    assert_eq!(
+        <ReferenceHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES,
+        32
+    );
+    assert_eq!(<ReferenceHostBounds as HostBounds>::TRACE_MAX_EVENTS, 256);
+    assert_eq!(<ReferenceHostBounds as HostBounds>::WITT_LEVEL_MAX_BITS, 64);
 }
 
 #[test]
-fn parametric_types_default_to_default_host_bounds() {
+fn parametric_types_default_to_canonical_capacities() {
     // The default const-generics on `ContentFingerprint` and `Trace` resolve
-    // to the `DefaultHostBounds` values — applications using the canonical
-    // defaults never write turbofish.
+    // to the canonical 32/256 values — applications using those defaults
+    // never write turbofish.
     let fp: ContentFingerprint = ContentFingerprint::default();
     assert_eq!(fp.as_bytes().len(), 32);
 
@@ -49,9 +58,8 @@ impl HostBounds for BitcoinPow {
     const FINGERPRINT_MAX_BYTES: usize = 32;
     const TRACE_MAX_EVENTS: usize = 1024;
     const WITT_LEVEL_MAX_BITS: u32 = 256;
-    // ADR-037: 14 migrated data-shape capacity caps.
-    const TERM_VALUE_MAX_BYTES: usize = 4096;
-    const AXIS_OUTPUT_BYTES_MAX: usize = 4096;
+    // ADR-037: 10 retained structural-count ceilings (ADR-060 removed the
+    // byte-buffer ceilings — the carrier is now source-polymorphic).
     const FOLD_UNROLL_THRESHOLD: usize = 8;
     const BETTI_DIMENSION_MAX: usize = 8;
     const NERVE_CONSTRAINTS_MAX: usize = 8;
@@ -61,18 +69,7 @@ impl HostBounds for BitcoinPow {
     const OP_CHAIN_DEPTH_MAX: usize = 8;
     const AFFINE_COEFFS_MAX: usize = 8;
     const CONJUNCTION_TERMS_MAX: usize = 8;
-    const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
-    const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
     const UNFOLD_ITERATIONS_MAX: usize = 256;
-    // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.
-    const NERVE_OUTPUT_BYTES_MAX: usize = 4096;
-    const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
-    const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-    const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
-    const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-    const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;
-    const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-    const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;
 }
 
 #[test]
@@ -89,7 +86,7 @@ fn application_can_declare_custom_host_bounds() {
     // axis discipline (ADR-007): the application is the locus of variation.
     assert_ne!(
         <BitcoinPow as HostBounds>::TRACE_MAX_EVENTS,
-        <DefaultHostBounds as HostBounds>::TRACE_MAX_EVENTS,
+        <ReferenceHostBounds as HostBounds>::TRACE_MAX_EVENTS,
     );
 }
 

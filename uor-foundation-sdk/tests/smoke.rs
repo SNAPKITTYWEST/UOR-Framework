@@ -391,7 +391,12 @@ fn prism_model_macro_satisfies_prism_model_bound() {
     // Surface assertion: the bound check above is itself the test.
     assert_eq!(
         core::any::type_name::<
-            <AddTwoLiterals as PrismModel<DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>::Route,
+            <AddTwoLiterals as PrismModel<
+                DefaultHostTypes,
+                SmokeHostBounds,
+                SmokeHasher,
+                SMOKE_IB,
+            >>::Route,
         >(),
         core::any::type_name::<AddTwoLiteralsRoute>(),
     );
@@ -1729,7 +1734,9 @@ impl<const INLINE_BYTES: usize, H: Hasher> NerveResolver<INLINE_BYTES, H>
         _input: uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>,
     ) -> Result<uor_foundation::pipeline::TermValue<'a, INLINE_BYTES>, ShapeViolation> {
         const SENTINEL: &[u8] = &[0xA1, 0xB2, 0xC3, 0xD4];
-        Ok(uor_foundation::pipeline::TermValue::inline_from_slice(SENTINEL))
+        Ok(uor_foundation::pipeline::TermValue::inline_from_slice(
+            SENTINEL,
+        ))
     }
 }
 
@@ -1778,7 +1785,7 @@ fn psi_chain_nerve_term_dispatches_through_user_declared_resolver() {
         _phantom: core::marker::PhantomData,
     };
     let input = [0x00, 0x00, 0x00];
-    let result = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>>(
+    let result = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
         &arena, &input, &resolvers,
     )
     .expect("user-declared nerve resolver should resolve");
@@ -1807,7 +1814,7 @@ fn undeclared_resolver_categories_propagate_resolver_absent() {
         _phantom: core::marker::PhantomData,
     };
     let input = [0u8; 1];
-    let outcome = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>>(
+    let outcome = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
         &arena, &input, &resolvers,
     );
     match outcome {
@@ -1897,7 +1904,9 @@ fn append_marker_tv<'a, const INLINE_BYTES: usize>(
     let mut buf = [0u8; INLINE_BYTES];
     buf[..n].copy_from_slice(input);
     buf[n] = marker;
-    Ok(uor_foundation::pipeline::TermValue::inline_from_slice(&buf[..n + 1]))
+    Ok(uor_foundation::pipeline::TermValue::inline_from_slice(
+        &buf[..n + 1],
+    ))
 }
 
 // Wiki ADR-041: per-trait input type. NerveResolver receives the raw
@@ -2051,7 +2060,7 @@ fn psi_chain_homology_branch_routes_feature_to_betti_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xFEu8, 0xED];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
             &arena, &input, &resolvers,
         )
         .expect("homology-branch chain should resolve end-to-end");
@@ -2081,7 +2090,7 @@ fn psi_chain_cohomology_branch_routes_feature_to_cohomology_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xCAu8, 0xFE];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
             &arena, &input, &resolvers,
         )
         .expect("cohomology-branch chain should resolve end-to-end");
@@ -2119,7 +2128,7 @@ fn psi_chain_k_invariant_branch_routes_feature_to_k_invariant_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xBEu8, 0xEF];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>>(
+        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
             &arena, &input, &resolvers,
         )
         .expect("k-invariant-branch chain should resolve end-to-end");
@@ -2309,7 +2318,7 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
 ///   - `Term::AxisInvocation` (axis-trait-method dispatch from verb body).
 ///   - `Term::Application { PrimitiveOp::{Le|Lt|Ge|Gt|Concat}, .. }`
 ///     (byte-comparison / byte-concat residuals).
-fn term_is_psi_residual(term: &Term) -> bool {
+fn term_is_psi_residual(term: &Term<'_, SMOKE_IB>) -> bool {
     use uor_foundation::PrimitiveOp;
     matches!(
         term,
@@ -2332,7 +2341,7 @@ fn prism_model_arenas_carry_zero_psi_residuals_per_adr_035() {
     // arena contains no ψ-residual Term variants. The list mirrors the
     // verb-body emissions across the smoke test corpus; failure here
     // means the closure-body parser regressed on the ADR-035 discipline.
-    let arenas: &[(&'static str, &'static [Term])] = &[
+    let arenas: &[(&'static str, &'static [Term<'static, SMOKE_IB>])] = &[
         (
             "AddTwoLiterals",
             <AddTwoLiteralsRoute as FoundationClosed<SMOKE_IB>>::arena_slice(),
@@ -2502,8 +2511,12 @@ fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
 
         // ADR-042: borrow the Grounded as an InhabitanceCertificateView.
         // Zero-cost — `#[repr(transparent)]` over &Grounded.
-        let cert: InhabitanceCertificateView<'_, ConstrainedTypeInput, ConstrainedTypeInput> =
-            grounded.as_inhabitance_certificate();
+        let cert: InhabitanceCertificateView<
+            '_,
+            ConstrainedTypeInput,
+            SMOKE_IB,
+            ConstrainedTypeInput,
+        > = grounded.as_inhabitance_certificate();
 
         // κ-label accessor — returns a `KInvariantsBytes` typed view.
         let kappa: KInvariantsBytes<'_> = cert.kappa_label();
@@ -2628,10 +2641,11 @@ fn adr042_dispatch_through_table_routes_through_three_decider_arms() {
 // distinction is superseded by the source-polymorphic carrier). Each Null
 // impl's `resolve` coerces to this higher-ranked `fn`-pointer shape at the
 // suite's reference inline width `SMOKE_IB`.
-type ResolveSig<R> = for<'a> fn(
-    &'a R,
-    uor_foundation::pipeline::TermValue<'a, SMOKE_IB>,
-) -> Result<uor_foundation::pipeline::TermValue<'a, SMOKE_IB>, ShapeViolation>;
+type ResolveSig<R> =
+    for<'a> fn(
+        &'a R,
+        uor_foundation::pipeline::TermValue<'a, SMOKE_IB>,
+    ) -> Result<uor_foundation::pipeline::TermValue<'a, SMOKE_IB>, ShapeViolation>;
 
 #[test]
 fn adr060_resolver_trait_signatures_type_check_psi_stage_composition() {
@@ -2642,20 +2656,30 @@ fn adr060_resolver_trait_signatures_type_check_psi_stage_composition() {
     use uor_foundation::pipeline::{
         ChainComplexResolver, CochainComplexResolver, CohomologyGroupResolver,
         HomologyGroupResolver, HomotopyGroupResolver, KInvariantResolver, NerveResolver,
-        NullChainComplexResolver, NullCohomologyGroupResolver, NullCochainComplexResolver,
+        NullChainComplexResolver, NullCochainComplexResolver, NullCohomologyGroupResolver,
         NullHomologyGroupResolver, NullHomotopyGroupResolver, NullKInvariantResolver,
         NullNerveResolver, NullPostnikovResolver, PostnikovResolver,
     };
     let _nerve_sig: ResolveSig<NullNerveResolver<SmokeHasher>> =
         <NullNerveResolver<SmokeHasher> as NerveResolver<SMOKE_IB, SmokeHasher>>::resolve;
-    let _chain_sig: ResolveSig<NullChainComplexResolver<SmokeHasher>> =
-        <NullChainComplexResolver<SmokeHasher> as ChainComplexResolver<SMOKE_IB, SmokeHasher>>::resolve;
+    let _chain_sig: ResolveSig<NullChainComplexResolver<SmokeHasher>> = <NullChainComplexResolver<
+        SmokeHasher,
+    > as ChainComplexResolver<
+        SMOKE_IB,
+        SmokeHasher,
+    >>::resolve;
     let _homology_sig: ResolveSig<NullHomologyGroupResolver<SmokeHasher>> =
         <NullHomologyGroupResolver<SmokeHasher> as HomologyGroupResolver<SMOKE_IB, SmokeHasher>>::resolve;
     let _cochain_sig: ResolveSig<NullCochainComplexResolver<SmokeHasher>> =
-        <NullCochainComplexResolver<SmokeHasher> as CochainComplexResolver<SMOKE_IB, SmokeHasher>>::resolve;
+        <NullCochainComplexResolver<SmokeHasher> as CochainComplexResolver<
+            SMOKE_IB,
+            SmokeHasher,
+        >>::resolve;
     let _cohomology_sig: ResolveSig<NullCohomologyGroupResolver<SmokeHasher>> =
-        <NullCohomologyGroupResolver<SmokeHasher> as CohomologyGroupResolver<SMOKE_IB, SmokeHasher>>::resolve;
+        <NullCohomologyGroupResolver<SmokeHasher> as CohomologyGroupResolver<
+            SMOKE_IB,
+            SmokeHasher,
+        >>::resolve;
     let _postnikov_sig: ResolveSig<NullPostnikovResolver<SmokeHasher>> =
         <NullPostnikovResolver<SmokeHasher> as PostnikovResolver<SMOKE_IB, SmokeHasher>>::resolve;
     let _homotopy_sig: ResolveSig<NullHomotopyGroupResolver<SmokeHasher>> =
@@ -2791,7 +2815,6 @@ prism_model! {
         DefaultHostTypes,
         SmokeHostBounds,
         SmokeHasher,
-        SMOKE_IB,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
     > for CostModelRejectsModel {
@@ -2858,7 +2881,6 @@ prism_model! {
         DefaultHostTypes,
         SmokeHostBounds,
         SmokeHasher,
-        SMOKE_IB,
         CompleteResolvers<SmokeHasher>,
         SingletonCommitment<AffineParity>
     > for CostModelAcceptsModel {
@@ -3096,15 +3118,23 @@ fn axis_macro_dispatch_kernel_routes_by_id() {
     let mut out = [0u8; 32];
     // Route through KERNEL_PROBE_BIT — expect bit 0 of input.
     let bit_input = [0x01u8];
-    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(KERNEL_PROBE_BIT, &bit_input, &mut out)
-        .expect("dispatch_kernel routes to probe_bit");
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+        KERNEL_PROBE_BIT,
+        &bit_input,
+        &mut out,
+    )
+    .expect("dispatch_kernel routes to probe_bit");
     assert_eq!(n, 1);
     assert_eq!(out[0], 0x01);
 
     // Route through KERNEL_PROBE_BYTE — expect a byte copy.
     let byte_input = [0xa1u8, 0xb2, 0xc3];
-    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(KERNEL_PROBE_BYTE, &byte_input, &mut out)
-        .expect("dispatch_kernel routes to probe_byte");
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+        KERNEL_PROBE_BYTE,
+        &byte_input,
+        &mut out,
+    )
+    .expect("dispatch_kernel routes to probe_byte");
     assert_eq!(n, 3);
     assert_eq!(&out[..3], &[0xa1, 0xb2, 0xc3]);
 }
@@ -3201,7 +3231,10 @@ fn axis_macro_blanket_impl_propagates_axis_address_and_max_bytes() {
         <SingleKernelImpl as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SingleKernelAxis"
     );
-    assert_eq!(<SingleKernelImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES, 4);
+    assert_eq!(
+        <SingleKernelImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES,
+        4
+    );
 }
 
 // ── ADR-052: axis_extension_impl_for_*!(@generic …) parametric form ───
@@ -3422,7 +3455,7 @@ fn axis_macro_body_clause_emits_non_empty_substrate_term_body() {
     // For `add(input, 1)` the arena has three entries: Variable(0),
     // Literal(1), Application(Add, args=0..2).
     use uor_foundation::pipeline::SubstrateTermBody;
-    let arena = <BodyClauseProbeImpl as SubstrateTermBody>::body_arena();
+    let arena = <BodyClauseProbeImpl as SubstrateTermBody<SMOKE_IB>>::body_arena();
     assert!(
         !arena.is_empty(),
         "ADR-055 body clause must yield a non-empty body_arena"
@@ -3441,11 +3474,14 @@ fn axis_macro_body_clause_emits_non_empty_substrate_term_body() {
 
 #[test]
 fn axis_macro_body_clause_const_is_emitted_with_canonical_name() {
-    // ADR-055: the body arena is emitted as a const named
-    // `BODY_ARENA_<UPPER_SNAKE_TRAIT_NAME>`. This is a compile-time
-    // check via reflection: BODY_ARENA_BODY_CLAUSE_PROBE_AXIS must
-    // exist as a slice of Terms.
-    let _const_check: &[uor_foundation::enforcement::Term] = BODY_ARENA_BODY_CLAUSE_PROBE_AXIS;
+    // ADR-055 + ADR-060: the body arena is held as the associated const
+    // `TERMS` on the const-generic holder type
+    // `__AxisBody_<UPPER_SNAKE_TRAIT_NAME>`. The generic-`INLINE_BYTES`
+    // `&'static [Term<'static, INLINE_BYTES>]` slice cannot be a plain const
+    // (rvalue static promotion fails for a const-generic-dependent array), so
+    // it lives on the holder. This is a compile-time check via the holder.
+    let _const_check: &[uor_foundation::enforcement::Term<'static, SMOKE_IB>] =
+        __AxisBody_BODY_CLAUSE_PROBE_AXIS::<SMOKE_IB>::TERMS;
     assert!(!_const_check.is_empty());
 }
 

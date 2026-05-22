@@ -58,7 +58,7 @@ pub const REDUCTION_STAGE_IRIS: &[&str] = &[
 /// `NERVE_CONSTRAINTS_CAP`).
 /// Wiki ADR-037: the canonical source of truth for this cap is
 /// [`HostBounds::AFFINE_COEFFS_MAX`]; this `pub const` is a foundation-
-/// internal convenience alias derived from [`DefaultHostBounds`] for
+/// internal foundation-fixed conservative default for
 /// stable-Rust array-size positions. Applications declaring a custom
 /// `HostBounds` impl read `<MyBounds as HostBounds>::AFFINE_COEFFS_MAX`
 /// at instantiation sites instead.
@@ -66,8 +66,8 @@ pub const AFFINE_MAX_COEFFS: usize = 8;
 
 /// Phase 17: maximum number of `LeafConstraintRef` conjuncts a
 /// `Conjunction` can carry. Same reasoning as `AFFINE_MAX_COEFFS`.
-/// Wiki ADR-037: alias of [`HostBounds::CONJUNCTION_TERMS_MAX`] via
-/// [`DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`HostBounds::CONJUNCTION_TERMS_MAX`].
 pub const CONJUNCTION_MAX_TERMS: usize = 8;
 
 /// Opaque constraint reference carried by `ConstrainedTypeShape` impls.
@@ -3379,8 +3379,8 @@ pub trait IntoBindingValue: ConstrainedTypeShape + __sdk_seal::Sealed {
 /// (or parametric counts) lower to `Term::Recurse` with a descent-
 /// measure-bounded fold. The fixed threshold means two implementations
 /// compiling the same closure body emit the same Term tree.
-/// Wiki ADR-037: alias of [`HostBounds::FOLD_UNROLL_THRESHOLD`] via
-/// [`DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`HostBounds::FOLD_UNROLL_THRESHOLD`].
 pub const FOLD_UNROLL_THRESHOLD: usize = 8;
 
 /// The application author's typed-iso contract: an `Input` feature type, an
@@ -3792,8 +3792,8 @@ pub const FIRST_ADMIT_IDX_NAME_INDEX: u32 = u32::MAX - 4;
 /// state reaches a Kleene fixpoint (`step(state) == state`) or this
 /// ceiling is hit, at which point evaluation returns the most-recent
 /// state. Foundation-fixed (parallel to `FOLD_UNROLL_THRESHOLD`).
-/// Wiki ADR-037: alias of [`HostBounds::UNFOLD_ITERATIONS_MAX`] via
-/// [`DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`HostBounds::UNFOLD_ITERATIONS_MAX`].
 pub const UNFOLD_MAX_ITERATIONS: usize = 256;
 
 /// ADR-060: a chunk-emitting source for unbounded `TermValue` payloads
@@ -3828,6 +3828,7 @@ pub trait ChunkSource: core::fmt::Debug {
 ///   sibling ψ-stage's scratch, an axis-kernel output region). Its carrier
 ///   width is `size_of::<&[u8]>()`, independent of payload size.
 /// - `Stream` — a chunk-emitting source for unbounded payloads, no ceiling.
+///
 /// `INLINE_BYTES` is a free const-generic parameter; the application
 /// instantiates it at the boundary via `carrier_inline_bytes::<MyBounds>()`
 /// (per the min-const-generics pattern, stable Rust, no `generic_const_exprs`).
@@ -8036,17 +8037,22 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 /// #     fn fold_byte(self, _: u8) -> Self { self }
 /// #     fn finalize(self) -> [u8; 32] { [0; 32] }
 /// # }
-/// static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
-/// static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
-/// let unit = CompileUnitBuilder::new()
-///     .root_term(TERMS)
+/// // ADR-060: `Term`/`CompileUnit`/`Grounded` carry an `INLINE_BYTES`
+/// // const-generic the application derives from its `HostBounds`; this
+/// // example fixes a concrete width and threads it through `run`'s 4th
+/// // const argument.
+/// const N: usize = 32;
+/// let terms: [Term<'static, N>; 1] = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+/// let domains: [VerificationDomain; 1] = [VerificationDomain::Enumerative];
+/// let unit = CompileUnitBuilder::<N>::new()
+///     .root_term(&terms)
 ///     .witt_level_ceiling(WittLevel::W32)
 ///     .thermodynamic_budget(1024)
-///     .target_domains(DOMAINS)
+///     .target_domains(&domains)
 ///     .result_type::<ConstrainedTypeInput>()
 ///     .validate()
 ///     .expect("unit well-formed");
-/// let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit)
+/// let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit)
 ///     .expect("pipeline admits");
 /// # let _ = grounded;
 /// ```
@@ -8899,7 +8905,10 @@ impl<
 ///         "https://uor.foundation/parallel/ParallelDisjointnessWitness",
 ///     ),
 /// );
-/// let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(decl)
+/// // ADR-060: `Grounded` carries an `INLINE_BYTES` const-generic the
+/// // application derives from its `HostBounds`; thread it through
+/// // `run_parallel`'s 4th const argument.
+/// let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32>(decl)
 ///     .expect("partition admits");
 /// # let _ = grounded;
 /// ```

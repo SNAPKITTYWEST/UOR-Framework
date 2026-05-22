@@ -2,7 +2,7 @@
 
 //! UOR Foundation — typed Rust traits for the complete ontology.
 //!
-//! Version: 0.4.15
+//! Version: 0.5.0
 //!
 //! This crate exports every ontology class as a trait, every property as a
 //! method, and every named individual as a constant. Implementations import
@@ -70,10 +70,28 @@
 //! architecture admits no capacity bound outside `HostBounds`.
 //!
 //! ```no_run
-//! use uor_foundation::{HostBounds, DefaultHostBounds};
+//! use uor_foundation::HostBounds;
 //!
-//! type B = DefaultHostBounds;
-//! assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);
+//! // ADR-060: every application declares its own `impl HostBounds`;
+//! // there is no `DefaultHostBounds`.
+//! struct MyBounds;
+//! impl HostBounds for MyBounds {
+//!     const FINGERPRINT_MIN_BYTES: usize = 16;
+//!     const FINGERPRINT_MAX_BYTES: usize = 32;
+//!     const TRACE_MAX_EVENTS: usize = 256;
+//!     const WITT_LEVEL_MAX_BITS: u32 = 64;
+//!     const FOLD_UNROLL_THRESHOLD: usize = 8;
+//!     const BETTI_DIMENSION_MAX: usize = 8;
+//!     const NERVE_CONSTRAINTS_MAX: usize = 8;
+//!     const NERVE_SITES_MAX: usize = 8;
+//!     const JACOBIAN_SITES_MAX: usize = 8;
+//!     const RECURSION_TRACE_DEPTH_MAX: usize = 16;
+//!     const OP_CHAIN_DEPTH_MAX: usize = 8;
+//!     const AFFINE_COEFFS_MAX: usize = 8;
+//!     const CONJUNCTION_TERMS_MAX: usize = 8;
+//!     const UNFOLD_ITERATIONS_MAX: usize = 256;
+//! }
+//! assert_eq!(<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES, 32);
 //! ```
 //!
 //!
@@ -523,22 +541,16 @@ impl HostTypes for DefaultHostTypes {
 /// substitution axis is exactly what ADR-018 rejects.
 /// # Example
 /// ```
-/// use uor_foundation::{HostBounds, DefaultHostBounds};
-/// // Inherit the canonical defaults (16 / 32 / 256 / 64).
-/// type B = DefaultHostBounds;
-/// assert_eq!(<B as HostBounds>::FINGERPRINT_MAX_BYTES, 32);
-/// // Or declare an application-specific capacity profile:
+/// use uor_foundation::HostBounds;
+/// // ADR-060: there is no `DefaultHostBounds`. Every application declares
+/// // its own capacity profile; the foundation supplies no default policy.
 /// struct BitcoinPow;
 /// impl HostBounds for BitcoinPow {
 ///     const FINGERPRINT_MIN_BYTES: usize = 32;
 ///     const FINGERPRINT_MAX_BYTES: usize = 32;
 ///     const TRACE_MAX_EVENTS: usize = 1024;
 ///     const WITT_LEVEL_MAX_BITS: u32 = 256;
-///     // ADR-037: 14 data-shape capacity caps. Match the
-///     // DefaultHostBounds defaults unless the application has a
-///     // specific reason to vary them.
-///     const TERM_VALUE_MAX_BYTES: usize = 4096;
-///     const AXIS_OUTPUT_BYTES_MAX: usize = 4096;
+///     // ADR-060: 10 retained structural-count / catamorphism-trace caps.
 ///     const FOLD_UNROLL_THRESHOLD: usize = 8;
 ///     const BETTI_DIMENSION_MAX: usize = 8;
 ///     const NERVE_CONSTRAINTS_MAX: usize = 8;
@@ -548,19 +560,9 @@ impl HostTypes for DefaultHostTypes {
 ///     const OP_CHAIN_DEPTH_MAX: usize = 8;
 ///     const AFFINE_COEFFS_MAX: usize = 8;
 ///     const CONJUNCTION_TERMS_MAX: usize = 8;
-///     const ROUTE_INPUT_BUFFER_BYTES: usize = 4096;
-///     const ROUTE_OUTPUT_BUFFER_BYTES: usize = 4096;
 ///     const UNFOLD_ITERATIONS_MAX: usize = 256;
-///     // ADR-037: 8 ψ-stage resolver output byte-buffer ceilings.
-///     const NERVE_OUTPUT_BYTES_MAX: usize = 4096;
-///     const CHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
-///     const HOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-///     const COCHAIN_COMPLEX_OUTPUT_BYTES_MAX: usize = 4096;
-///     const COHOMOLOGY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-///     const POSTNIKOV_TOWER_OUTPUT_BYTES_MAX: usize = 4096;
-///     const HOMOTOPY_GROUPS_OUTPUT_BYTES_MAX: usize = 4096;
-///     const K_INVARIANTS_OUTPUT_BYTES_MAX: usize = 4096;
 /// }
+/// assert_eq!(<BitcoinPow as HostBounds>::FINGERPRINT_MAX_BYTES, 32);
 /// ```
 pub trait HostBounds {
     /// Minimum content-fingerprint width in bytes that the application's
@@ -579,8 +581,8 @@ pub trait HostBounds {
     const TRACE_MAX_EVENTS: usize;
 
     /// Algebraic-level bit-width ceiling. Caps the Witt-level any value
-    /// along the principal data path may compute against. The
-    /// `DefaultHostBounds` value of 64 corresponds to `WittLevel::W64`.
+    /// along the principal data path may compute against. A value of 64
+    /// corresponds to `WittLevel::W64`.
     const WITT_LEVEL_MAX_BITS: u32;
 
     /// ADR-037: threshold below which `fold_n(n, init, step)` lowers to

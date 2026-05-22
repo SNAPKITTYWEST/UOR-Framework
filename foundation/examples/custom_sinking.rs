@@ -15,9 +15,11 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::run;
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static ROOT_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
+// ADR-060: `Term` carries the inline-carrier width `N` and is no longer `Sync`,
+// so the term arena is `const` (not `static`).
+const ROOT_TERMS: &[Term<'static, N>] = &[uor_foundation::pipeline::literal_u64(42, WittLevel::W8)];
 static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
 /// A Utf8-projection sink: renders a grounded value as a host-readable
@@ -25,12 +27,12 @@ static DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 /// the UTF-8 ontology kind.
 struct WitnessReport;
 
-impl Sinking for WitnessReport {
+impl Sinking<N> for WitnessReport {
     type Source = ConstrainedTypeInput;
     type ProjectionMap = Utf8ProjectionMap;
     type Output = String;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> String {
+    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {
         format!(
             "witt_bits={} unit_address={:?} sigma={:.6}",
             grounded.witt_level_bits(),
@@ -44,12 +46,12 @@ impl Sinking for WitnessReport {
 /// `ProjectionMap = BinaryProjectionMap` tags this impl at the type level.
 struct FingerprintBytes;
 
-impl Sinking for FingerprintBytes {
+impl Sinking<N> for FingerprintBytes {
     type Source = ConstrainedTypeInput;
     type ProjectionMap = BinaryProjectionMap;
     type Output = Vec<u8>;
 
-    fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> Vec<u8> {
+    fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> Vec<u8> {
         grounded.content_fingerprint().as_bytes().to_vec()
     }
 }
@@ -68,7 +70,7 @@ fn main() {
     // Step 2: run the pipeline to mint a Grounded<T>. This sealed value is
     // the only admissible input to a Sinking projection.
     let grounded =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("pipeline admits the unit");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
 
     // Step 3: project through two different Sinking impls. Each one serves
     // a distinct ProjectionMap kind; the foundation contract ensures both

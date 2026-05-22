@@ -54,7 +54,7 @@ inductive PrimitiveOp where
   | ge : PrimitiveOp
   /-- Byte-level greater-than: gt(x, y) = 1 if x > y else 0. Operands compared as big-endian unsigned byte sequences. -/
   | gt : PrimitiveOp
-  /-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), bounded by the foundation's TERM_VALUE_MAX_BYTES ceiling. -/
+  /-- Byte-sequence concatenation: concat(x, y) = x ⧺ y. The substrate's byte-packing primitive — admits header serialization and other byte-array construction patterns. Result length is len(x) + len(y), carried by the source-polymorphic TermValue (inline up to the application's carrier width, else borrowed or streamed — no fixed ceiling). -/
   | concat : PrimitiveOp
   /-- Euclidean quotient: div(a, b) = q where a = q·b + r, 0 ⇐ r < b. Total on the ring for b > 0; b = 0 emits a ShapeViolation. Operands read as unsigned big-endian integers at the operand width. -/
   | div : PrimitiveOp

@@ -14,11 +14,16 @@ use uor_foundation::enforcement::{
 use uor_foundation::pipeline::{run, run_const, validate_compile_unit_const};
 use uor_foundation::{VerificationDomain, WittLevel};
 use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::REFERENCE_INLINE_BYTES as N;
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+// ADR-060: `TermValue` holds a `dyn ChunkSource` and is therefore not `Sync`,
+// so the term slice lives in a `const` (no `Sync` requirement) rather than a
+// `static`.
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static>, CompileTime> {
+fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N>, CompileTime> {
     let builder = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(level)
@@ -28,9 +33,9 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static>, 
     validate_compile_unit_const(&builder).expect("builder fully specified")
 }
 
-fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput> {
+fn ground(level: WittLevel, budget: u64) -> Grounded<ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
-    run::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit).expect("run succeeds")
+    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("run succeeds")
 }
 
 #[test]
@@ -104,8 +109,8 @@ fn certified_exposes_uor_time_from_cert_iri() {
     // run_const also produces a Grounded, but its uor_time is derived from
     // the same formula, so it's equal to run's uor_time for matching inputs.
     let unit = build_unit(WittLevel::W8, 100);
-    let g_const: Grounded<ConstrainedTypeInput> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16>(&unit)
+    let g_const: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
             .expect("const grounds");
     assert_eq!(
         g_a.uor_time().rewrite_steps(),

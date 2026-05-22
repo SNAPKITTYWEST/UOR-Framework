@@ -5682,8 +5682,15 @@ pub fn axis(input: TokenStream) -> TokenStream {
     // When no body clause is provided, the companion macros emit
     // `body_arena() -> &[]` (the primitive-fast-path interpretation per
     // ADR-055 — byte-output-equivalent to `dispatch_kernel`).
-    let body_arena_const_name = Ident::new(
-        &format!("BODY_ARENA_{}", to_screaming_snake(&trait_name.to_string())),
+    // ADR-060: a generic-`INLINE_BYTES` `&'static` term slice cannot be
+    // returned by a generic `const fn` nor stored in a plain const via rvalue
+    // static promotion (the promoted array's type depends on the const-generic
+    // parameter). Mirror the verb fix: hold the body arena as an associated
+    // const on a const-generic zero-sized holder type so the
+    // `&'static [Term<'static, INLINE_BYTES>]` slice is well-formed for any
+    // consuming model's foundation-derived inline carrier width.
+    let body_arena_holder = Ident::new(
+        &format!("__AxisBody_{}", to_screaming_snake(&trait_name.to_string())),
         trait_name.span(),
     );
     let (body_arena_const, body_arena_expr): (
@@ -5741,11 +5748,16 @@ pub fn axis(input: TokenStream) -> TokenStream {
         };
         (
             quote! {
-                #[allow(non_upper_case_globals, dead_code)]
-                const #body_arena_const_name:
-                    &[::uor_foundation::enforcement::Term] = #arena_expr;
+                #[doc(hidden)]
+                #[allow(non_camel_case_types)]
+                struct #body_arena_holder<const INLINE_BYTES: usize>;
+                #[allow(dead_code)]
+                impl<const INLINE_BYTES: usize> #body_arena_holder<INLINE_BYTES> {
+                    const TERMS: &'static [::uor_foundation::enforcement::Term<'static, INLINE_BYTES>] =
+                        #arena_expr;
+                }
             },
-            quote! { #body_arena_const_name },
+            quote! { #body_arena_holder::<INLINE_BYTES>::TERMS },
         )
     } else {
         // No body clause — primitive-fast-path interpretation.

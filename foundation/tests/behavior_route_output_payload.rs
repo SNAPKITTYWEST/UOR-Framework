@@ -1,40 +1,69 @@
-//! Behavioral contract for the route output payload (wiki ADR-028).
+//! Behavioral contract for the route output payload (wiki ADR-028 + ADR-060).
 //!
 //! Per ADR-028, `Grounded<T>` carries the catamorphism's evaluation
-//! result as a fixed-capacity output payload alongside the metadata
-//! fingerprint. `pipeline::ROUTE_OUTPUT_BUFFER_BYTES` is the
-//! foundation-side ceiling (parallel to `ROUTE_INPUT_BUFFER_BYTES`
-//! from ADR-023). `Grounded::output_bytes()` exposes the active prefix.
+//! result as an output payload alongside the metadata fingerprint.
+//! ADR-060 removed the foundation-fixed 4096-byte `ROUTE_OUTPUT_BUFFER_BYTES`
+//! / `ROUTE_INPUT_BUFFER_BYTES` ceilings: the carrier is now
+//! source-polymorphic and the inline-carrier width is derived from the
+//! application's `HostBounds` via `pipeline::carrier_inline_bytes::<B>()`.
+//! `Grounded::output_bytes()` still exposes the active prefix.
 
-use uor_foundation::enforcement::ConstrainedTypeInput;
-use uor_foundation::pipeline::ROUTE_OUTPUT_BUFFER_BYTES;
+use uor_foundation::enforcement::{
+    CompileTime, CompileUnit, CompileUnitBuilder, ConstrainedTypeInput, Grounded,
+    IntegerGroundingMap, Term, Validated,
+};
+use uor_foundation::pipeline::{carrier_inline_bytes, run_const, validate_compile_unit_const};
+use uor_foundation::{VerificationDomain, WittLevel};
+use uor_foundation_test_helpers::{
+    Fnv1aHasher16, ReferenceHostBounds, REFERENCE_INLINE_BYTES as N,
+};
+
+// ADR-060: `Term`/`TermValue` hold a `dyn ChunkSource` and are not `Sync`, so
+// the term slice lives in a `const` (no `Sync` requirement), not a `static`.
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
+static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
+
+fn build_unit() -> Validated<CompileUnit<'static, N>, CompileTime> {
+    let builder = CompileUnitBuilder::new()
+        .root_term(SENTINEL_TERMS)
+        .witt_level_ceiling(WittLevel::W32)
+        .thermodynamic_budget(200)
+        .target_domains(SENTINEL_DOMAINS)
+        .result_type::<ConstrainedTypeInput>();
+    validate_compile_unit_const(&builder).expect("fixture: validates")
+}
 
 #[test]
-fn output_buffer_ceiling_is_public_foundation_constant() {
-    // Pin the foundation-declared default. ADR-028 requires the value
-    // exists; the specific size is a foundation parameter (currently 4096
-    // bytes, matching ROUTE_INPUT_BUFFER_BYTES from ADR-023).
-    assert_eq!(ROUTE_OUTPUT_BUFFER_BYTES, 4096);
+fn carrier_inline_bytes_is_host_bounds_derived() {
+    // ADR-060: the inline-carrier width is foundation-derived from the
+    // application's `HostBounds` — never a free-standing foundation constant.
+    // `REFERENCE_INLINE_BYTES` is the value `carrier_inline_bytes` computes
+    // for `ReferenceHostBounds`; pin the two agree so consumers can thread
+    // either form interchangeably.
+    assert_eq!(carrier_inline_bytes::<ReferenceHostBounds>(), N);
 }
 
 #[test]
 fn grounded_output_bytes_accessor_is_public() {
-    // The accessor exists on the `Grounded<T>` carrier per ADR-028. The
-    // identity-route invocation that returns a `Grounded` lives behind
-    // `pipeline::run_route`; this test pins the surface.
-    fn _accepts_output_bytes<T: uor_foundation::enforcement::GroundedShape>(
-        g: &uor_foundation::enforcement::Grounded<T>,
-    ) -> &[u8] {
-        g.output_bytes()
-    }
-    // Reference the function pointer to ensure compilation.
-    let _: fn(&uor_foundation::enforcement::Grounded<ConstrainedTypeInput>) -> &[u8] =
-        _accepts_output_bytes::<ConstrainedTypeInput>;
-
-    // Pin the constant relationship between input and output buffer
-    // ceilings: ADR-028 names them parallel architectural commitments.
-    assert_eq!(
-        ROUTE_OUTPUT_BUFFER_BYTES,
-        uor_foundation::pipeline::ROUTE_INPUT_BUFFER_BYTES
+    // ADR-028 + ADR-060: `output_bytes()` exposes the `Grounded`'s output-payload
+    // prefix carried by the source-polymorphic carrier. The payload is populated
+    // by `pipeline::run_route` (the catamorphism call-site that evaluates the
+    // route's Term tree); the lower-level `run_const` grounding path leaves it
+    // unpopulated, so the accessor returns the empty prefix here. Either way the
+    // returned slice must fit within the application's inline carrier width.
+    let unit = build_unit();
+    let grounded: Grounded<ConstrainedTypeInput, N> =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
+            .expect("fixture: run_const succeeds");
+    let out = grounded.output_bytes();
+    assert!(
+        out.len() <= N,
+        "output_bytes() must fit within the inline carrier width N={N} (got {})",
+        out.len()
+    );
+    assert!(
+        out.is_empty(),
+        "run_const grounding path leaves the output payload unpopulated (got {out:?})"
     );
 }

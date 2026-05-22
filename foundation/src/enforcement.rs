@@ -802,14 +802,18 @@ where
 ///     Grounded, Sinking, Utf8ProjectionMap, ConstrainedTypeInput,
 /// };
 ///
+/// // ADR-060: `Sinking` and `Grounded` carry an `INLINE_BYTES`
+/// // const-generic the application derives from its `HostBounds`; this
+/// // example fixes a concrete width.
+/// const N: usize = 32;
 /// struct MyJsonSink;
 ///
-/// impl Sinking for MyJsonSink {
+/// impl Sinking<N> for MyJsonSink {
 ///     type Source = ConstrainedTypeInput;
 ///     type ProjectionMap = Utf8ProjectionMap;
 ///     type Output = String;
 ///
-///     fn project(&self, grounded: &Grounded<ConstrainedTypeInput>) -> String {
+///     fn project(&self, grounded: &Grounded<ConstrainedTypeInput, N>) -> String {
 ///         format!("{:?}", grounded.unit_address())
 ///     }
 /// }
@@ -896,7 +900,11 @@ impl ValidationPhase for Runtime {}
 /// // Validated<T> proves that a value passed conformance checking.
 /// // You cannot construct one directly — only builder validate() methods
 /// // and the minting boundary produce them.
-/// let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+/// // ADR-060: `Term` carries an `INLINE_BYTES` const-generic the
+/// // application derives from its `HostBounds`; fix a concrete width.
+/// const N: usize = 32;
+/// let terms: [Term<'static, N>; 1] =
+///     [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 /// let domains = [VerificationDomain::Enumerative];
 ///
 /// let validated = CompileUnitBuilder::new()
@@ -1646,7 +1654,11 @@ pub struct TermList {
 /// use uor_foundation::{WittLevel, PrimitiveOp};
 ///
 /// // Build the expression `add(3, 5)` bottom-up in an arena.
-/// let mut arena = TermArena::<4>::new();
+/// // ADR-060: `TermArena` carries `<'a, INLINE_BYTES, CAP>`; the
+/// // application derives `INLINE_BYTES` from its `HostBounds`. Here we
+/// // fix a concrete inline width `N` and a capacity of 4.
+/// const N: usize = 32;
+/// let mut arena = TermArena::<N, 4>::new();
 ///
 /// // Push leaves first:
 /// let idx_3 = arena.push(uor_foundation::pipeline::literal_u64(3, WittLevel::W8));
@@ -1779,21 +1791,31 @@ impl<'a, const INLINE_BYTES: usize, const CAP: usize> Default for TermArena<'a, 
 /// use uor_foundation::enforcement::{Term, TermList};
 /// use uor_foundation::{WittLevel, PrimitiveOp};
 ///
+/// // ADR-060: `Term` carries `<'a, const INLINE_BYTES: usize>`. The
+/// // application instantiates `INLINE_BYTES` from its selected
+/// // `HostBounds` via `pipeline::carrier_inline_bytes::<B>()`; this
+/// // example fixes a concrete width.
+/// const N: usize = 32;
+///
 /// // Literal: an integer value tagged with a Witt level.
-/// let lit = uor_foundation::pipeline::literal_u64(42, WittLevel::W8);
+/// let lit: Term<'static, N> =
+///     uor_foundation::pipeline::literal_u64(42, WittLevel::W8);
 ///
 /// // Application: an operation applied to arguments.
 /// // `args` is a TermList { start, len } pointing into a TermArena.
-/// let app = Term::Application {
+/// let app: Term<'static, N> = Term::Application {
 ///     operator: PrimitiveOp::Mul,
 ///     args: TermList { start: 0, len: 2 },
 /// };
 ///
 /// // Lift: canonical injection from a lower to a higher Witt level.
-/// let lift = Term::Lift { operand_index: 0, target: WittLevel::new(32) };
+/// let lift: Term<'static, N> =
+///     Term::Lift { operand_index: 0, target: WittLevel::new(32) };
 ///
 /// // Project: canonical surjection from a higher to a lower level.
-/// let proj = Term::Project { operand_index: 0, target: WittLevel::W8 };
+/// let proj: Term<'static, N> =
+///     Term::Project { operand_index: 0, target: WittLevel::W8 };
+/// let _ = (lit, app, lift, proj);
 /// ```
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2286,10 +2308,15 @@ impl ShapeViolation {
 ///
 /// // A CompileUnit packages a term graph for reduction admission.
 /// // The builder enforces that all required fields are present.
-/// let terms = [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+/// // ADR-060: `Term`/`CompileUnitBuilder` carry an `INLINE_BYTES`
+/// // const-generic the application derives from its `HostBounds`; fix
+/// // a concrete width.
+/// const N: usize = 32;
+/// let terms: [Term<'static, N>; 1] =
+///     [uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 /// let domains = [VerificationDomain::Enumerative];
 ///
-/// let unit = CompileUnitBuilder::new()
+/// let unit = CompileUnitBuilder::<N>::new()
 ///     .root_term(&terms)
 ///     .witt_level_ceiling(WittLevel::W8)
 ///     .thermodynamic_budget(1024)
@@ -2300,7 +2327,7 @@ impl ShapeViolation {
 ///
 /// // Omitting a required field produces a ShapeViolation
 /// // with the exact conformance IRI that failed:
-/// let err = CompileUnitBuilder::new()
+/// let err = CompileUnitBuilder::<N>::new()
 ///     .witt_level_ceiling(WittLevel::W8)
 ///     .thermodynamic_budget(1024)
 ///     .target_domains(&domains)
@@ -6778,8 +6805,8 @@ impl MultiplicationCertificate {
 /// currently-supported WittLevel set per the existing partition:FreeRank
 /// capacity properties; the constant is `pub` (part of the public-API
 /// snapshot) so future expansions require explicit review.
-/// Wiki ADR-037: alias of [`crate::HostBounds::BETTI_DIMENSION_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::BETTI_DIMENSION_MAX`].
 pub const MAX_BETTI_DIMENSION: usize = 8;
 
 /// Sealed newtype for the grounding completion ratio σ ∈
@@ -6979,8 +7006,8 @@ impl BettiMetric {
 /// v0.2.2 T2.6 (cleanup): reduced from 64 to 8 to keep `Grounded` under
 /// the 256-byte size budget enforced by `phantom_tag::grounded_sealed_field_count_unchanged`.
 /// 8 matches `MAX_BETTI_DIMENSION` and is sufficient for the v0.2.2 partition rank set.
-/// Wiki ADR-037: alias of [`crate::HostBounds::JACOBIAN_SITES_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::JACOBIAN_SITES_MAX`].
 pub const JACOBIAN_MAX_SITES: usize = 8;
 
 /// v0.2.2 Phase E: sealed Jacobian row carrier, parametric over the
@@ -7219,8 +7246,8 @@ pub const TRACE_REPLAY_FORMAT_VERSION: u16 = 10;
 /// }
 /// ```
 /// Above, `Hasher` is reached through its default const-generic
-/// `<FP_MAX = 32>`, which is the `DefaultHostBounds::FINGERPRINT_MAX_BYTES`
-/// value. Applications that select a different `HostBounds` impl write
+/// `<FP_MAX = 32>` (the conventional 32-byte fingerprint width).
+/// Applications that select a different `HostBounds` impl write
 /// `impl Hasher<{<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES}> for MyHasher`.
 pub trait Hasher<const FP_MAX: usize = 32> {
     /// Active output width in bytes. Must lie within the bounds
@@ -7317,7 +7344,7 @@ impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE
 /// Wraps a fixed-capacity byte buffer of `FP_MAX` bytes plus the
 /// active width in bytes. `FP_MAX` is the const-generic that carries
 /// the application's selected `HostBounds::FINGERPRINT_MAX_BYTES`
-/// (default = 32, matching `DefaultHostBounds`). The active width
+/// (default = 32, the conventional fingerprint width). The active width
 /// is set by the producing `Hasher::OUTPUT_BYTES` and recorded so
 /// downstream can distinguish "this is a 128-bit fingerprint" from
 /// "this is a 256-bit fingerprint" without inspecting trailing zeros.
@@ -8007,15 +8034,15 @@ pub fn expand_constraints_in<R: crate::pipeline::shape_iri_registry::ShapeRegist
 /// Phase X.4: cap on the number of constraints considered by the nerve
 /// primitive. Phase 1a (orphan-closure): inputs exceeding this cap are
 /// rejected via `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
-/// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::NERVE_CONSTRAINTS_MAX`].
 pub const NERVE_CONSTRAINTS_CAP: usize = 8;
 
 /// Phase X.4: cap on site-support bitmask width (matches `u16` storage).
 /// Phase 1a (orphan-closure): inputs exceeding this cap are rejected via
 /// `NERVE_CAPACITY_EXCEEDED` (was previously silent truncation).
-/// Wiki ADR-037: alias of [`crate::HostBounds::NERVE_SITES_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::NERVE_SITES_MAX`].
 pub const NERVE_SITES_CAP: usize = 8;
 
 /// Phase X.4: maximum number of 1-simplices = C(NERVE_CONSTRAINTS_CAP, 2) = 28.
@@ -19169,7 +19196,7 @@ impl TraceEvent {
 /// no heap. Produced by `Derivation::replay()` and consumed by
 /// `uor-foundation-verify`. `TR_MAX` is the const-generic that carries
 /// the application's selected `<MyBounds as HostBounds>::TRACE_MAX_EVENTS`;
-/// the default const-generic resolves to `DefaultHostBounds`'s 256.
+/// the default const-generic resolves to the conventional 256.
 /// Carries `witt_level_bits` and `content_fingerprint` so `verify_trace`
 /// can reconstruct the source `GroundingCertificate` via structural-
 /// validation + fingerprint passthrough (no hash recomputation).
@@ -19334,7 +19361,7 @@ impl Derivation {
     /// Replay this derivation as a fixed-size `Trace<TR_MAX>` whose length matches
     /// `self.step_count()` (capped at the application's `<HostBounds>::TRACE_MAX_EVENTS`).
     /// Callers either annotate the binding (`let trace: Trace = ...;` picks
-    /// `DefaultHostBounds`'s 256) or use turbofish (`derivation.replay::<1024>()`).
+    /// `Trace`'s default `TR_MAX` of 256) or use turbofish (`derivation.replay::<1024>()`).
     /// # Example
     /// ```no_run
     /// use uor_foundation::enforcement::{
@@ -19348,18 +19375,22 @@ impl Derivation {
     /// #     fn initial() -> Self { Self }
     /// #     fn fold_byte(self, _: u8) -> Self { self }
     /// #     fn finalize(self) -> [u8; 32] { [0; 32] } }
-    /// static TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
-    /// static DOMS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
-    /// let unit = CompileUnitBuilder::new()
-    ///     .root_term(TERMS).witt_level_ceiling(WittLevel::W32)
-    ///     .thermodynamic_budget(1024).target_domains(DOMS)
+    /// // ADR-060: `Term`/`Grounded` carry an `INLINE_BYTES` const-generic the
+    /// // application derives from its `HostBounds`; fix a concrete width and
+    /// // thread it through `run`'s 4th const argument.
+    /// const N: usize = 32;
+    /// let terms: [Term<'static, N>; 1] = [uor_foundation::pipeline::literal_u64(7, WittLevel::W8)];
+    /// let doms: [VerificationDomain; 1] = [VerificationDomain::Enumerative];
+    /// let unit = CompileUnitBuilder::<N>::new()
+    ///     .root_term(&terms).witt_level_ceiling(WittLevel::W32)
+    ///     .thermodynamic_budget(1024).target_domains(&doms)
     ///     .result_type::<ConstrainedTypeInput>()
     ///     .validate().expect("unit well-formed");
-    /// let grounded: Grounded<ConstrainedTypeInput> =
-    ///     run::<ConstrainedTypeInput, _, H>(unit).expect("grounds");
+    /// let grounded: Grounded<ConstrainedTypeInput, N> =
+    ///     run::<ConstrainedTypeInput, _, H, N>(unit).expect("grounds");
     /// // Replay → round-trip verification. The trace's event-count
     /// // capacity comes from the application's `HostBounds`; here the
-    /// // type-annotated binding inherits `DefaultHostBounds`'s 256.
+    /// // type-annotated binding defaults `Trace`'s `TR_MAX` to 256.
     /// let trace: Trace = grounded.derivation().replay();
     /// let recert = replay::certify_from_trace(&trace).expect("valid trace");
     /// assert_eq!(recert.certificate().content_fingerprint(),
@@ -19943,8 +19974,8 @@ impl OperadComposition {
 /// Phase F.3 (target §4.7 recursion): maximum depth of the recursion trace
 /// witness. Bounded by the declared descent budget at builder-validate time;
 /// the constant is a size-budget cap matching other foundation arenas.
-/// Wiki ADR-037: alias of [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::RECURSION_TRACE_DEPTH_MAX`].
 pub const RECURSION_TRACE_MAX_DEPTH: usize = 16;
 
 /// Phase F.3 (target §4.7 recursion): sealed recursion trace with fixed-capacity
@@ -20375,8 +20406,8 @@ pub enum GroundingPrimitiveOp {
 /// `GroundingPrimitive`. Depth-2 composites (`Then(leaf, leaf)`,
 /// `AndThen(leaf, leaf)`) are the exercised shape today; 8 gives headroom
 /// for nested composition while keeping `Copy` and `no_std` without alloc.
-/// Wiki ADR-037: alias of [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`] via
-/// [`crate::DefaultHostBounds`].
+/// Wiki ADR-037: a foundation-fixed conservative default for
+/// [`crate::HostBounds::OP_CHAIN_DEPTH_MAX`].
 pub const MAX_OP_CHAIN_DEPTH: usize = 8;
 
 /// v0.2.2 Phase J: a single grounding primitive parametric over its output

@@ -4,12 +4,13 @@
 //! `IntoBindingValue` as the trait every `M::Input` must implement so
 //! a runtime input value can flow into the `CompileUnit` binding
 //! table. `pipeline::run_route` calls `into_binding_bytes` to fill a
-//! buffer (sized by the foundation-fixed `ROUTE_INPUT_BUFFER_BYTES`
-//! ceiling — the stable-Rust 1.83 equivalent of nightly's
-//! `[u8; <T as IntoBindingValue>::MAX_BYTES]` form), hashes the
-//! result through the application's selected `Hasher`, and
-//! constructs a transient `Binding` for the route's input slot
-//! (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2).
+//! buffer, hashes the result through the application's selected
+//! `Hasher`, and constructs a transient `Binding` for the route's
+//! input slot (`Term::Variable { name_index: 0 }` per ADR-022 D3 G2).
+//! ADR-060 removed the foundation-fixed `ROUTE_INPUT_BUFFER_BYTES`
+//! ceiling: the carrier is source-polymorphic and its inline width is
+//! derived from the application's `HostBounds` via
+//! `pipeline::carrier_inline_bytes::<B>()`.
 //!
 //! This test pins:
 //!
@@ -21,15 +22,14 @@
 //! 4. Foundation's identity-route impl on `ConstrainedTypeInput`
 //!    declares `MAX_BYTES = 0` and `into_binding_bytes` returns
 //!    `Ok(0)` (no bytes written).
-//! 5. `pipeline::ROUTE_INPUT_BUFFER_BYTES` is a public foundation
-//!    constant — the stable-Rust ceiling that `run_route` uses.
+//! 5. `pipeline::carrier_inline_bytes::<B>()` derives the inline-carrier
+//!    width from the application's `HostBounds` (ADR-060).
 //! 6. `PrismModel::Input` carries the `IntoBindingValue` bound.
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Hasher};
-use uor_foundation::pipeline::{
-    ConstrainedTypeShape, IntoBindingValue, PrismModel, ROUTE_INPUT_BUFFER_BYTES,
-};
-use uor_foundation::{DefaultHostBounds, DefaultHostTypes, HostBounds, HostTypes};
+use uor_foundation::pipeline::{ConstrainedTypeShape, IntoBindingValue, PrismModel};
+use uor_foundation::{DefaultHostTypes, HostBounds, HostTypes};
+use uor_foundation_test_helpers::{ReferenceHostBounds, REFERENCE_INLINE_BYTES as N};
 
 #[derive(Debug, Clone, Copy, Default)]
 struct TestHasher;
@@ -83,18 +83,21 @@ fn into_binding_value_into_binding_bytes_signature_pins() {
 }
 
 #[test]
-fn route_input_buffer_bytes_is_public_foundation_constant() {
-    // ADR-023's stable-Rust-equivalent ceiling. Foundation fixes a
-    // generous default; applications that need a different ceiling
-    // request it through HostBounds extensions in future iterations.
-    // Pin the foundation-declared default so applications and the
-    // conformance suite can reason about which inputs flow through.
-    assert_eq!(ROUTE_INPUT_BUFFER_BYTES, 4096);
-    // Pin the constant matches the const-fn arena typed view: a buffer
-    // of `ROUTE_INPUT_BUFFER_BYTES` is non-empty so a `&mut [u8]` of
-    // that size is a valid call-site for `into_binding_bytes`.
-    let buf = [0u8; ROUTE_INPUT_BUFFER_BYTES];
-    assert_eq!(buf.len(), ROUTE_INPUT_BUFFER_BYTES);
+fn carrier_inline_bytes_is_host_bounds_derived() {
+    // ADR-060: the inline-carrier width through which a runtime input
+    // value flows is derived from the application's `HostBounds` via
+    // `carrier_inline_bytes::<B>()` — there is no foundation-fixed
+    // `ROUTE_INPUT_BUFFER_BYTES` ceiling any more. Pin that the helper
+    // resolves and agrees with the reference impl's published const so
+    // applications and the conformance suite can reason about it.
+    assert_eq!(
+        uor_foundation::pipeline::carrier_inline_bytes::<ReferenceHostBounds>(),
+        N
+    );
+    // A buffer of `N` bytes is non-empty so a `&mut [u8]` of that size
+    // is a valid call-site for `into_binding_bytes`.
+    let buf = [0u8; N];
+    assert_eq!(buf.len(), N);
 }
 
 #[test]
@@ -103,12 +106,12 @@ fn prism_model_input_bound_includes_into_binding_value() {
     // `ConstrainedTypeShape + IntoBindingValue`. The parametric check
     // pins the bound: any `M: PrismModel<…>` has `M::Input:
     // IntoBindingValue`.
-    fn _input_implements_into_binding<H, B, A, M>()
+    fn _input_implements_into_binding<H, B, A, M, const INLINE_BYTES: usize>()
     where
         H: HostTypes,
         B: HostBounds,
         A: Hasher,
-        M: PrismModel<H, B, A>,
+        M: PrismModel<H, B, A, INLINE_BYTES>,
     {
         fn _check<T: IntoBindingValue>() {}
         _check::<M::Input>();
@@ -116,7 +119,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
     // Identity route via the foundation-sanctioned impl.
     struct IdentityModel;
     impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
-    impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityModel {
+    impl PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ConstrainedTypeInput;
@@ -124,16 +127,17 @@ fn prism_model_input_bound_includes_into_binding_value() {
         fn forward(
             input: Self::Input,
         ) -> Result<
-            uor_foundation::enforcement::Grounded<Self::Output>,
+            uor_foundation::enforcement::Grounded<Self::Output, N>,
             uor_foundation::PipelineFailure,
         > {
             uor_foundation::pipeline::run_route::<
                 DefaultHostTypes,
-                DefaultHostBounds,
+                ReferenceHostBounds,
                 TestHasher,
                 Self,
                 uor_foundation::pipeline::NullResolverTuple,
                 uor_foundation::pipeline::EmptyCommitment,
+                N,
             >(
                 input,
                 &uor_foundation::pipeline::NullResolverTuple,
@@ -141,14 +145,20 @@ fn prism_model_input_bound_includes_into_binding_value() {
             )
         }
     }
-    _input_implements_into_binding::<DefaultHostTypes, DefaultHostBounds, TestHasher, IdentityModel>(
-    );
+    _input_implements_into_binding::<
+        DefaultHostTypes,
+        ReferenceHostBounds,
+        TestHasher,
+        IdentityModel,
+        N,
+    >();
 
     // The ConstrainedTypeShape bound is preserved.
     let iri = <<IdentityModel as PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        ReferenceHostBounds,
         TestHasher,
+        N,
     >>::Input as ConstrainedTypeShape>::IRI;
     assert!(iri.contains("ConstrainedType"));
 }

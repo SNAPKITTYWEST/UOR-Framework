@@ -40,14 +40,23 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
 
     // Each pipeline entry point takes H: Hasher.
     let required_signatures: &[(&str, &str)] = &[
-        ("pipeline::run", "pub fn run<T, P, H>("),
+        (
+            "pipeline::run",
+            "pub fn run<T, P, H, const INLINE_BYTES: usize>(",
+        ),
         // Phase C.2: run_const carries `M: Total + Invertible` per target §6.
         ("pipeline::run_const", "pub fn run_const<T, M, H"),
-        ("pipeline::run_parallel", "pub fn run_parallel<T, P, H>("),
-        ("pipeline::run_stream", "pub fn run_stream<T, P, H>("),
+        (
+            "pipeline::run_parallel",
+            "pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(",
+        ),
+        (
+            "pipeline::run_stream",
+            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(",
+        ),
         (
             "pipeline::run_interactive",
-            "pub fn run_interactive<T, P, H>(",
+            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(",
         ),
         (
             "run_tower_completeness<T, H>",
@@ -57,7 +66,10 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
             "run_incremental_completeness<T, H>",
             "pub fn run_incremental_completeness<",
         ),
-        ("run_grounding_aware<H>", "pub fn run_grounding_aware<H"),
+        (
+            "run_grounding_aware<H>",
+            "pub fn run_grounding_aware<const INLINE_BYTES: usize, H",
+        ),
         ("run_inhabitance<T, H>", "pub fn run_inhabitance<T"),
     ];
 

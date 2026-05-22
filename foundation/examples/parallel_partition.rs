@@ -10,7 +10,7 @@
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Grounded, Validated};
 use uor_foundation::pipeline::{run_parallel, ParallelDeclaration};
-use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
+use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
 const DISJOINTNESS_WITNESS: &str = "https://uor.foundation/parallel/ParallelDisjointnessWitness";
 
@@ -29,10 +29,10 @@ fn main() {
             ConstrainedTypeInput,
         >(PARTITION_432, DISJOINTNESS_WITNESS));
 
-    let g_abc: Grounded<ConstrainedTypeInput> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_abc).expect("3-3-3 admits");
-    let g_432: Grounded<ConstrainedTypeInput> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16>(unit_432).expect("4-3-2 admits");
+    let g_abc: Grounded<ConstrainedTypeInput, N> =
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_abc).expect("3-3-3 admits");
+    let g_432: Grounded<ConstrainedTypeInput, N> =
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_432).expect("4-3-2 admits");
 
     // Both partitions have site_count = 9 but differ in component structure —
     // the per-component fold produces distinct fingerprints.

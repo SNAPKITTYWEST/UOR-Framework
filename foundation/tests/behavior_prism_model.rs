@@ -35,7 +35,8 @@
 
 use uor_foundation::enforcement::{ConstrainedTypeInput, Grounded, Hasher};
 use uor_foundation::pipeline::{run_route, FoundationClosed, PrismModel};
-use uor_foundation::{DefaultHostBounds, DefaultHostTypes, HostBounds, HostTypes, PipelineFailure};
+use uor_foundation::{DefaultHostTypes, HostBounds, HostTypes, PipelineFailure};
+use uor_foundation_test_helpers::{ReferenceHostBounds, REFERENCE_INLINE_BYTES as N};
 
 /// `ConstrainedTypeInput` is foundation's identity route: the default
 /// empty shape carrying no constraints. Foundation sanctions its
@@ -44,7 +45,7 @@ use uor_foundation::{DefaultHostBounds, DefaultHostTypes, HostBounds, HostTypes,
 /// `prism_model!` macro. The macro is the canonical producer of impls
 /// for non-trivial routes.
 fn _identity_route_is_foundation_closed() {
-    fn _accepts<R: FoundationClosed>() {}
+    fn _accepts<R: FoundationClosed<N>>() {}
     _accepts::<ConstrainedTypeInput>();
 }
 
@@ -77,7 +78,7 @@ struct IdentityModel;
 
 impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
 
-impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityModel {
+impl PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
     type Input = ConstrainedTypeInput;
     type Output = ConstrainedTypeInput;
     type Route = ConstrainedTypeInput;
@@ -85,14 +86,15 @@ impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityMod
     /// Per wiki ADR-022 D5, `forward` delegates to `run_route` — that is
     /// the architecturally-committed body the `prism_model!` macro
     /// emits. This test impl writes it by hand to pin the contract.
-    fn forward(input: Self::Input) -> Result<Grounded<Self::Output>, PipelineFailure> {
+    fn forward(input: Self::Input) -> Result<Grounded<Self::Output, N>, PipelineFailure> {
         run_route::<
             DefaultHostTypes,
-            DefaultHostBounds,
+            ReferenceHostBounds,
             TestHasher,
             Self,
             uor_foundation::pipeline::NullResolverTuple,
             uor_foundation::pipeline::EmptyCommitment,
+            N,
         >(
             input,
             &uor_foundation::pipeline::NullResolverTuple,
@@ -103,28 +105,28 @@ impl PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher> for IdentityMod
 
 #[test]
 fn prism_model_surface_resolves_at_crate_root() {
-    fn _accepts_prism_model<H, B, A, M>()
+    fn _accepts_prism_model<H, B, A, M, const INLINE_BYTES: usize>()
     where
         H: HostTypes,
         B: HostBounds,
         A: Hasher,
-        M: PrismModel<H, B, A>,
+        M: PrismModel<H, B, A, INLINE_BYTES>,
     {
     }
-    fn _accepts_foundation_closed<R: FoundationClosed>() {}
-    _accepts_prism_model::<DefaultHostTypes, DefaultHostBounds, TestHasher, IdentityModel>();
+    fn _accepts_foundation_closed<R: FoundationClosed<N>>() {}
+    _accepts_prism_model::<DefaultHostTypes, ReferenceHostBounds, TestHasher, IdentityModel, N>();
     _accepts_foundation_closed::<ConstrainedTypeInput>();
 
     // Pin the associated-type identity: a trivial model carries the
     // foundation-empty shape on every position.
     let input_name = core::any::type_name::<
-        <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::Input,
+        <IdentityModel as PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>::Input,
     >();
     let output_name = core::any::type_name::<
-        <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::Output,
+        <IdentityModel as PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>::Output,
     >();
     let route_name = core::any::type_name::<
-        <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::Route,
+        <IdentityModel as PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>::Route,
     >();
     assert!(input_name.ends_with("ConstrainedTypeInput"));
     assert!(output_name.ends_with("ConstrainedTypeInput"));
@@ -136,22 +138,28 @@ fn prism_model_route_bound_is_foundation_closed() {
     // Parametric assertion: any `M: PrismModel<H, B, A>` has its `Route`
     // type bound by `FoundationClosed`. This is what enforces wiki
     // ADR-020's closure-under-foundation-vocabulary check.
-    fn _route_is_foundation_closed<H, B, A, M>()
+    fn _route_is_foundation_closed<H, B, A, M, const INLINE_BYTES: usize>()
     where
         H: HostTypes,
         B: HostBounds,
         A: Hasher,
-        M: PrismModel<H, B, A>,
+        M: PrismModel<H, B, A, INLINE_BYTES>,
     {
-        fn _check<R: FoundationClosed>() {}
-        _check::<M::Route>();
+        fn _check<R: FoundationClosed<INLINE_BYTES>, const INLINE_BYTES: usize>() {}
+        _check::<M::Route, INLINE_BYTES>();
     }
-    _route_is_foundation_closed::<DefaultHostTypes, DefaultHostBounds, TestHasher, IdentityModel>();
+    _route_is_foundation_closed::<
+        DefaultHostTypes,
+        ReferenceHostBounds,
+        TestHasher,
+        IdentityModel,
+        N,
+    >();
 
     // Pin behaviorally: the witnessing impl exists, observable via
     // `core::any::type_name`.
     let route_name = core::any::type_name::<
-        <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::Route,
+        <IdentityModel as PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>::Route,
     >();
     assert_eq!(
         route_name,
@@ -170,11 +178,13 @@ fn prism_model_forward_returns_grounded_result() {
     // identity route's empty arena lands somewhere in the
     // `PipelineFailure` taxonomy at preflight time (the specific
     // variant is foundation-internal).
-    let result =
-        <IdentityModel as PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>::forward(
-            ConstrainedTypeInput::default(),
-        );
-    let _: Result<Grounded<ConstrainedTypeInput>, PipelineFailure> = result;
+    let result = <IdentityModel as PrismModel<
+        DefaultHostTypes,
+        ReferenceHostBounds,
+        TestHasher,
+        N,
+    >>::forward(ConstrainedTypeInput::default());
+    let _: Result<Grounded<ConstrainedTypeInput, N>, PipelineFailure> = result;
     // The identity route's preflight resolves to the `Result` shape the
     // wiki commits `forward` to. Either an Ok grounded value or any
     // PipelineFailure variant — both are valid; what matters is the
@@ -183,9 +193,10 @@ fn prism_model_forward_returns_grounded_result() {
     // shape at compile time).
     let arena = <<IdentityModel as PrismModel<
         DefaultHostTypes,
-        DefaultHostBounds,
+        ReferenceHostBounds,
         TestHasher,
-    >>::Route as FoundationClosed>::arena_slice();
+        N,
+    >>::Route as FoundationClosed<N>>::arena_slice();
     assert_eq!(
         arena.len(),
         0,
@@ -203,15 +214,15 @@ fn prism_model_axes_express_h_indexed_family() {
     // three substitution axes by name: `H: HostTypes`, `B: HostBounds`,
     // `A: Hasher`.
     fn _accepts_axes<H: HostTypes, B: HostBounds, A: Hasher>() {}
-    _accepts_axes::<DefaultHostTypes, DefaultHostBounds, TestHasher>();
+    _accepts_axes::<DefaultHostTypes, ReferenceHostBounds, TestHasher>();
 
-    // The default-axis impl resolves at compile time.
-    fn _resolve<M: PrismModel<DefaultHostTypes, DefaultHostBounds, TestHasher>>() {}
+    // The reference-axis impl resolves at compile time.
+    fn _resolve<M: PrismModel<DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>() {}
     _resolve::<IdentityModel>();
     // Sanity: this assertion reflects the test compiles as written.
     assert_eq!(
-        core::any::type_name::<DefaultHostBounds>(),
-        "uor_foundation::DefaultHostBounds",
+        core::any::type_name::<ReferenceHostBounds>(),
+        "uor_foundation_test_helpers::ReferenceHostBounds",
     );
 }
 
@@ -226,11 +237,12 @@ fn run_route_is_canonical_catamorphism_call_site() {
     // failure.
     let result = run_route::<
         DefaultHostTypes,
-        DefaultHostBounds,
+        ReferenceHostBounds,
         TestHasher,
         IdentityModel,
         uor_foundation::pipeline::NullResolverTuple,
         uor_foundation::pipeline::EmptyCommitment,
+        N,
     >(
         ConstrainedTypeInput::default(),
         &uor_foundation::pipeline::NullResolverTuple,
@@ -239,16 +251,16 @@ fn run_route_is_canonical_catamorphism_call_site() {
     // Surface the categorical commitment: the call returns a
     // `Result<Grounded<Output>, PipelineFailure>` — whichever variant
     // it lands on, the function is callable as the wiki specifies.
-    let _: Result<Grounded<ConstrainedTypeInput>, PipelineFailure> = result;
+    let _: Result<Grounded<ConstrainedTypeInput, N>, PipelineFailure> = result;
     // Pin that the entry point exists and produced a Result of the
     // committed shape (specific failure variants depend on internal
     // CompileUnit construction details).
     assert_eq!(
         core::any::type_name::<
-            fn(ConstrainedTypeInput) -> Result<Grounded<ConstrainedTypeInput>, PipelineFailure>,
+            fn(ConstrainedTypeInput) -> Result<Grounded<ConstrainedTypeInput, N>, PipelineFailure>,
         >(),
         core::any::type_name::<
-            fn(ConstrainedTypeInput) -> Result<Grounded<ConstrainedTypeInput>, PipelineFailure>,
+            fn(ConstrainedTypeInput) -> Result<Grounded<ConstrainedTypeInput, N>, PipelineFailure>,
         >(),
     );
 }

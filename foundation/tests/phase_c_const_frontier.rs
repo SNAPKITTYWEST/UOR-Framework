@@ -10,12 +10,13 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::{certify_grounding_aware_const, validate_compile_unit_const};
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::Fnv1aHasher16;
+use uor_foundation_test_helpers::{Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_compile_unit() -> Validated<CompileUnit<'static>, CompileTime> {
+fn build_compile_unit() -> Validated<CompileUnit<'static, N>, CompileTime> {
     let builder = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(WittLevel::W16)
@@ -59,7 +60,7 @@ fn effect_validate_const_succeeds() {
 
 #[test]
 fn dispatch_validate_const_succeeds() {
-    let body: &[Term] = SENTINEL_TERMS;
+    let body: &[Term<N>] = SENTINEL_TERMS;
     let builder = DispatchDeclarationBuilder::new()
         .predicate(body)
         .target_resolver("https://uor.foundation/resolver/TwoSatDecider")
@@ -70,7 +71,7 @@ fn dispatch_validate_const_succeeds() {
 
 #[test]
 fn predicate_validate_const_succeeds() {
-    let body: &[Term] = SENTINEL_TERMS;
+    let body: &[Term<N>] = SENTINEL_TERMS;
     let builder = PredicateDeclarationBuilder::new()
         .input_type("https://uor.foundation/type/ConstrainedType")
         .evaluator(body)
@@ -82,7 +83,7 @@ fn predicate_validate_const_succeeds() {
 #[test]
 fn certify_grounding_aware_const_emits_validated_grounding() {
     let unit = build_compile_unit();
-    let cert = certify_grounding_aware_const::<ConstrainedTypeInput, Fnv1aHasher16>(&unit);
+    let cert = certify_grounding_aware_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&unit);
     // The cert is Validated<GroundingCertificate, CompileTime>; its witt_bits
     // matches the source unit's witt_level.
     assert_eq!(cert.inner().witt_bits(), 16);

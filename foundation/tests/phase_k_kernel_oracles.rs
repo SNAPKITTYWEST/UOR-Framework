@@ -34,12 +34,13 @@ use uor_foundation::enforcement::{
 };
 use uor_foundation::pipeline::validate_compile_unit_const;
 use uor_foundation::{VerificationDomain, WittLevel};
-use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16};
+use uor_foundation_test_helpers::{validated_runtime, Fnv1aHasher16, REFERENCE_INLINE_BYTES as N};
 
-static SENTINEL_TERMS: &[Term] = &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
+const SENTINEL_TERMS: &[Term<'static, N>] =
+    &[uor_foundation::pipeline::literal_u64(1, WittLevel::W8)];
 static SENTINEL_DOMAINS: &[VerificationDomain] = &[VerificationDomain::Enumerative];
 
-fn build_unit() -> Validated<CompileUnit<'static>, uor_foundation::enforcement::CompileTime> {
+fn build_unit() -> Validated<CompileUnit<'static, N>, uor_foundation::enforcement::CompileTime> {
     let b = CompileUnitBuilder::new()
         .root_term(SENTINEL_TERMS)
         .witt_level_ceiling(WittLevel::W32)
@@ -65,8 +66,8 @@ fn homotopy_is_deterministic_across_calls() {
 #[test]
 fn measurement_is_deterministic_across_calls() {
     let unit = build_unit();
-    let a = resolver::measurement::certify::<_, Fnv1aHasher16>(&unit).expect("a");
-    let b = resolver::measurement::certify::<_, Fnv1aHasher16>(&unit).expect("b");
+    let a = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("a");
+    let b = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("b");
     assert_eq!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -171,8 +172,8 @@ fn session_differs_from_superposition() {
     // session:       SessionBinding only.
     // superposition: SessionBinding + MeasurementProjection (Born outcome folded).
     let unit = build_unit();
-    let session = resolver::session::certify::<_, Fnv1aHasher16>(&unit).expect("session");
-    let superp = resolver::superposition::certify::<_, Fnv1aHasher16>(&unit).expect("superp");
+    let session = resolver::session::certify::<_, Fnv1aHasher16, N>(&unit).expect("session");
+    let superp = resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superp");
     assert_ne!(
         session.certificate().content_fingerprint(),
         superp.certificate().content_fingerprint(),
@@ -184,8 +185,8 @@ fn measurement_differs_from_superposition() {
     // measurement:   MeasurementProjection only.
     // superposition: SessionBinding + MeasurementProjection.
     let unit = build_unit();
-    let meas = resolver::measurement::certify::<_, Fnv1aHasher16>(&unit).expect("meas");
-    let superp = resolver::superposition::certify::<_, Fnv1aHasher16>(&unit).expect("superp");
+    let meas = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("meas");
+    let superp = resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superp");
     assert_ne!(
         meas.certificate().content_fingerprint(),
         superp.certificate().content_fingerprint(),

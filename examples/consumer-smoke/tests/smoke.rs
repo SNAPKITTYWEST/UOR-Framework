@@ -75,9 +75,10 @@ impl ConstrainedTypeShape for MyShape {
 }
 
 fn nonzero_fingerprint(seed: u8) -> ContentFingerprint {
-    // 32 = `<DefaultHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES`, the
-    // default const-generic on `ContentFingerprint`. Applications selecting
-    // a different `HostBounds` impl write `ContentFingerprint::<W>` with W
+    // 32 is the conventional `FINGERPRINT_MAX_BYTES` and the default
+    // const-generic on `ContentFingerprint`. Per ADR-060 there is no
+    // `DefaultHostBounds`; applications selecting a `HostBounds` impl with a
+    // different `FINGERPRINT_MAX_BYTES` write `ContentFingerprint::<W>` with W
     // their chosen width.
     let mut buf = [0u8; 32];
     buf[0] = seed;
