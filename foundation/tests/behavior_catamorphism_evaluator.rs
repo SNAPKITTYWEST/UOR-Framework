@@ -15,7 +15,8 @@
 //! 4. `Term::Application` over `PrimitiveOp::Add` adds the args' values.
 //! 5. `Term::AxisInvocation` folds the input through the selected Hasher
 //!    (axis 0, kernel 0 = the canonical hash projection).
-//! 6. `TERM_VALUE_MAX_BYTES` is the foundation-fixed per-value ceiling.
+//! 6. ADR-060: the source-polymorphic `TermValue<'a, N>` carrier replaced the
+//!    fixed 4096-byte ceiling; its inline width is `carrier_inline_bytes::<B>()`.
 
 use uor_foundation::enforcement::{Hasher, Term, TermList};
 use uor_foundation::pipeline::{evaluate_term_tree, NullResolverTuple, TermValue};

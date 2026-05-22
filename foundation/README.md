@@ -163,10 +163,13 @@ impl Hasher for Blake3Hasher {
     fn initial() -> Self { /* ... */ }
     fn fold_byte(self, b: u8) -> Self { /* ... */ }
     fn fold_bytes(self, bytes: &[u8]) -> Self { /* ... */ }
-    fn finalize(self) -> [u8; 32] { /* `<DefaultHostBounds>::FINGERPRINT_MAX_BYTES` */ }
+    fn finalize(self) -> [u8; 32] { /* width = your `HostBounds::FINGERPRINT_MAX_BYTES` */ }
 }
 
-let grounded = run::<MyShape, _, Blake3Hasher>(validated_unit)?;
+// ADR-060: `run` carries the `const INLINE_BYTES` carrier width as its final
+// generic; instantiate it from your `HostBounds` via
+// `pipeline::carrier_inline_bytes::<MyBounds>()`.
+let grounded = run::<MyShape, _, Blake3Hasher, INLINE_BYTES>(validated_unit)?;
 ```
 
 The recommended production substrate is BLAKE3: fast, cryptographically

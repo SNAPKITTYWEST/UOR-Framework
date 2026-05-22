@@ -2794,52 +2794,45 @@ fn emit_resolver_tuple(f: &mut RustFile) {
 
     // Eight resolver category traits. Per the user's directive, generic
     // over <H> (no Hasher bound) — the seal is the gate.
-    // ADR-041: each resolver after ψ_1 takes the prior ψ-stage's typed
-    // carrier as input; `NerveResolver` retains `&[u8]` input because
-    // its source is the per-value bytes (not a ψ-stage emission).
-    let resolver_traits: &[(&str, &str, &str)] = &[
+    // ADR-060: every resolver's `resolve` uniformly takes and returns
+    // `TermValue<'a, INLINE_BYTES>` (the prior ψ-stage's emission flows in as a
+    // `TermValue`); the per-category typed-input newtypes of ADR-041 are no
+    // longer part of the signature.
+    let resolver_traits: &[(&str, &str)] = &[
         (
             "NerveResolver",
             "ψ_1 — per-value bytes → SimplicialComplex per ADR-035.",
-            "&[u8]",
         ),
         (
             "ChainComplexResolver",
             "ψ_2 — SimplicialComplex → ChainComplex per ADR-035.",
-            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomologyGroupResolver",
             "ψ_3 — ChainComplex → HomologyGroups per ADR-035.",
-            "ChainComplexBytes<'_>",
         ),
         (
             "CochainComplexResolver",
             "ψ_5 — ChainComplex → CochainComplex per ADR-035.",
-            "ChainComplexBytes<'_>",
         ),
         (
             "CohomologyGroupResolver",
             "ψ_6 — CochainComplex → CohomologyGroups per ADR-035.",
-            "CochainComplexBytes<'_>",
         ),
         (
             "PostnikovResolver",
             "ψ_7 — SimplicialComplex → PostnikovTower per ADR-035.",
-            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomotopyGroupResolver",
             "ψ_8 — PostnikovTower → HomotopyGroups per ADR-035.",
-            "PostnikovTowerBytes<'_>",
         ),
         (
             "KInvariantResolver",
             "ψ_9 — HomotopyGroups → KInvariants per ADR-035.",
-            "HomotopyGroupsBytes<'_>",
         ),
     ];
-    for (trait_name, doc, _input_ty) in resolver_traits {
+    for (trait_name, doc) in resolver_traits {
         f.doc_comment(&format!("ADR-036 resolver trait: {doc}"));
         f.line("///");
         f.doc_comment("Parameterized by the model's H-axis (`H: Hasher` per ADR-022 D5) so");
@@ -2953,56 +2946,40 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    // Eight Null<Category>Resolver impls. Each per-category null impl
-    // takes the ADR-041 typed-coordinate carrier for its resolver-trait
-    // input. NerveResolver retains `&[u8]` (per-value bytes); the other
-    // seven take their typed predecessor-stage carrier.
-    let null_resolvers: &[(&str, &str, &str, &str)] = &[
-        ("NullNerveResolver", "NerveResolver", "Nerve", "&[u8]"),
+    // Eight Null<Category>Resolver impls. ADR-060: every `resolve` uniformly
+    // takes/returns `TermValue<'a, INLINE_BYTES>`, so the per-category typed
+    // input is no longer carried here.
+    let null_resolvers: &[(&str, &str, &str)] = &[
+        ("NullNerveResolver", "NerveResolver", "Nerve"),
         (
             "NullChainComplexResolver",
             "ChainComplexResolver",
             "ChainComplex",
-            "SimplicialComplexBytes<'_>",
         ),
         (
             "NullHomologyGroupResolver",
             "HomologyGroupResolver",
             "HomologyGroup",
-            "ChainComplexBytes<'_>",
         ),
         (
             "NullCochainComplexResolver",
             "CochainComplexResolver",
             "CochainComplex",
-            "ChainComplexBytes<'_>",
         ),
         (
             "NullCohomologyGroupResolver",
             "CohomologyGroupResolver",
             "CohomologyGroup",
-            "CochainComplexBytes<'_>",
         ),
-        (
-            "NullPostnikovResolver",
-            "PostnikovResolver",
-            "Postnikov",
-            "SimplicialComplexBytes<'_>",
-        ),
+        ("NullPostnikovResolver", "PostnikovResolver", "Postnikov"),
         (
             "NullHomotopyGroupResolver",
             "HomotopyGroupResolver",
             "HomotopyGroup",
-            "PostnikovTowerBytes<'_>",
         ),
-        (
-            "NullKInvariantResolver",
-            "KInvariantResolver",
-            "KInvariant",
-            "HomotopyGroupsBytes<'_>",
-        ),
+        ("NullKInvariantResolver", "KInvariantResolver", "KInvariant"),
     ];
-    for (null_ty, resolver_trait, category, input_ty) in null_resolvers {
+    for (null_ty, resolver_trait, category) in null_resolvers {
         f.doc_comment(&format!(
             "ADR-036 Null `{resolver_trait}` impl. `resolve` always emits the"
         ));
@@ -3028,7 +3005,6 @@ fn emit_resolver_tuple(f: &mut RustFile) {
             "impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for {null_ty}<H> {{}}"
         ));
         f.blank();
-        let _ = input_ty;
         f.line(&format!(
             "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for {null_ty}<H> {{"
         ));
@@ -3063,67 +3039,60 @@ fn emit_resolver_tuple(f: &mut RustFile) {
     // reasons" commitment: applications can default to NullResolverTuple in
     // tests/smoke contexts and recover RESOLVER_ABSENT at runtime via
     // `Term::Try`.
-    // Each tuple element: resolver_trait, marker, accessor, category,
-    // input_type (per ADR-041 typed-coordinate carrier).
-    let absent_impls: &[(&str, &str, &str, &str, &str)] = &[
+    // Each tuple element: resolver_trait, marker, accessor, category.
+    // ADR-060: every `resolve` uniformly takes/returns
+    // `TermValue<'a, INLINE_BYTES>`, so no per-category input type is carried.
+    let absent_impls: &[(&str, &str, &str, &str)] = &[
         (
             "NerveResolver",
             "HasNerveResolver",
             "nerve_resolver",
             "Nerve",
-            "&[u8]",
         ),
         (
             "ChainComplexResolver",
             "HasChainComplexResolver",
             "chain_complex_resolver",
             "ChainComplex",
-            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomologyGroupResolver",
             "HasHomologyGroupResolver",
             "homology_group_resolver",
             "HomologyGroup",
-            "ChainComplexBytes<'_>",
         ),
         (
             "CochainComplexResolver",
             "HasCochainComplexResolver",
             "cochain_complex_resolver",
             "CochainComplex",
-            "ChainComplexBytes<'_>",
         ),
         (
             "CohomologyGroupResolver",
             "HasCohomologyGroupResolver",
             "cohomology_group_resolver",
             "CohomologyGroup",
-            "CochainComplexBytes<'_>",
         ),
         (
             "PostnikovResolver",
             "HasPostnikovResolver",
             "postnikov_resolver",
             "Postnikov",
-            "SimplicialComplexBytes<'_>",
         ),
         (
             "HomotopyGroupResolver",
             "HasHomotopyGroupResolver",
             "homotopy_group_resolver",
             "HomotopyGroup",
-            "PostnikovTowerBytes<'_>",
         ),
         (
             "KInvariantResolver",
             "HasKInvariantResolver",
             "k_invariant_resolver",
             "KInvariant",
-            "HomotopyGroupsBytes<'_>",
         ),
     ];
-    for (resolver_trait, marker, accessor, category, input_ty) in absent_impls {
+    for (resolver_trait, marker, accessor, category) in absent_impls {
         f.doc_comment(&format!(
             "ADR-036: NullResolverTuple satisfies `{resolver_trait}<H>` directly so"
         ));
@@ -3132,7 +3101,6 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         ));
         f.doc_comment("The `resolve` method emits the `RESOLVER_ABSENT` shape violation —");
         f.doc_comment("recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).");
-        let _ = input_ty;
         f.line(&format!(
             "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for NullResolverTuple {{"
         ));
@@ -4705,44 +4673,54 @@ fn emit_prism_model(f: &mut RustFile) {
     // resolver-owned scratch (the `Borrowed` carrier's backing). Each width is
     // an application-declared structural count × a foundation-fixed per-element
     // wire width — never a contrived literal.
-    let psi_stage_carriers: &[(&str, &str)] = &[
+    let psi_stage_carriers: &[(&str, &str, &str)] = &[
         (
             "nerve_carrier_bytes",
+            "Nerve (ψ_1)",
             "PSI_STAGE_HEADER_BYTES + B::NERVE_SITES_MAX * SITE_DESCRIPTOR_BYTES + B::NERVE_CONSTRAINTS_MAX * CONSTRAINT_DESCRIPTOR_BYTES",
         ),
         (
             "chain_complex_carrier_bytes",
+            "ChainComplex (ψ_2)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
         ),
         (
             "homology_groups_carrier_bytes",
+            "HomologyGroups (ψ_3)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
         ),
         (
             "cochain_complex_carrier_bytes",
+            "CochainComplex (ψ_5)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
         ),
         (
             "cohomology_groups_carrier_bytes",
+            "CohomologyGroups (ψ_6)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
         ),
         (
             "postnikov_tower_carrier_bytes",
+            "PostnikovTower (ψ_7)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)",
         ),
         (
             "homotopy_groups_carrier_bytes",
+            "HomotopyGroups (ψ_8)",
             "PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES",
         ),
         (
             "k_invariants_carrier_bytes",
+            "KInvariants (ψ_9)",
             "carrier_inline_bytes::<B>()",
         ),
     ];
-    for (fn_name, body) in psi_stage_carriers {
+    for (fn_name, stage, body) in psi_stage_carriers {
         f.doc_comment(&format!(
-            "ADR-060: app-facing carrier-width helper for the ψ-stage backing `{fn_name}`."
+            "ADR-060: app-facing carrier-width helper for the {stage} ψ-stage. An"
         ));
+        f.doc_comment("application's resolver impl uses it to size its resolver-owned scratch");
+        f.doc_comment("(the `Borrowed` carrier's backing) for this stage.");
         f.doc_comment("Structural-element-count × foundation-fixed per-element wire width.");
         f.line("#[must_use]");
         f.line(&format!(

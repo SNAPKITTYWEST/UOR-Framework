@@ -921,8 +921,8 @@ fn generate_lib_rs(ontology: &Ontology) -> String {
     // carry `<const FP_MAX: usize>` / `<const TR_MAX: usize>` parameters.
     // Applications selecting a different `HostBounds` impl populate each
     // parameter with `<MyBounds as HostBounds>::CONST` at instantiation sites.
-    // Type-level defaults (`Hasher<const FP_MAX: usize = 32>`, etc.) match
-    // `DefaultHostBounds` so callers using the canonical defaults never write
+    // Type-level defaults (`Hasher<const FP_MAX: usize = 32>`, etc.) carry the
+    // conventional 32-byte width so callers using those defaults never write
     // turbofish. The wiki's example syntax `[u8; H::FINGERPRINT_MAX_BYTES]`
     // requires nightly `generic_const_exprs`, which the stable workspace does
     // not enable.
@@ -1218,10 +1218,13 @@ impl Hasher for Blake3Hasher {{
     fn initial() -> Self {{ /* ... */ }}
     fn fold_byte(self, b: u8) -> Self {{ /* ... */ }}
     fn fold_bytes(self, bytes: &[u8]) -> Self {{ /* ... */ }}
-    fn finalize(self) -> [u8; 32] {{ /* `<DefaultHostBounds>::FINGERPRINT_MAX_BYTES` */ }}
+    fn finalize(self) -> [u8; 32] {{ /* width = your `HostBounds::FINGERPRINT_MAX_BYTES` */ }}
 }}
 
-let grounded = run::<MyShape, _, Blake3Hasher>(validated_unit)?;
+// ADR-060: `run` carries the `const INLINE_BYTES` carrier width as its final
+// generic; instantiate it from your `HostBounds` via
+// `pipeline::carrier_inline_bytes::<MyBounds>()`.
+let grounded = run::<MyShape, _, Blake3Hasher, INLINE_BYTES>(validated_unit)?;
 ```
 
 The recommended production substrate is BLAKE3: fast, cryptographically

@@ -486,14 +486,12 @@ behavior = "behavior_catamorphism_evaluator"
 # ADR-028 commits the Grounded<T> to carry the catamorphism's evaluation
 # result as an output payload alongside the metadata fingerprint. ADR-060
 # replaced the fixed `ROUTE_OUTPUT_BUFFER_BYTES` ceiling with the
-# source-polymorphic `TermValue<'a, INLINE_BYTES>` carrier whose inline
-# width is derived by `carrier_inline_bytes::<B>()` (collapsed to the
-# `const fn` symbol in the snapshot). The output payload now rides the
-# `Grounded` carrier directly. The behavior test is exercised via the
-# `Grounded` / `const fn` mappings above.
-[coverage.route_output_payload]
-symbols = ["GroundingProgramRun"]
-behavior = "behavior_route_output_payload"
+# source-polymorphic `TermValue<'a, INLINE_BYTES>` carrier whose inline width
+# is derived by `carrier_inline_bytes::<B>()` (the `const fn` snapshot symbol).
+# No coverage entry is needed here: the `behavior_route_output_payload` test's
+# surface is `Grounded` (covered below) and `carrier_inline_bytes` (the
+# `const fn` symbol), both already mapped — adding a stale/duplicate symbol
+# here would be the inconsistency this audit guards against.
 
 # ─── Mapping: closure-body grammar fold-unroll (wiki ADR-026 G14) ──────
 # ADR-026 G14 specifies the `fold_n` lowering rule: counts at or below

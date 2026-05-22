@@ -3691,7 +3691,9 @@ pub const fn carrier_inline_bytes<B: crate::HostBounds>() -> usize {
     max3(witt_bytes, B::FINGERPRINT_MAX_BYTES, kappa_bytes)
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `nerve_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the Nerve (ψ_1) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn nerve_carrier_bytes<B: crate::HostBounds>() -> usize {
@@ -3700,49 +3702,63 @@ pub const fn nerve_carrier_bytes<B: crate::HostBounds>() -> usize {
         + B::NERVE_CONSTRAINTS_MAX * CONSTRAINT_DESCRIPTOR_BYTES
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `chain_complex_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the ChainComplex (ψ_2) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn chain_complex_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `homology_groups_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the HomologyGroups (ψ_3) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn homology_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `cochain_complex_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the CochainComplex (ψ_5) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn cochain_complex_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `cohomology_groups_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the CohomologyGroups (ψ_6) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn cohomology_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `postnikov_tower_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the PostnikovTower (ψ_7) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn postnikov_tower_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * (SITE_DESCRIPTOR_BYTES + BETTI_ELEMENT_BYTES)
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `homotopy_groups_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the HomotopyGroups (ψ_8) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn homotopy_groups_carrier_bytes<B: crate::HostBounds>() -> usize {
     PSI_STAGE_HEADER_BYTES + B::BETTI_DIMENSION_MAX * BETTI_ELEMENT_BYTES
 }
 
-/// ADR-060: app-facing carrier-width helper for the ψ-stage backing `k_invariants_carrier_bytes`.
+/// ADR-060: app-facing carrier-width helper for the KInvariants (ψ_9) ψ-stage. An
+/// application's resolver impl uses it to size its resolver-owned scratch
+/// (the `Borrowed` carrier's backing) for this stage.
 /// Structural-element-count × foundation-fixed per-element wire width.
 #[must_use]
 pub const fn k_invariants_carrier_bytes<B: crate::HostBounds>() -> usize {

@@ -684,9 +684,8 @@ pub fn generate_primitives_modules(ontology: &Ontology) -> Vec<(String, String)>
              /// `no_std` + `const`-friendly and avoids the host-supplied\n\
              /// `Hasher` dependency that the production mint paths use.\n\
              ///\n\
-             /// Buffer width is 32 — the `<DefaultHostBounds as HostBounds>`\n\
-             /// `FINGERPRINT_MAX_BYTES` value, matching `ContentFingerprint`'s\n\
-             /// default const-generic.\n\
+             /// Buffer width is 32 — the conventional `FINGERPRINT_MAX_BYTES`\n\
+             /// value, matching `ContentFingerprint`'s default const-generic.\n\
              fn fingerprint_for_identity(iri: &str) -> ContentFingerprint {\n\
              \x20   let mut buf = [0u8; 32];\n\
              \x20   let bytes = iri.as_bytes();\n\

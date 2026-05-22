@@ -98,14 +98,18 @@ fn stream_carrier_folds_multi_mib_payload_without_cap() {
     // beyond the retired 4096-byte ceiling, and `N` (the inline width) is
     // unrelated to and dwarfed by the payload.
     assert_eq!(value.len_hint(), Some(TOTAL_BYTES));
-    assert!(
-        TOTAL_BYTES > 4096 * 2000,
-        "payload must exceed the retired cap by orders of magnitude"
-    );
-    assert!(
-        N < CHUNK_BYTES,
-        "inline carrier width N={N} must be tiny next to the streamed payload"
-    );
+    const {
+        assert!(
+            TOTAL_BYTES > 4096 * 2000,
+            "payload must exceed the retired 4096-byte cap by orders of magnitude"
+        )
+    };
+    const {
+        assert!(
+            N < CHUNK_BYTES,
+            "inline carrier width N must be tiny next to the streamed payload"
+        )
+    };
 
     // σ-projection: fold the stream through the application's Hasher
     // chunk-by-chunk. This is the canonical streaming digest path.

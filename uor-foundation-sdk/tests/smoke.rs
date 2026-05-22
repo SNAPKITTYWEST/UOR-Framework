@@ -1863,27 +1863,7 @@ const PSI_7_MARKER: u8 = 0x07;
 const PSI_8_MARKER: u8 = 0x08;
 const PSI_9_MARKER: u8 = 0x09;
 
-/// Append a single category marker byte to the operand bytes.
-/// Shared body for every sentinel-resolver impl below.
-fn append_marker(input: &[u8], out: &mut [u8], marker: u8) -> Result<usize, ShapeViolation> {
-    let n = input.len();
-    if n + 1 > out.len() {
-        return Err(ShapeViolation {
-            shape_iri: "https://example.org/psi-chain-test/OutputBufferShape",
-            constraint_iri: "https://example.org/psi-chain-test/OutputBufferShape/maxBytes",
-            property_iri: "https://example.org/psi-chain-test/output",
-            expected_range: "http://www.w3.org/2001/XMLSchema#nonNegativeInteger",
-            min_count: 0,
-            max_count: out.len() as u32,
-            kind: uor_foundation::ViolationKind::ValueCheck,
-        });
-    }
-    out[..n].copy_from_slice(input);
-    out[n] = marker;
-    Ok(n + 1)
-}
-
-// ADR-060: source-polymorphic variant of `append_marker` — appends `marker`
+// ADR-060: source-polymorphic marker appender — appends `marker`
 // to `input` and returns the result as an `Inline` `TermValue`.
 fn append_marker_tv<'a, const INLINE_BYTES: usize>(
     input: &[u8],
@@ -2024,22 +2004,17 @@ fn complete_resolvers() -> CompleteResolvers<SmokeHasher> {
     }
 }
 
-/// Run a ψ-chain test body on a 16 MB-stack thread. The catamorphism's
-/// per-fold-rule `[u8; AXIS_OUTPUT_BYTES_CEILING]` (= 4096 bytes) plus
-/// the `TermValue` return slot inflate each recursive frame to ~16 KB in
-/// debug builds. The cargo test runner's default 2 MB thread stack
-/// overflows at 4–5 levels of chain depth. Release builds optimize the
-/// frames down to a few hundred bytes and fit comfortably.
+/// Run a ψ-chain test body. ADR-060 made the catamorphism's per-fold-rule
+/// scratch a small `[u8; INLINE_BYTES]` carrier (replacing the retired fixed
+/// 4096-byte per-value buffer), so recursive ψ-chain evaluation now fits
+/// comfortably in the cargo test runner's default thread stack — no custom
+/// stack thread is required. Retained as a thin indirection so the ψ-chain
+/// tests share a single call shape.
 fn run_psi_chain_body<F>(test_body: F)
 where
-    F: FnOnce() + Send + 'static,
+    F: FnOnce(),
 {
-    std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
-        .spawn(test_body)
-        .expect("spawning ψ-chain test thread")
-        .join()
-        .expect("ψ-chain test thread panicked");
+    test_body();
 }
 
 #[test]
