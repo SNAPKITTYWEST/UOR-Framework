@@ -4996,7 +4996,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const MAX_BETTI_DIMENSION: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::BETTI_DIMENSION_MAX;",
+         8;",
     );
     f.blank();
 
@@ -5225,7 +5225,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const JACOBIAN_MAX_SITES: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::JACOBIAN_SITES_MAX;",
+         8;",
     );
     f.blank();
 
@@ -7803,7 +7803,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const NERVE_CONSTRAINTS_CAP: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::NERVE_CONSTRAINTS_MAX;",
+         8;",
     );
     f.blank();
     f.doc_comment("Phase X.4: cap on site-support bitmask width (matches `u16` storage).");
@@ -7814,7 +7814,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const NERVE_SITES_CAP: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::NERVE_SITES_MAX;",
+         8;",
     );
     f.blank();
     f.doc_comment("Phase X.4: maximum number of 1-simplices = C(NERVE_CONSTRAINTS_CAP, 2) = 28.");
@@ -11407,7 +11407,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const RECURSION_TRACE_MAX_DEPTH: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::RECURSION_TRACE_DEPTH_MAX;",
+         16;",
     );
     f.blank();
     f.doc_comment("Phase F.3 (target §4.7 recursion): sealed recursion trace with fixed-capacity");
@@ -11832,7 +11832,7 @@ fn generate_grounding_combinator_surface(f: &mut RustFile) {
     f.doc_comment("[`crate::DefaultHostBounds`].");
     f.line(
         "pub const MAX_OP_CHAIN_DEPTH: usize = \
-         <crate::DefaultHostBounds as crate::HostBounds>::OP_CHAIN_DEPTH_MAX;",
+         8;",
     );
     f.blank();
     f.doc_comment("v0.2.2 Phase J: a single grounding primitive parametric over its output");
