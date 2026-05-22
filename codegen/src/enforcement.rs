@@ -6262,7 +6262,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("`<https://uor.foundation/cert/witness>`,");
     f.doc_comment("`<https://uor.foundation/cert/searchTrace>`.");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct Grounded<T: GroundedShape, Tag = T> {");
+    f.line("pub struct Grounded<T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {");
     f.indented_doc_comment("The validated grounding certificate this wrapper carries.");
     f.line("    validated: Validated<GroundingCertificate>,");
     f.indented_doc_comment("The compile-time-materialized bindings table.");
@@ -6308,7 +6308,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("result populated by `pipeline::run_route` per ADR-029's per-variant");
     f.indented_doc_comment("fold rules. Fixed-capacity stack buffer; the active prefix runs to");
     f.indented_doc_comment("`output_len` bytes. Read via [`Grounded::output_bytes`].");
-    f.line("    output_payload: [u8; crate::pipeline::ROUTE_OUTPUT_BUFFER_BYTES],");
+    f.line("    output_payload: [u8; INLINE_BYTES],");
     f.indented_doc_comment(
         "Active length of `output_payload` (the route's evaluation output length).",
     );
@@ -6320,7 +6320,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    _tag: PhantomData<Tag>,");
     f.line("}");
     f.blank();
-    f.line("impl<T: GroundedShape, Tag> Grounded<T, Tag> {");
+    f.line("impl<T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<T, INLINE_BYTES, Tag> {");
     f.indented_doc_comment("Returns the binding for the given query address, or `None` if not in");
     f.indented_doc_comment("the table. Resolves in O(log n) via binary search; for true `op:GS_5`");
     f.indented_doc_comment("zero-step access, downstream code uses statically-known indices.");

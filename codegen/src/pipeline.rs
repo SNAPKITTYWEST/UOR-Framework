@@ -4237,7 +4237,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("[`MAX_BYTES`] is the maximum byte length any value of this shape can");
     f.doc_comment("produce. [`run_route`] uses it to size the on-stack buffer and");
     f.doc_comment("rejects inputs whose declared `MAX_BYTES` exceeds the foundation");
-    f.doc_comment("ceiling [`ROUTE_INPUT_BUFFER_BYTES`].");
+    f.doc_comment("ceiling [`INLINE_BYTES`].");
     f.doc_comment("");
     f.doc_comment("# Sealing");
     f.doc_comment("");
@@ -4274,17 +4274,17 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("}");
     f.blank();
 
-    // ROUTE_INPUT_BUFFER_BYTES — foundation-side ceiling for the
+    // INLINE_BYTES — foundation-side ceiling for the
     // stack-allocated buffer `run_route` uses to materialize the input
     // value's canonical bytes. ADR-023 specifies that `into_binding_bytes`
     // writes into a buffer the call-site provides; on stable Rust 1.83
     // we cannot size the buffer with `[u8; <T as IntoBindingValue>::MAX_BYTES]`
     // (that needs nightly `generic_const_exprs`). The foundation-side
     // ceiling is the architecturally-equivalent stable-Rust form: any
-    // input declaring `MAX_BYTES <= ROUTE_INPUT_BUFFER_BYTES` flows through
+    // input declaring `MAX_BYTES <= INLINE_BYTES` flows through
     // the catamorphism; inputs declaring a larger MAX_BYTES are rejected
     // at runtime by `run_route`.
-    // ADR-060: `ROUTE_INPUT_BUFFER_BYTES` and `ROUTE_OUTPUT_BUFFER_BYTES` are
+    // ADR-060: `INLINE_BYTES` and `INLINE_BYTES` are
     // REMOVED (byte-width caps + their `HostBounds` source + `DefaultHostBounds`).
     // `run_route` is const-generic over `INLINE_BYTES = carrier_inline_bytes::<B>()`
     // (instantiated at the application boundary); the input-materialization and
@@ -4363,7 +4363,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
     f.doc_comment("[`run_route`] traverses (per ADR-022 D2 + D3 + D5).");
     f.line(
-        "pub trait PrismModel<H, B, A, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
+        "pub trait PrismModel<H, B, A, const INLINE_BYTES: usize, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
     );
     f.line("where");
     f.line("    H: crate::HostTypes,");
@@ -4405,7 +4405,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("`FoundationClosed` impl for this witness iff every node is a");
     f.indented_doc_comment("foundation-vocabulary item, satisfying the closure check at the");
     f.indented_doc_comment("application's compile time per UORassembly (TC-04).");
-    f.line("    type Route: FoundationClosed;");
+    f.line("    type Route: FoundationClosed<INLINE_BYTES>;");
     f.blank();
     f.indented_doc_comment("The catamorphism into [`run_route`]'s runtime carrier.");
     f.indented_doc_comment("");
@@ -4421,7 +4421,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("coherence, dispatch coverage, timing) or when reduction stages");
     f.indented_doc_comment("detect contradiction along the route.");
     f.line("    fn forward(input: Self::Input) -> Result<");
-    f.line("        crate::enforcement::Grounded<Self::Output>,");
+    f.line("        crate::enforcement::Grounded<Self::Output, INLINE_BYTES>,");
     f.line("        PipelineFailure,");
     f.line("    >;");
     f.line("}");
@@ -4450,28 +4450,28 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] from the underlying [`run`] call.");
-    f.line("pub fn run_route<H, B, A, M, R, C>(");
+    f.line("pub fn run_route<H, B, A, M, R, C, const INLINE_BYTES: usize>(");
     f.line("    input: M::Input,");
     f.line("    resolvers: &R,");
     f.line("    commitment: &C,");
     f.line(") -> Result<");
-    f.line("    crate::enforcement::Grounded<M::Output>,");
+    f.line("    crate::enforcement::Grounded<M::Output, INLINE_BYTES>,");
     f.line("    PipelineFailure,");
     f.line(">");
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
     f.line("    A: crate::pipeline::AxisTuple + crate::enforcement::Hasher,");
-    f.line("    M: PrismModel<H, B, A, R, C>,");
+    f.line("    M: PrismModel<H, B, A, INLINE_BYTES, R, C>,");
     f.line("    R: crate::pipeline::ResolverTuple");
-    f.line("        + crate::pipeline::HasNerveResolver<A>");
-    f.line("        + crate::pipeline::HasChainComplexResolver<A>");
-    f.line("        + crate::pipeline::HasHomologyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasCochainComplexResolver<A>");
-    f.line("        + crate::pipeline::HasCohomologyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasPostnikovResolver<A>");
-    f.line("        + crate::pipeline::HasHomotopyGroupResolver<A>");
-    f.line("        + crate::pipeline::HasKInvariantResolver<A>,");
+    f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasHomologyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasCochainComplexResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasCohomologyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasPostnikovResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasHomotopyGroupResolver<INLINE_BYTES, A>");
+    f.line("        + crate::pipeline::HasKInvariantResolver<INLINE_BYTES, A>,");
     f.line("    // Wiki ADR-048: 6th type parameter is the model's");
     f.line("    // `TypedCommitment` — prism's cost-model commitment surface.");
     f.line("    // The catamorphism evaluates `commitment.evaluate(kappa_label)`");
@@ -4482,15 +4482,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // `Route` (the macro-emitted witness; identity-route returns &[]),");
     f.line("    // build a `Validated<CompileUnit, FinalPhase>` whose root_term is");
     f.line("    // exactly that arena, and dispatch to `run` (the catamorphism).");
-    f.line("    let arena_slice = <M::Route as FoundationClosed>::arena_slice();");
+    f.line("    let arena_slice = <M::Route as FoundationClosed<INLINE_BYTES>>::arena_slice();");
     f.line("    // ADR-023: serialize the runtime input value into a transient");
     f.line("    // `Binding` for the route's input-parameter slot");
     f.line("    // (`Term::Variable { name_index: 0 }`, ADR-022 D3 G2). The buffer");
-    f.line("    // ceiling is the foundation-side `ROUTE_INPUT_BUFFER_BYTES`");
+    f.line("    // ceiling is the foundation-side `INLINE_BYTES`");
     f.line("    // (stable-Rust equivalent of nightly's");
     f.line("    // `[u8; <M::Input as IntoBindingValue>::MAX_BYTES]` form).");
     f.line("    let max_bytes = <M::Input as IntoBindingValue>::MAX_BYTES;");
-    f.line("    if max_bytes > ROUTE_INPUT_BUFFER_BYTES {");
+    f.line("    if max_bytes > INLINE_BYTES {");
     f.line("        // Per ADR-023: inputs whose declared MAX_BYTES exceeds the");
     f.line("        // foundation-side ceiling are rejected — the canonical content");
     f.line("        // address cannot be derived without a buffer big enough for");
@@ -4506,12 +4506,12 @@ fn emit_prism_model(f: &mut RustFile) {
         "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
     );
     f.line("                min_count: 0,");
-    f.line("                max_count: ROUTE_INPUT_BUFFER_BYTES as u32,");
+    f.line("                max_count: INLINE_BYTES as u32,");
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            },");
     f.line("        });");
     f.line("    }");
-    f.line("    let mut buf = [0u8; ROUTE_INPUT_BUFFER_BYTES];");
+    f.line("    let mut buf = [0u8; INLINE_BYTES];");
     f.line("    let written = input.into_binding_bytes(&mut buf[..max_bytes])");
     f.line("        .map_err(|report| PipelineFailure::ShapeViolation { report })?;");
     f.line("    // Hash the canonical bytes through the application's selected");
@@ -4567,7 +4567,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // ceiling. Parallel to ADR-023's input-side check, but checked");
     f.line("    // against the Output-side `IntoBindingValue::MAX_BYTES`.");
     f.line("    let out_max = <M::Output as IntoBindingValue>::MAX_BYTES;");
-    f.line("    if out_max > ROUTE_OUTPUT_BUFFER_BYTES {");
+    f.line("    if out_max > INLINE_BYTES {");
     f.line("        return Err(PipelineFailure::ShapeViolation {");
     f.line("            report: crate::enforcement::ShapeViolation {");
     f.line(
@@ -4581,7 +4581,7 @@ fn emit_prism_model(f: &mut RustFile) {
         "                expected_range: \"http://www.w3.org/2001/XMLSchema#nonNegativeInteger\",",
     );
     f.line("                min_count: 0,");
-    f.line("                max_count: ROUTE_OUTPUT_BUFFER_BYTES as u32,");
+    f.line("                max_count: INLINE_BYTES as u32,");
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            },");
     f.line("        });");
