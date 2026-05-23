@@ -7,7 +7,7 @@ partition-algebra shapes.
 
 [![crates.io](https://img.shields.io/crates/v/uor-foundation-sdk.svg)](https://crates.io/crates/uor-foundation-sdk)
 [![docs.rs](https://docs.rs/uor-foundation-sdk/badge.svg)](https://docs.rs/uor-foundation-sdk)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](../LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
 
 ## Purpose
 
@@ -137,6 +137,6 @@ for non-canonically-ordered operands.
 
 ## License
 
-Apache-2.0.
+MIT.
 
 [foundation]: https://crates.io/crates/uor-foundation

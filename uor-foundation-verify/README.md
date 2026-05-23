@@ -50,4 +50,4 @@ numbers. The two crates must be used in lockstep.
 
 ## License
 
-Apache-2.0
+MIT

@@ -1282,7 +1282,7 @@ companion `uor-foundation-sdk` crate.
 
 ## License
 
-Apache-2.0 — see [LICENSE](https://github.com/UOR-Foundation/UOR-Framework/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/UOR-Foundation/UOR-Framework/blob/main/LICENSE).
 "#,
         version = ontology.version,
         ns = ontology.namespaces.len(),

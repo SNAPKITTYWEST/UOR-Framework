@@ -54,7 +54,7 @@ pub fn render_page(
 </article>
 </main>
 <footer class="site-footer">
-<p>UOR Foundation — <a href="https://uor.foundation/">uor.foundation</a> — <a href="https://github.com/UOR-Foundation/UOR-Framework">GitHub</a> — Apache-2.0</p>
+<p>UOR Foundation — <a href="https://uor.foundation/">uor.foundation</a> — <a href="https://github.com/UOR-Foundation/UOR-Framework">GitHub</a> — MIT</p>
 </footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 <script src="{js_url}" defer></script>
@@ -625,7 +625,7 @@ pub fn render_citation_page() -> String {
      \x20 author       = {{The UOR Foundation}},\n\
      \x20 title        = {{UOR Framework}},\n\
      \x20 url          = {https://github.com/UOR-Foundation/UOR-Framework},\n\
-     \x20 license      = {Apache-2.0},\n\
+     \x20 license      = {MIT},\n\
      \x20 abstract     = {A Rust workspace implementing the UOR Foundation\n\
      \x20                  ontology --- a mathematical framework for\n\
      \x20                  content-addressed, algebraically-structured\n\
