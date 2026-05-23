@@ -83,7 +83,7 @@ fn predicate_validate_const_succeeds() {
 #[test]
 fn certify_grounding_aware_const_emits_validated_grounding() {
     let unit = build_compile_unit();
-    let cert = certify_grounding_aware_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&unit);
+    let cert = certify_grounding_aware_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&unit);
     // The cert is Validated<GroundingCertificate, CompileTime>; its witt_bits
     // matches the source unit's witt_level.
     assert_eq!(cert.inner().witt_bits(), 16);

@@ -42,11 +42,11 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
     let drivers = [
         (
             "run_stream",
-            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
         (
             "run_interactive",
-            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
     ];
 

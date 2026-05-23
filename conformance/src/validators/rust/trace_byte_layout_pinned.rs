@@ -82,31 +82,31 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ),
         (
             "fold_unit_digest helper",
-            "pub fn fold_unit_digest<H: Hasher>",
+            "pub fn fold_unit_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_parallel_digest helper",
-            "pub fn fold_parallel_digest<H: Hasher>",
+            "pub fn fold_parallel_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_stream_digest helper",
-            "pub fn fold_stream_digest<H: Hasher>",
+            "pub fn fold_stream_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_interaction_digest helper",
-            "pub fn fold_interaction_digest<H: Hasher>",
+            "pub fn fold_interaction_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_constraint_ref helper",
-            "pub fn fold_constraint_ref<H: Hasher>",
+            "pub fn fold_constraint_ref<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_stream_step_digest helper",
-            "pub fn fold_stream_step_digest<H: Hasher>",
+            "pub fn fold_stream_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
         (
             "fold_interaction_step_digest helper",
-            "pub fn fold_interaction_step_digest<H: Hasher>",
+            "pub fn fold_interaction_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>",
         ),
     ];
 

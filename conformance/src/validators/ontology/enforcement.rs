@@ -181,7 +181,10 @@ fn validate_shape_violation_struct(content: &str, report: &mut ConformanceReport
 
 /// Check that `Derivation` and `FreeRank` have private fields.
 fn validate_witness_opacity(content: &str, report: &mut ConformanceReport) {
-    let derivation_private = content.contains("pub struct Derivation {")
+    // ADR-018/060: `Derivation` carries the application's fingerprint width
+    // `FP_MAX` (default 32) so the replayed Trace reproduces the source
+    // fingerprint at full width; fields stay private.
+    let derivation_private = content.contains("pub struct Derivation<const FP_MAX: usize = 32> {")
         && content.contains("step_count: u32,")
         && !content.contains("pub step_count: u32,");
     let free_rank_private = content.contains("pub struct FreeRank {")

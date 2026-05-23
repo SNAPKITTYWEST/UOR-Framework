@@ -615,7 +615,14 @@ pub trait SubstrateTermBody<const INLINE_BYTES: usize>: __sdk_seal::Sealed {
 /// evaluated kernel input bound in scope, and emits the resulting
 /// `TermValue`. The legacy `dispatch_kernel` fast-path remains as an
 /// optimization for axes whose body is empty (primitive fast-path).
-pub trait AxisExtension<const INLINE_BYTES: usize>: SubstrateTermBody<INLINE_BYTES> {
+/// ADR-018 + ADR-030: `FP_MAX` is the application's fingerprint-width axis
+/// (`<B as HostBounds>::FINGERPRINT_MAX_BYTES`), threaded so a `HashAxis`
+/// wrapping a `Hasher<FP_MAX>` of any width composes — there is no pinned
+/// 32-byte fingerprint. Parallel to `INLINE_BYTES`: the application
+/// instantiates it from its `HostBounds`, never a contrived literal.
+pub trait AxisExtension<const INLINE_BYTES: usize, const FP_MAX: usize>:
+    SubstrateTermBody<INLINE_BYTES>
+{
     /// ADR-017 content address of this axis trait. The SDK macro
     /// derives this from the trait name and method signatures.
     const AXIS_ADDRESS: &'static str;
@@ -641,7 +648,7 @@ pub trait AxisExtension<const INLINE_BYTES: usize>: SubstrateTermBody<INLINE_BYT
 /// axis position.
 /// Foundation provides tuple impls for arities 1 through
 /// [`MAX_AXIS_TUPLE_ARITY`].
-pub trait AxisTuple<const INLINE_BYTES: usize> {
+pub trait AxisTuple<const INLINE_BYTES: usize, const FP_MAX: usize> {
     /// Number of axes carried in this tuple.
     const AXIS_COUNT: usize;
     /// Maximum kernel-output byte width across all axes in this tuple.
@@ -670,9 +677,11 @@ pub trait AxisTuple<const INLINE_BYTES: usize> {
 /// ADR-030 blanket: every [`crate::enforcement::Hasher`] is
 /// automatically an [`AxisTuple`] of arity 1 — the canonical
 /// hash axis at position 0, kernel id 0.
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_BYTES> for H {
+impl<const INLINE_BYTES: usize, const FP_MAX: usize, H: crate::enforcement::Hasher<FP_MAX>>
+    AxisTuple<INLINE_BYTES, FP_MAX> for H
+{
     const AXIS_COUNT: usize = 1;
-    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;
+    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;
     fn dispatch(
         axis_index: u32,
         kernel_id: u32,
@@ -690,10 +699,10 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_
                 kind: crate::ViolationKind::ValueCheck,
             });
         }
-        let mut hasher = <H as crate::enforcement::Hasher>::initial();
+        let mut hasher = <H as crate::enforcement::Hasher<FP_MAX>>::initial();
         hasher = hasher.fold_bytes(input);
         let digest = hasher.finalize();
-        let n_max = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;
+        let n_max = <H as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;
         let n = if n_max > out.len() { out.len() } else { n_max };
         let mut i = 0;
         while i < n {
@@ -714,9 +723,11 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_
 }
 
 /// ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.
-impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0,) {
+impl<const INLINE_BYTES: usize, const FP_MAX: usize, A0: AxisExtension<INLINE_BYTES, FP_MAX>>
+    AxisTuple<INLINE_BYTES, FP_MAX> for (A0,)
+{
     const AXIS_COUNT: usize = 1;
-    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
     fn dispatch(
         axis_index: u32,
         kernel_id: u32,
@@ -724,7 +735,9 @@ impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLIN
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -749,14 +762,15 @@ impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLIN
 /// ADR-030: 2-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1)
 {
     const AXIS_COUNT: usize = 2;
     const MAX_OUTPUT_BYTES: usize = {
-        let a = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let b = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let b = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         if a > b {
             a
         } else {
@@ -770,8 +784,12 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -797,16 +815,17 @@ impl<
 /// ADR-030: 3-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2)
 {
     const AXIS_COUNT: usize = 3;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -823,9 +842,15 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -852,18 +877,19 @@ impl<
 /// ADR-030: 4-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-        A3: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A3: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2, A3)
 {
     const AXIS_COUNT: usize = 4;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -883,10 +909,18 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            3 => {
+                <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -914,20 +948,21 @@ impl<
 /// ADR-030: 5-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-        A3: AxisExtension<INLINE_BYTES>,
-        A4: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A3: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A4: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2, A3, A4)
 {
     const AXIS_COUNT: usize = 5;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -950,11 +985,21 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            3 => {
+                <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            4 => {
+                <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -983,22 +1028,23 @@ impl<
 /// ADR-030: 6-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-        A3: AxisExtension<INLINE_BYTES>,
-        A4: AxisExtension<INLINE_BYTES>,
-        A5: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A3: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A4: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A5: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2, A3, A4, A5)
 {
     const AXIS_COUNT: usize = 6;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -1024,12 +1070,24 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            3 => {
+                <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            4 => {
+                <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            5 => {
+                <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1059,24 +1117,25 @@ impl<
 /// ADR-030: 7-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-        A3: AxisExtension<INLINE_BYTES>,
-        A4: AxisExtension<INLINE_BYTES>,
-        A5: AxisExtension<INLINE_BYTES>,
-        A6: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5, A6)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A3: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A4: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A5: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A6: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2, A3, A4, A5, A6)
 {
     const AXIS_COUNT: usize = 7;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a6 = <A6 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -1105,13 +1164,27 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            6 => <A6 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            3 => {
+                <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            4 => {
+                <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            5 => {
+                <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            6 => {
+                <A6 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1142,26 +1215,27 @@ impl<
 /// ADR-030: 8-tuple AxisTuple impl.
 impl<
         const INLINE_BYTES: usize,
-        A0: AxisExtension<INLINE_BYTES>,
-        A1: AxisExtension<INLINE_BYTES>,
-        A2: AxisExtension<INLINE_BYTES>,
-        A3: AxisExtension<INLINE_BYTES>,
-        A4: AxisExtension<INLINE_BYTES>,
-        A5: AxisExtension<INLINE_BYTES>,
-        A6: AxisExtension<INLINE_BYTES>,
-        A7: AxisExtension<INLINE_BYTES>,
-    > AxisTuple<INLINE_BYTES> for (A0, A1, A2, A3, A4, A5, A6, A7)
+        const FP_MAX: usize,
+        A0: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A1: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A2: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A3: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A4: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A5: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A6: AxisExtension<INLINE_BYTES, FP_MAX>,
+        A7: AxisExtension<INLINE_BYTES, FP_MAX>,
+    > AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1, A2, A3, A4, A5, A6, A7)
 {
     const AXIS_COUNT: usize = 8;
     const MAX_OUTPUT_BYTES: usize = {
-        let a0 = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a1 = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a2 = <A2 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a3 = <A3 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a4 = <A4 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a5 = <A5 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a6 = <A6 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
-        let a7 = <A7 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;
+        let a0 = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a1 = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a2 = <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a3 = <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a4 = <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a5 = <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a6 = <A6 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
+        let a7 = <A7 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;
         let mut m = a0;
         if a1 > m {
             m = a1;
@@ -1193,14 +1267,30 @@ impl<
         out: &mut [u8],
     ) -> Result<usize, crate::enforcement::ShapeViolation> {
         match axis_index {
-            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            2 => <A2 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            3 => <A3 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            4 => <A4 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            5 => <A5 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            6 => <A6 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
-            7 => <A7 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),
+            0 => {
+                <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            1 => {
+                <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            2 => {
+                <A2 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            3 => {
+                <A3 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            4 => {
+                <A4 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            5 => {
+                <A5 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            6 => {
+                <A6 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
+            7 => {
+                <A7 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out)
+            }
             _ => Err(crate::enforcement::ShapeViolation {
                 shape_iri: "https://uor.foundation/pipeline/AxisTupleShape",
                 constraint_iri: "https://uor.foundation/pipeline/AxisTupleShape/inBounds",
@@ -1557,9 +1647,7 @@ impl<'a> KInvariantsBytes<'a> {
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait NerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait NerveResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1588,9 +1676,7 @@ pub trait NerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait ChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait ChainComplexResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1619,9 +1705,7 @@ pub trait ChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement:
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait HomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait HomologyGroupResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1650,9 +1734,7 @@ pub trait HomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait CochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait CochainComplexResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1681,9 +1763,7 @@ pub trait CochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcemen
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait CohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait CohomologyGroupResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1712,9 +1792,7 @@ pub trait CohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforceme
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait PostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait PostnikovResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1743,9 +1821,7 @@ pub trait PostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Ha
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait HomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait HomotopyGroupResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1774,9 +1850,7 @@ pub trait HomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement
 /// scratch, or `Stream` for unbounded structural sequences. There is no
 /// caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width
 /// ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).
-pub trait KInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    __sdk_seal::Sealed
-{
+pub trait KInvariantResolver<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {
     /// Resolve per-value content for this category.
     /// # Errors
     /// Returns [`crate::enforcement::ShapeViolation`] when the resolver
@@ -1791,9 +1865,7 @@ pub trait KInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::H
 /// ADR-036 marker trait: ResolverTuple positions including a `NerveResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasNerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasNerveResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `NerveResolver` impl this ResolverTuple carries.
     fn nerve_resolver(&self) -> &dyn NerveResolver<INLINE_BYTES, H>;
 }
@@ -1801,9 +1873,7 @@ pub trait HasNerveResolver<const INLINE_BYTES: usize, H: crate::enforcement::Has
 /// ADR-036 marker trait: ResolverTuple positions including a `ChainComplexResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasChainComplexResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `ChainComplexResolver` impl this ResolverTuple carries.
     fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<INLINE_BYTES, H>;
 }
@@ -1811,9 +1881,7 @@ pub trait HasChainComplexResolver<const INLINE_BYTES: usize, H: crate::enforceme
 /// ADR-036 marker trait: ResolverTuple positions including a `HomologyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasHomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasHomologyGroupResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `HomologyGroupResolver` impl this ResolverTuple carries.
     fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<INLINE_BYTES, H>;
 }
@@ -1821,9 +1889,7 @@ pub trait HasHomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcem
 /// ADR-036 marker trait: ResolverTuple positions including a `CochainComplexResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasCochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasCochainComplexResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `CochainComplexResolver` impl this ResolverTuple carries.
     fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<INLINE_BYTES, H>;
 }
@@ -1831,9 +1897,7 @@ pub trait HasCochainComplexResolver<const INLINE_BYTES: usize, H: crate::enforce
 /// ADR-036 marker trait: ResolverTuple positions including a `CohomologyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasCohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasCohomologyGroupResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `CohomologyGroupResolver` impl this ResolverTuple carries.
     fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<INLINE_BYTES, H>;
 }
@@ -1841,9 +1905,7 @@ pub trait HasCohomologyGroupResolver<const INLINE_BYTES: usize, H: crate::enforc
 /// ADR-036 marker trait: ResolverTuple positions including a `PostnikovResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasPostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasPostnikovResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `PostnikovResolver` impl this ResolverTuple carries.
     fn postnikov_resolver(&self) -> &dyn PostnikovResolver<INLINE_BYTES, H>;
 }
@@ -1851,9 +1913,7 @@ pub trait HasPostnikovResolver<const INLINE_BYTES: usize, H: crate::enforcement:
 /// ADR-036 marker trait: ResolverTuple positions including a `HomotopyGroupResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasHomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasHomotopyGroupResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `HomotopyGroupResolver` impl this ResolverTuple carries.
     fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<INLINE_BYTES, H>;
 }
@@ -1861,9 +1921,7 @@ pub trait HasHomotopyGroupResolver<const INLINE_BYTES: usize, H: crate::enforcem
 /// ADR-036 marker trait: ResolverTuple positions including a `KInvariantResolver`.
 /// The `prism_model!` macro infers the where-clause bound for each
 /// resolver-bound ψ-Term variant a verb body emits.
-pub trait HasKInvariantResolver<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>:
-    ResolverTuple
-{
+pub trait HasKInvariantResolver<const INLINE_BYTES: usize, H>: ResolverTuple {
     /// Returns the `KInvariantResolver` impl this ResolverTuple carries.
     fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<INLINE_BYTES, H>;
 }
@@ -1891,9 +1949,9 @@ impl ResolverTuple for NullResolverTuple {
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullNerveResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullNerveResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullNerveResolver<H> {
+impl<H> NullNerveResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -1901,11 +1959,9 @@ impl<H: crate::enforcement::Hasher> NullNerveResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullNerveResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullNerveResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INLINE_BYTES, H>
-    for NullNerveResolver<H>
-{
+impl<const INLINE_BYTES: usize, H> NerveResolver<INLINE_BYTES, H> for NullNerveResolver<H> {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -1928,9 +1984,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INL
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullChainComplexResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullChainComplexResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullChainComplexResolver<H> {
+impl<H> NullChainComplexResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -1938,9 +1994,9 @@ impl<H: crate::enforcement::Hasher> NullChainComplexResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullChainComplexResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullChainComplexResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResolver<INLINE_BYTES, H>
+impl<const INLINE_BYTES: usize, H> ChainComplexResolver<INLINE_BYTES, H>
     for NullChainComplexResolver<H>
 {
     fn resolve<'a>(
@@ -1965,9 +2021,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResol
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullHomologyGroupResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullHomologyGroupResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullHomologyGroupResolver<H> {
+impl<H> NullHomologyGroupResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -1975,10 +2031,10 @@ impl<H: crate::enforcement::Hasher> NullHomologyGroupResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomologyGroupResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullHomologyGroupResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HomologyGroupResolver<INLINE_BYTES, H> for NullHomologyGroupResolver<H>
+impl<const INLINE_BYTES: usize, H> HomologyGroupResolver<INLINE_BYTES, H>
+    for NullHomologyGroupResolver<H>
 {
     fn resolve<'a>(
         &self,
@@ -2002,9 +2058,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullCochainComplexResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullCochainComplexResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullCochainComplexResolver<H> {
+impl<H> NullCochainComplexResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -2012,10 +2068,10 @@ impl<H: crate::enforcement::Hasher> NullCochainComplexResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCochainComplexResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullCochainComplexResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    CochainComplexResolver<INLINE_BYTES, H> for NullCochainComplexResolver<H>
+impl<const INLINE_BYTES: usize, H> CochainComplexResolver<INLINE_BYTES, H>
+    for NullCochainComplexResolver<H>
 {
     fn resolve<'a>(
         &self,
@@ -2039,9 +2095,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullCohomologyGroupResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullCohomologyGroupResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullCohomologyGroupResolver<H> {
+impl<H> NullCohomologyGroupResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -2049,10 +2105,10 @@ impl<H: crate::enforcement::Hasher> NullCohomologyGroupResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullCohomologyGroupResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullCohomologyGroupResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    CohomologyGroupResolver<INLINE_BYTES, H> for NullCohomologyGroupResolver<H>
+impl<const INLINE_BYTES: usize, H> CohomologyGroupResolver<INLINE_BYTES, H>
+    for NullCohomologyGroupResolver<H>
 {
     fn resolve<'a>(
         &self,
@@ -2076,9 +2132,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullPostnikovResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullPostnikovResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullPostnikovResolver<H> {
+impl<H> NullPostnikovResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -2086,11 +2142,9 @@ impl<H: crate::enforcement::Hasher> NullPostnikovResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullPostnikovResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullPostnikovResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver<INLINE_BYTES, H>
-    for NullPostnikovResolver<H>
-{
+impl<const INLINE_BYTES: usize, H> PostnikovResolver<INLINE_BYTES, H> for NullPostnikovResolver<H> {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2113,9 +2167,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullHomotopyGroupResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullHomotopyGroupResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullHomotopyGroupResolver<H> {
+impl<H> NullHomotopyGroupResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -2123,10 +2177,10 @@ impl<H: crate::enforcement::Hasher> NullHomotopyGroupResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullHomotopyGroupResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullHomotopyGroupResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HomotopyGroupResolver<INLINE_BYTES, H> for NullHomotopyGroupResolver<H>
+impl<const INLINE_BYTES: usize, H> HomotopyGroupResolver<INLINE_BYTES, H>
+    for NullHomotopyGroupResolver<H>
 {
     fn resolve<'a>(
         &self,
@@ -2150,9 +2204,9 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// into `PipelineFailure::ShapeViolation` recoverable via `Term::Try`'s
 /// default-propagation handler (ADR-022 D3 G9).
 #[derive(Debug, Default)]
-pub struct NullKInvariantResolver<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);
+pub struct NullKInvariantResolver<H>(core::marker::PhantomData<H>);
 
-impl<H: crate::enforcement::Hasher> NullKInvariantResolver<H> {
+impl<H> NullKInvariantResolver<H> {
     /// Construct a new Null resolver.
     #[must_use]
     pub const fn new() -> Self {
@@ -2160,9 +2214,9 @@ impl<H: crate::enforcement::Hasher> NullKInvariantResolver<H> {
     }
 }
 
-impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for NullKInvariantResolver<H> {}
+impl<H> __sdk_seal::Sealed for NullKInvariantResolver<H> {}
 
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolver<INLINE_BYTES, H>
+impl<const INLINE_BYTES: usize, H> KInvariantResolver<INLINE_BYTES, H>
     for NullKInvariantResolver<H>
 {
     fn resolve<'a>(
@@ -2186,9 +2240,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolve
 /// the `HasNerveResolver<H>` accessor can return `self` cast to `&dyn NerveResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> NerveResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2207,9 +2259,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> NerveResolver<INL
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasNerveResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasNerveResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasNerveResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn nerve_resolver(&self) -> &dyn NerveResolver<INLINE_BYTES, H> {
         self
     }
@@ -2219,9 +2269,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasNerveResolver<
 /// the `HasChainComplexResolver<H>` accessor can return `self` cast to `&dyn ChainComplexResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> ChainComplexResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2240,9 +2288,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> ChainComplexResol
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasChainComplexResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasChainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasChainComplexResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn chain_complex_resolver(&self) -> &dyn ChainComplexResolver<INLINE_BYTES, H> {
         self
     }
@@ -2252,9 +2298,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// the `HasHomologyGroupResolver<H>` accessor can return `self` cast to `&dyn HomologyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2273,9 +2317,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasHomologyGroupResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasHomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasHomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn homology_group_resolver(&self) -> &dyn HomologyGroupResolver<INLINE_BYTES, H> {
         self
     }
@@ -2285,9 +2327,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// the `HasCochainComplexResolver<H>` accessor can return `self` cast to `&dyn CochainComplexResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    CochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> CochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2306,8 +2346,8 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasCochainComplexResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasCochainComplexResolver<INLINE_BYTES, H> for NullResolverTuple
+impl<const INLINE_BYTES: usize, H> HasCochainComplexResolver<INLINE_BYTES, H>
+    for NullResolverTuple
 {
     fn cochain_complex_resolver(&self) -> &dyn CochainComplexResolver<INLINE_BYTES, H> {
         self
@@ -2318,9 +2358,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// the `HasCohomologyGroupResolver<H>` accessor can return `self` cast to `&dyn CohomologyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    CohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> CohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2339,8 +2377,8 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasCohomologyGroupResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasCohomologyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
+impl<const INLINE_BYTES: usize, H> HasCohomologyGroupResolver<INLINE_BYTES, H>
+    for NullResolverTuple
 {
     fn cohomology_group_resolver(&self) -> &dyn CohomologyGroupResolver<INLINE_BYTES, H> {
         self
@@ -2351,9 +2389,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// the `HasPostnikovResolver<H>` accessor can return `self` cast to `&dyn PostnikovResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> PostnikovResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2372,9 +2408,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> PostnikovResolver
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasPostnikovResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasPostnikovResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasPostnikovResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn postnikov_resolver(&self) -> &dyn PostnikovResolver<INLINE_BYTES, H> {
         self
     }
@@ -2384,9 +2418,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> HasPostnikovResol
 /// the `HasHomotopyGroupResolver<H>` accessor can return `self` cast to `&dyn HomotopyGroupResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2405,9 +2437,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasHomotopyGroupResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasHomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasHomotopyGroupResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn homotopy_group_resolver(&self) -> &dyn HomotopyGroupResolver<INLINE_BYTES, H> {
         self
     }
@@ -2417,9 +2447,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
 /// the `HasKInvariantResolver<H>` accessor can return `self` cast to `&dyn KInvariantResolver<H>`.
 /// The `resolve` method emits the `RESOLVER_ABSENT` shape violation —
 /// recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolver<INLINE_BYTES, H>
-    for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> KInvariantResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn resolve<'a>(
         &self,
         _input: crate::pipeline::TermValue<'a, INLINE_BYTES>,
@@ -2438,9 +2466,7 @@ impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> KInvariantResolve
 }
 
 /// ADR-036: NullResolverTuple satisfies `HasKInvariantResolver<INLINE_BYTES, H>` (returns `self`).
-impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>
-    HasKInvariantResolver<INLINE_BYTES, H> for NullResolverTuple
-{
+impl<const INLINE_BYTES: usize, H> HasKInvariantResolver<INLINE_BYTES, H> for NullResolverTuple {
     fn k_invariant_resolver(&self) -> &dyn KInvariantResolver<INLINE_BYTES, H> {
         self
     }
@@ -2468,11 +2494,17 @@ pub struct InhabitanceCertificateView<
     'a,
     T: crate::enforcement::GroundedShape,
     const INLINE_BYTES: usize,
+    const FP_MAX: usize = 32,
     Tag = T,
->(pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>);
+>(pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag>);
 
-impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag>
-    InhabitanceCertificateView<'a, T, INLINE_BYTES, Tag>
+impl<
+        'a,
+        T: crate::enforcement::GroundedShape,
+        const INLINE_BYTES: usize,
+        const FP_MAX: usize,
+        Tag,
+    > InhabitanceCertificateView<'a, T, INLINE_BYTES, FP_MAX, Tag>
 {
     /// The κ-label — the homotopy-classification structural witness at
     /// ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's
@@ -2508,7 +2540,7 @@ impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag>
     #[must_use]
     pub fn certificate(
         &self,
-    ) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate> {
+    ) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate<FP_MAX>> {
         self.0.certificate()
     }
 
@@ -2576,8 +2608,13 @@ pub trait WitnessTupleSource {
     fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;
 }
 
-impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource
-    for crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>
+impl<
+        'a,
+        T: crate::enforcement::GroundedShape,
+        const INLINE_BYTES: usize,
+        const FP_MAX: usize,
+        Tag,
+    > WitnessTupleSource for crate::enforcement::Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag>
 {
     fn binding_count(&self) -> usize {
         self.iter_bindings().count()
@@ -3070,7 +3107,7 @@ pub enum TestOutcome {
 pub mod axis {
     /// Wiki ADR-049 cryptanalysis-battery entry point.
     #[must_use]
-    pub fn cryptanalyze<H: crate::enforcement::Hasher>(
+    pub fn cryptanalyze<H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(
         samples: usize,
     ) -> super::CryptanalysisReport {
         // Minimum-viable foundation surface: the cryptanalysis surface is
@@ -3082,7 +3119,7 @@ pub mod axis {
         // building on `axis::cryptanalyze` consume the typed report directly
         // without re-deriving the test-harness scaffolding.
         let _ = samples;
-        let _ = <H as crate::enforcement::Hasher>::initial();
+        let _ = <H as crate::enforcement::Hasher<FP_MAX>>::initial();
         super::CryptanalysisReport {
             samples,
             a_triadic_uniformity: super::TestOutcome::Pass,
@@ -3423,12 +3460,13 @@ pub trait PrismModel<
     B,
     A,
     const INLINE_BYTES: usize,
+    const FP_MAX: usize,
     R = crate::pipeline::NullResolverTuple,
     C = crate::pipeline::EmptyCommitment,
 >: __sdk_seal::Sealed where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX>,
     R: crate::pipeline::ResolverTuple,
     C: crate::pipeline::TypedCommitment,
 {
@@ -3466,7 +3504,7 @@ pub trait PrismModel<
     /// detect contradiction along the route.
     fn forward(
         input: Self::Input,
-    ) -> Result<crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES>, PipelineFailure>;
+    ) -> Result<crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES, FP_MAX>, PipelineFailure>;
 }
 
 /// Higher-level catamorphism entry point — wiki ADR-022 D5.
@@ -3480,16 +3518,16 @@ pub trait PrismModel<
 /// wiki commits to.
 /// # Errors
 /// Returns [`PipelineFailure`] from the underlying [`run`] call.
-pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize>(
+pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize, const FP_MAX: usize>(
     input: M::Input,
     resolvers: &R,
     commitment: &C,
-) -> Result<crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES>, PipelineFailure>
+) -> Result<crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES, FP_MAX>, PipelineFailure>
 where
     H: crate::HostTypes,
     B: crate::HostBounds,
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
-    M: PrismModel<'a, H, B, A, INLINE_BYTES, R, C>,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,
+    M: PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX, R, C>,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -3528,10 +3566,13 @@ where
     // full canonical sequence. The fold output is truncated to u64 for the
     // `Binding.content_address` carrier, matching the `to_binding_entry`
     // convention foundation uses for static bindings.
-    let mut hasher = <A as crate::enforcement::Hasher>::initial();
+    let mut hasher = <A as crate::enforcement::Hasher<FP_MAX>>::initial();
     input_value.for_each_chunk(&mut |chunk| {
-        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())
-            .fold_bytes(chunk);
+        hasher = core::mem::replace(
+            &mut hasher,
+            <A as crate::enforcement::Hasher<FP_MAX>>::initial(),
+        )
+        .fold_bytes(chunk);
     });
     let digest = hasher.finalize();
     let content_address: u64 = u64::from_be_bytes([
@@ -3580,7 +3621,8 @@ where
     // catamorphism's output carrier flows into the Grounded's output
     // payload (ADR-028). The input carrier threads `'a` so a Borrowed/
     // Stream output borrows the same input data the `Grounded<'a>` carries.
-    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, input_value, resolvers)?;
+    let evaluation =
+        evaluate_term_tree::<A, R, INLINE_BYTES, FP_MAX>(arena_slice, input_value, resolvers)?;
     // Wiki ADR-048: post-resolver typed-bandwidth admission. The
     // catamorphism evaluates the model's `C: TypedCommitment` on the
     // κ-label byte sequence (the route's evaluated output, which for the
@@ -3609,8 +3651,8 @@ where
     // `Grounded<'a>` (TermValue is covariant in its lifetime) so the
     // evaluated output carrier (which borrows the route's `'a` input data)
     // can be attached via `with_output`.
-    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES> =
-        run::<M::Output, _, A, INLINE_BYTES>(unit)?;
+    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES, FP_MAX> =
+        run::<M::Output, _, A, INLINE_BYTES, FP_MAX>(unit)?;
     Ok(grounded.with_output(evaluation))
 }
 
@@ -3990,6 +4032,7 @@ impl<'a, const INLINE_BYTES: usize> TermValue<'a, INLINE_BYTES> {
     /// `Vec<u8>` (works for all three variants, including `Stream`).
     #[cfg(feature = "alloc")]
     #[must_use]
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_vec(&self) -> alloc::vec::Vec<u8> {
         let mut out = alloc::vec::Vec::new();
         self.for_each_chunk(&mut |chunk| out.extend_from_slice(chunk));
@@ -4080,7 +4123,7 @@ pub const fn literal_bytes<const INLINE_BYTES: usize>(
 /// # Errors
 /// Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds
 /// index, level mismatch, exhausted match without wildcard arm, etc.).
-pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize>(
+pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     input: TermValue<'a, INLINE_BYTES>,
     // ADR-060: the resolver borrow `'r` is decoupled from the value/output
@@ -4091,7 +4134,7 @@ pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize>(
     resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4112,13 +4155,13 @@ where
     // arena (the `prism_model!` macro emits in post-order, so the root
     // is the final node).
     let root_idx = arena.len() - 1;
-    evaluate_term_at::<A, R, INLINE_BYTES>(
+    evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
         arena, root_idx, input, None, None, None, None, resolvers,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
+fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     idx: usize,
     input: TermValue<'a, INLINE_BYTES>,
@@ -4129,7 +4172,7 @@ fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
     resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -4198,7 +4241,7 @@ where
         crate::enforcement::Term::Application { operator, args } => {
             let start = args.start as usize;
             let len = args.len as usize;
-            apply_primitive_op::<A, R, INLINE_BYTES>(
+            apply_primitive_op::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 operator,
                 start,
@@ -4215,7 +4258,7 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 operand_index as usize,
                 input,
@@ -4251,7 +4294,7 @@ where
             operand_index,
             target,
         } => {
-            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 operand_index as usize,
                 input,
@@ -4278,7 +4321,7 @@ where
             scrutinee_index,
             arms,
         } => {
-            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 scrutinee_index as usize,
                 input,
@@ -4300,7 +4343,7 @@ where
                     crate::enforcement::Term::Variable { name_index } if name_index == u32::MAX
                 );
                 if is_wildcard {
-                    return evaluate_term_at::<A, R, INLINE_BYTES>(
+                    return evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                         arena,
                         body_idx,
                         input,
@@ -4311,7 +4354,7 @@ where
                         resolvers,
                     );
                 }
-                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(
+                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                     arena,
                     pattern_idx,
                     input,
@@ -4322,7 +4365,7 @@ where
                     resolvers,
                 )?;
                 if pattern_val.bytes() == scrutinee.bytes() {
-                    return evaluate_term_at::<A, R, INLINE_BYTES>(
+                    return evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                         arena,
                         body_idx,
                         input,
@@ -4364,7 +4407,7 @@ where
             // arm). The outer recurse_value is preserved for nested Recurse
             // forms within the measure/base computations; step body uses the
             // iteration's accumulator.
-            let measure = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let measure = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 measure_index as usize,
                 input,
@@ -4375,7 +4418,7 @@ where
                 resolvers,
             )?;
             let n = bytes_to_u64_be(measure.bytes());
-            let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let base_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 base_index as usize,
                 input,
@@ -4407,7 +4450,7 @@ where
                 // u64 packing so callers can read it as a u64-shaped value.
                 let descent_measure: u64 = n - iter;
                 let descent_bytes = descent_measure.to_be_bytes();
-                let next = evaluate_term_at::<A, R, INLINE_BYTES>(
+                let next = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                     arena,
                     step_index as usize,
                     input,
@@ -4445,7 +4488,7 @@ where
             // The outer unfold_value is preserved for nested Unfold forms
             // within the seed; step body's state placeholder uses the
             // iteration's accumulator.
-            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 seed_index as usize,
                 input,
@@ -4464,7 +4507,7 @@ where
             }
             let mut iter = 0usize;
             while iter < UNFOLD_MAX_ITERATIONS {
-                let next = evaluate_term_at::<A, R, INLINE_BYTES>(
+                let next = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                     arena,
                     step_index as usize,
                     input,
@@ -4498,7 +4541,7 @@ where
             body_index,
             handler_index,
         } => {
-            match evaluate_term_at::<A, R, INLINE_BYTES>(
+            match evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 body_index as usize,
                 input,
@@ -4513,7 +4556,7 @@ where
                     if handler_index == u32::MAX {
                         Err(e)
                     } else {
-                        evaluate_term_at::<A, R, INLINE_BYTES>(
+                        evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                             arena,
                             handler_index as usize,
                             input,
@@ -4544,7 +4587,7 @@ where
             // `axis!` SDK macro extend the dispatch surface to additional
             // (axis_index, kernel_id) combinations and may provide substrate-
             // Term bodies the catamorphism walks structurally.
-            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 input_index as usize,
                 input,
@@ -4554,7 +4597,8 @@ where
                 first_admit_idx_value,
                 resolvers,
             )?;
-            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);
+            let body =
+                <A as crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX>>::body_arena_at(axis_index);
             if body.is_empty() {
                 if axis_index == 0 && kernel_id == 0 {
                     // ADR-060: the canonical σ-projection / hash axis (axis 0,
@@ -4565,16 +4609,16 @@ where
                     // an empty slice for a `Stream` operand.) The digest is
                     // always Inline — its width is bounded by the application's
                     // fingerprint width, ≤ the derived inline width.
-                    let mut hasher = <A as crate::enforcement::Hasher>::initial();
+                    let mut hasher = <A as crate::enforcement::Hasher<FP_MAX>>::initial();
                     v.for_each_chunk(&mut |chunk| {
                         hasher = core::mem::replace(
                             &mut hasher,
-                            <A as crate::enforcement::Hasher>::initial(),
+                            <A as crate::enforcement::Hasher<FP_MAX>>::initial(),
                         )
                         .fold_bytes(chunk);
                     });
                     let digest = hasher.finalize();
-                    let n_max = <A as crate::enforcement::Hasher>::OUTPUT_BYTES;
+                    let n_max = <A as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;
                     let width = if n_max > INLINE_BYTES {
                         INLINE_BYTES
                     } else {
@@ -4586,15 +4630,16 @@ where
                 // the bounded operand bytes (user-declared axes operate on
                 // bounded values; `v.bytes()` yields the Inline/Borrowed slice).
                 let mut out = [0u8; INLINE_BYTES];
-                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(
-                    axis_index,
-                    kernel_id,
-                    v.bytes(),
-                    &mut out,
-                ) {
-                    Ok(n) => n,
-                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
-                };
+                let written =
+                    match <A as crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX>>::dispatch(
+                        axis_index,
+                        kernel_id,
+                        v.bytes(),
+                        &mut out,
+                    ) {
+                        Ok(n) => n,
+                        Err(report) => return Err(PipelineFailure::ShapeViolation { report }),
+                    };
                 let width = if written > INLINE_BYTES {
                     INLINE_BYTES
                 } else {
@@ -4610,7 +4655,7 @@ where
                 // body's input; the recursively-folded body result is
                 // materialized into an owned `Inline` carrier so it does not
                 // borrow the body arena's transient scope.
-                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(
+                let folded = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                     body,
                     root,
                     v,
@@ -4629,7 +4674,7 @@ where
             byte_length,
         } => {
             // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].
-            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 source_index as usize,
                 input,
@@ -4669,7 +4714,7 @@ where
             // non-zero predicate result (the "found" coproduct value
             // 0x01 || idx_bytes); after exhausting the domain return the
             // "not-found" coproduct value 0x00 || idx-width zero bytes.
-            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 domain_size_index as usize,
                 input,
@@ -4697,7 +4742,7 @@ where
             while idx_iter < n {
                 let idx_bytes_full = idx_iter.to_be_bytes();
                 let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];
-                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES>(
+                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                     arena,
                     predicate_index as usize,
                     input,
@@ -4747,7 +4792,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 value_index as usize,
                 input,
@@ -4771,7 +4816,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 simplicial_index as usize,
                 input,
@@ -4795,7 +4840,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 chain_index as usize,
                 input,
@@ -4819,7 +4864,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 chain_index as usize,
                 input,
@@ -4843,7 +4888,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 cochain_index as usize,
                 input,
@@ -4867,7 +4912,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 simplicial_index as usize,
                 input,
@@ -4891,7 +4936,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 postnikov_index as usize,
                 input,
@@ -4915,7 +4960,7 @@ where
             // resolver-side `Err` propagates as
             // `PipelineFailure::ShapeViolation` (the Null defaults emit
             // `RESOLVER_ABSENT`, recoverable via `Term::Try`).
-            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 homotopy_index as usize,
                 input,
@@ -4937,7 +4982,7 @@ where
             // serialization per the homology bridge's wire format)
             // are returned as-is; downstream consumers slice the
             // Betti tuple positions out of the result.
-            let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
                 arena,
                 homology_index as usize,
                 input,
@@ -4953,7 +4998,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
+fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(
     arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],
     operator: crate::PrimitiveOp,
     args_start: usize,
@@ -4966,7 +5011,7 @@ fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(
     resolvers: &'r R,
 ) -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>
 where
-    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,
+    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,
     R: crate::pipeline::ResolverTuple
         + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>
         + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>
@@ -5013,7 +5058,7 @@ where
         });
     }
     if arity == 1 {
-        let v = evaluate_term_at::<A, R, INLINE_BYTES>(
+        let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
             arena,
             args_start,
             input,
@@ -5047,7 +5092,7 @@ where
         let arr = r.to_be_bytes();
         Ok(TermValue::inline_from_slice(&arr[8 - width..]))
     } else {
-        let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(
+        let lhs = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
             arena,
             args_start,
             input,
@@ -5057,7 +5102,7 @@ where
             first_admit_idx_value,
             resolvers,
         )?;
-        let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(
+        let rhs = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(
             arena,
             args_start + 1,
             input,
@@ -7714,10 +7759,14 @@ pub fn run_reduction_stages<T: ConstrainedTypeShape + ?Sized>(
 /// # Errors
 /// Returns `GenericImpossibilityWitness` when the input is unsatisfiable or
 /// when any preflight / reduction stage rejects it.
-pub fn run_tower_completeness<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher>(
+pub fn run_tower_completeness<
+    T: ConstrainedTypeShape + ?Sized,
+    H: crate::enforcement::Hasher<FP_MAX>,
+    const FP_MAX: usize,
+>(
     _input: &T,
     level: WittLevel,
-) -> Result<Validated<LiftChainCertificate>, GenericImpossibilityWitness> {
+) -> Result<Validated<LiftChainCertificate<FP_MAX>>, GenericImpossibilityWitness> {
     let witt_bits = level.witt_length() as u16;
     preflight_budget_solvency(witt_bits as u64, witt_bits as u32)
         .map_err(|_| GenericImpossibilityWitness::default())?;
@@ -7849,11 +7898,12 @@ impl SpectralSequencePage {
 /// does not vanish, or when preflight checks reject the input.
 pub fn run_incremental_completeness<
     T: ConstrainedTypeShape + ?Sized,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
+    const FP_MAX: usize,
 >(
     _input: &T,
     target_level: WittLevel,
-) -> Result<Validated<LiftChainCertificate>, GenericImpossibilityWitness> {
+) -> Result<Validated<LiftChainCertificate<FP_MAX>>, GenericImpossibilityWitness> {
     let target_bits = target_level.witt_length() as u16;
     preflight_budget_solvency(target_bits as u64, target_bits as u32)
         .map_err(|_| GenericImpossibilityWitness::default())?;
@@ -7977,10 +8027,14 @@ pub fn run_incremental_completeness<
 /// Returns `GenericImpossibilityWitness` on grounding failure: unresolved
 /// variables, or any variable reference whose name index is absent from
 /// `unit.bindings()`.
-pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>(
+pub fn run_grounding_aware<
+    const INLINE_BYTES: usize,
+    H: crate::enforcement::Hasher<FP_MAX>,
+    const FP_MAX: usize,
+>(
     unit: &CompileUnit<'_, INLINE_BYTES>,
     level: WittLevel,
-) -> Result<Validated<GroundingCertificate>, GenericImpossibilityWitness> {
+) -> Result<Validated<GroundingCertificate<FP_MAX>>, GenericImpossibilityWitness> {
     let witt_bits = level.witt_length() as u16;
     // v0.2.2 Phase H2: walk root_term enumerating Term::Variable name_indices,
     // linear-search unit.bindings() for each, reject unresolved variables.
@@ -8032,10 +8086,14 @@ pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Has
 /// # Errors
 ///
 /// Returns `InhabitanceImpossibilityWitness` when the input is unsatisfiable.
-pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher>(
+pub fn run_inhabitance<
+    T: ConstrainedTypeShape + ?Sized,
+    H: crate::enforcement::Hasher<FP_MAX>,
+    const FP_MAX: usize,
+>(
     _input: &T,
     level: WittLevel,
-) -> Result<Validated<InhabitanceCertificate>, InhabitanceImpossibilityWitness> {
+) -> Result<Validated<InhabitanceCertificate<FP_MAX>>, InhabitanceImpossibilityWitness> {
     let witt_bits = level.witt_length() as u16;
     preflight_budget_solvency(witt_bits as u64, witt_bits as u32)
         .map_err(|_| InhabitanceImpossibilityWitness::default())?;
@@ -8109,17 +8167,17 @@ pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::
 ///     .result_type::<ConstrainedTypeInput>()
 ///     .validate()
 ///     .expect("unit well-formed");
-/// let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit)
+/// let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit)
 ///     .expect("pipeline admits");
 /// # let _ = grounded;
 /// ```
-pub fn run<T, P, H, const INLINE_BYTES: usize>(
+pub fn run<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let witt_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -8179,7 +8237,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
         grounding,
         bindings,
         outcome.witt_bits,
@@ -8507,13 +8565,17 @@ impl PeerInput {
 /// v0.2.2 Phase F: outcome of a single `InteractionDriver::step` call.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {
+pub enum StepResult<
+    T: crate::enforcement::GroundedShape,
+    const INLINE_BYTES: usize,
+    const FP_MAX: usize = 32,
+> {
     /// The step was absorbed; the driver is ready for another peer input.
     Continue,
     /// The step produced an intermediate grounded output.
-    Output(Grounded<'static, T, INLINE_BYTES>),
+    Output(Grounded<'static, T, INLINE_BYTES, FP_MAX>),
     /// The convergence predicate is satisfied; interaction is complete.
-    Converged(Grounded<'static, T, INLINE_BYTES>),
+    Converged(Grounded<'static, T, INLINE_BYTES, FP_MAX>),
     /// v0.2.2 Phase T.1: the commutator norm failed to decrease for
     /// `INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is
     /// non-convergent and the driver is no longer advanceable.
@@ -8561,8 +8623,9 @@ impl<L> CommutatorState<L> {
 pub struct StreamDriver<
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
     const INLINE_BYTES: usize,
+    const FP_MAX: usize = 32,
 > {
     rewrite_steps: u64,
     landauer_nats: u64,
@@ -8579,9 +8642,10 @@ pub struct StreamDriver<
 impl<
         T: crate::enforcement::GroundedShape,
         P: crate::enforcement::ValidationPhase,
-        H: crate::enforcement::Hasher,
+        H: crate::enforcement::Hasher<FP_MAX>,
         const INLINE_BYTES: usize,
-    > StreamDriver<T, P, H, INLINE_BYTES>
+        const FP_MAX: usize,
+    > StreamDriver<T, P, H, INLINE_BYTES, FP_MAX>
 {
     /// Crate-internal constructor. Callable only from `pipeline::run_stream`.
     #[inline]
@@ -8636,11 +8700,12 @@ impl<
 impl<
         T: crate::enforcement::GroundedShape + ConstrainedTypeShape,
         P: crate::enforcement::ValidationPhase,
-        H: crate::enforcement::Hasher,
+        H: crate::enforcement::Hasher<FP_MAX>,
         const INLINE_BYTES: usize,
-    > Iterator for StreamDriver<T, P, H, INLINE_BYTES>
+        const FP_MAX: usize,
+    > Iterator for StreamDriver<T, P, H, INLINE_BYTES, FP_MAX>
 {
-    type Item = Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>;
+    type Item = Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.terminated || self.productivity_countdown == 0 {
             self.terminated = true;
@@ -8678,7 +8743,7 @@ impl<
             content_fingerprint,
         ));
         let bindings = empty_bindings_table();
-        Some(Ok(Grounded::<T, INLINE_BYTES>::new_internal(
+        Some(Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
             grounding,
             bindings,
             32, // default witt level for stream output
@@ -8697,8 +8762,9 @@ impl<
 pub struct InteractionDriver<
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
     const INLINE_BYTES: usize,
+    const FP_MAX: usize = 32,
 > {
     commutator_acc: [u64; 4],
     peer_step_count: u64,
@@ -8728,9 +8794,10 @@ pub const INTERACTION_DIVERGENCE_BUDGET: u32 = 16;
 impl<
         T: crate::enforcement::GroundedShape,
         P: crate::enforcement::ValidationPhase,
-        H: crate::enforcement::Hasher,
+        H: crate::enforcement::Hasher<FP_MAX>,
         const INLINE_BYTES: usize,
-    > InteractionDriver<T, P, H, INLINE_BYTES>
+        const FP_MAX: usize,
+    > InteractionDriver<T, P, H, INLINE_BYTES, FP_MAX>
 {
     /// Crate-internal constructor. Callable only from `pipeline::run_interactive`.
     #[inline]
@@ -8774,7 +8841,7 @@ impl<
     ///   non-decreasing for `INTERACTION_DIVERGENCE_BUDGET` consecutive steps.
     /// * **Continue** otherwise.
     #[must_use]
-    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES>
+    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES, FP_MAX>
     where
         T: ConstrainedTypeShape,
     {
@@ -8821,7 +8888,7 @@ impl<
                 content_fingerprint,
             ));
             let bindings = empty_bindings_table();
-            return StepResult::Converged(Grounded::<T, INLINE_BYTES>::new_internal(
+            return StepResult::Converged(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
                 grounding,
                 bindings,
                 32,
@@ -8872,7 +8939,7 @@ impl<
     /// Returns a `PipelineFailure::ShapeViolation` if the driver has
     /// not converged, or `PipelineFailure::ShapeMismatch` if the source
     /// declaration's result_type_iri does not match `T::IRI`.
-    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
+    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>
     where
         T: ConstrainedTypeShape,
     {
@@ -8916,7 +8983,7 @@ impl<
             content_fingerprint,
         ));
         let bindings = empty_bindings_table();
-        Ok(Grounded::<T, INLINE_BYTES>::new_internal(
+        Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
             grounding,
             bindings,
             32,
@@ -8965,17 +9032,17 @@ impl<
 /// // ADR-060: `Grounded` carries an `INLINE_BYTES` const-generic the
 /// // application derives from its `HostBounds`; thread it through
 /// // `run_parallel`'s 4th const argument.
-/// let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32>(decl)
+/// let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32, 32>(decl)
 ///     .expect("partition admits");
 /// # let _ = grounded;
 /// ```
-pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(
+pub fn run_parallel<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: Validated<ParallelDeclaration, P>,
-) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let decl = unit.inner();
     let site_count = decl.site_count();
@@ -9063,7 +9130,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
         grounding,
         bindings,
         32,
@@ -9080,13 +9147,13 @@ where
 /// from the previous step's, and the iterator terminates when the
 /// countdown reaches zero.
 #[must_use]
-pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(
+pub fn run_stream<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: Validated<StreamDeclaration<'_, INLINE_BYTES>, P>,
-) -> StreamDriver<T, P, H, INLINE_BYTES>
+) -> StreamDriver<T, P, H, INLINE_BYTES, FP_MAX>
 where
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let bound = unit.inner().productivity_bound();
     let result_type_iri = unit.inner().result_type_iri();
@@ -9099,13 +9166,13 @@ where
 /// `convergence_seed()`. Advance with `step(PeerInput)` until
 /// `is_converged()` returns `true`, then call `finalize()`.
 #[must_use]
-pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(
+pub fn run_interactive<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: Validated<InteractionDeclaration, P>,
-) -> InteractionDriver<T, P, H, INLINE_BYTES>
+) -> InteractionDriver<T, P, H, INLINE_BYTES, FP_MAX>
 where
     T: crate::enforcement::GroundedShape,
     P: crate::enforcement::ValidationPhase,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     InteractionDriver::new_internal(
         unit.inner().convergence_seed(),
@@ -9264,12 +9331,12 @@ pub const fn validate_stream_const<'a, const INLINE_BYTES: usize, T: Constrained
 /// parametric content fingerprint, distinguishing two units that share a
 /// witt level but differ in budget, IRI, site count, or constraints.
 #[must_use]
-pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize>(
+pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Validated<GroundingCertificate, CompileTime>
+) -> Validated<GroundingCertificate<FP_MAX>, CompileTime>
 where
     T: ConstrainedTypeShape,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let level_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -9295,12 +9362,17 @@ where
 /// parametric fingerprint; uses `CertificateKind::IncrementalCompleteness`
 /// as the trailing discriminant byte.
 #[must_use]
-pub fn certify_incremental_completeness_const<T, H, const INLINE_BYTES: usize>(
+pub fn certify_incremental_completeness_const<
+    T,
+    H,
+    const INLINE_BYTES: usize,
+    const FP_MAX: usize,
+>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Validated<GroundingCertificate, CompileTime>
+) -> Validated<GroundingCertificate<FP_MAX>, CompileTime>
 where
     T: ConstrainedTypeShape,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let level_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -9325,12 +9397,12 @@ where
 /// Threads `H: Hasher` for the parametric fingerprint; uses
 /// `CertificateKind::Inhabitance` as the trailing discriminant byte.
 #[must_use]
-pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize>(
+pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Validated<GroundingCertificate, CompileTime>
+) -> Validated<GroundingCertificate<FP_MAX>, CompileTime>
 where
     T: ConstrainedTypeShape,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let level_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -9356,12 +9428,12 @@ where
 /// fingerprint; uses `CertificateKind::Multiplication` as the trailing
 /// discriminant byte.
 #[must_use]
-pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize>(
+pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Validated<MultiplicationCertificate, CompileTime>
+) -> Validated<MultiplicationCertificate<FP_MAX>, CompileTime>
 where
     T: ConstrainedTypeShape,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let level_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -9386,12 +9458,12 @@ where
 /// Threads `H: Hasher` for the parametric fingerprint; uses
 /// `CertificateKind::Grounding` as the trailing discriminant byte.
 #[must_use]
-pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize>(
+pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Validated<GroundingCertificate, CompileTime>
+) -> Validated<GroundingCertificate<FP_MAX>, CompileTime>
 where
     T: ConstrainedTypeShape,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     let level_bits = unit.inner().witt_level().witt_length() as u16;
     let budget = unit.inner().thermodynamic_budget();
@@ -9424,9 +9496,9 @@ where
 /// Returns `PipelineFailure::ShapeMismatch` when the unit's declared
 /// `result_type_iri` does not match `T::IRI`, or propagates any
 /// failure from the reduction stage executor.
-pub fn run_const<T, M, H, const INLINE_BYTES: usize>(
+pub fn run_const<T, M, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
     unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,
-) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>
+) -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>
 where
     T: ConstrainedTypeShape + crate::enforcement::GroundedShape,
     // Phase C.2 (target §6): const-eval admits only those grounding-map kinds
@@ -9435,7 +9507,7 @@ where
     M: crate::enforcement::GroundingMapKind
         + crate::enforcement::Total
         + crate::enforcement::Invertible,
-    H: crate::enforcement::Hasher,
+    H: crate::enforcement::Hasher<FP_MAX>,
 {
     // The marker bound on M is purely type-level — no runtime use.
     let _phantom_map: core::marker::PhantomData<M> = core::marker::PhantomData;
@@ -9470,7 +9542,7 @@ where
         content_fingerprint,
     ));
     let bindings = empty_bindings_table();
-    Ok(Grounded::<T, INLINE_BYTES>::new_internal(
+    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(
         grounding,
         bindings,
         level_bits,

@@ -48,7 +48,7 @@ macro_rules! ct_resolver_test {
         #[test]
         fn $test_name() {
             let input = validated_runtime(ConstrainedTypeInput::default());
-            let cert = $module::certify::<_, _, Fnv1aHasher16>(&input)
+            let cert = $module::certify::<_, _, Fnv1aHasher16, 32>(&input)
                 .expect(concat!(stringify!($module), " must certify vacuous input"));
             assert_ne!(cert.certificate().witt_bits(), 0);
         }
@@ -75,7 +75,7 @@ macro_rules! cu_resolver_test {
         #[test]
         fn $test_name() {
             let unit = build_unit();
-            let cert = $module::certify::<_, Fnv1aHasher16, N>(&unit)
+            let cert = $module::certify::<_, Fnv1aHasher16, N, 32>(&unit)
                 .expect(concat!(stringify!($module), " must certify unit"));
             assert_ne!(cert.certificate().witt_bits(), 0);
         }
@@ -92,8 +92,8 @@ cu_resolver_test!(witt_level_resolver_certifies, witt_level_resolver);
 #[test]
 fn canonical_form_is_content_deterministic() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let cert_a = canonical_form::certify::<_, _, Fnv1aHasher16>(&input).expect("a");
-    let cert_b = canonical_form::certify::<_, _, Fnv1aHasher16>(&input).expect("b");
+    let cert_a = canonical_form::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("a");
+    let cert_b = canonical_form::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("b");
     assert_eq!(
         cert_a.certificate().witt_bits(),
         cert_b.certificate().witt_bits()
@@ -108,9 +108,9 @@ fn canonical_form_is_content_deterministic() {
 #[test]
 fn canonical_form_fingerprint_is_level_dependent() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let cert_w8 = canonical_form::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W8)
+    let cert_w8 = canonical_form::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W8)
         .expect("w8 certifies");
-    let cert_w32 = canonical_form::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W32)
+    let cert_w32 = canonical_form::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W32)
         .expect("w32 certifies");
     assert_ne!(
         cert_w8.certificate().witt_bits(),

@@ -2,6 +2,77 @@
 
 All notable changes to UOR-Framework are documented in this file.
 
+## 0.5.2 — ADR-018/060 fingerprint-width parametricity (Hasher<FP_MAX>) — 2026-05-23
+
+Closes a downstream-blocking bug: foundation 0.5.1 pinned the entire
+resolver/pipeline tower to `Hasher<32>` — the `AxisTuple` blanket impl and
+`run_route`'s `A: AxisTuple + Hasher` bound both defaulted the hasher
+fingerprint width `FP_MAX` to 32, so a `Sha512Hasher: Hasher<64>` (or any
+non-32-byte-output hasher) could not be selected at all. Per ADR-018 ("every
+capacity-bounded width is part of the index, total over `HostBounds`"), the
+fingerprint width is now a free const-generic `FP_MAX` threaded through every
+hash-bearing surface and instantiated from the application's
+`<B as HostBounds>::FINGERPRINT_MAX_BYTES` — exactly parallel to how ADR-060's
+`INLINE_BYTES` flows from `carrier_inline_bytes::<B>()`. The `prism_model!` /
+`axis!` SDK macros derive and thread `FP_MAX` automatically, so the
+application-author surface is **ergonomically identical**; only applications
+selecting a non-default `HostBounds` ever name the width. Conformance reports
+**546 passed, 0 warnings, 0 failed**.
+
+### Breaking
+
+- **`Grounded` gains a fingerprint-width parameter:
+  `Grounded<'a, T, INLINE_BYTES, FP_MAX = 32, Tag = T>`** (was
+  `Grounded<'a, T, INLINE_BYTES, Tag = T>`). The carried `ContentFingerprint`,
+  `GroundingCertificate`, `Derivation`, and `Trace` are all `FP_MAX`-indexed;
+  `content_fingerprint()` returns `ContentFingerprint<FP_MAX>`.
+- **`PrismModel` gains `FP_MAX`:
+  `PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX, R, C>`** (inserted between
+  `INLINE_BYTES` and `R`); `forward` returns
+  `Grounded<'a, Output, INLINE_BYTES, FP_MAX>`. `A` is bound
+  `AxisTuple<INLINE_BYTES, FP_MAX> + Hasher<FP_MAX>`.
+- **`AxisExtension` / `AxisTuple` gain `FP_MAX`:**
+  `AxisExtension<INLINE_BYTES, FP_MAX>`, `AxisTuple<INLINE_BYTES, FP_MAX>`. The
+  blanket `impl<…, H: Hasher<FP_MAX>> AxisTuple<INLINE_BYTES, FP_MAX> for H` and
+  all tuple impls thread the width.
+- **The catamorphism entry points gain `const FP_MAX`:** `run`, `run_const`,
+  `run_parallel`, `run_stream`, `run_interactive`, `run_route`, plus
+  `StreamDriver` / `InteractionDriver` / `StepResult`, the
+  `run_tower_completeness` / `run_incremental_completeness` /
+  `run_grounding_aware` / `run_inhabitance` resolver runners and their
+  `resolver::*::certify` free-functions, and the five `certify_*_const`
+  companions.
+- **The certificate hierarchy is `FP_MAX`-indexed:** the 12 fingerprint-carrying
+  certificate kinds become `{Cert}<const FP_MAX = 32>`; the crate-internal
+  `ResolverKernel::Cert` is now a const-generic GAT
+  (`type Cert<const FP_MAX: usize>: Certificate`), and `MintWithLevelFingerprint`
+  becomes `MintWithLevelFingerprint<const FP_MAX>`.
+- **Verify path is width-parametric:** `replay::certify_from_trace` and
+  `uor_foundation_verify::verify_trace` accept `Trace<TR_MAX, FP_MAX>` and return
+  `Certified<GroundingCertificate<FP_MAX>>`; both infer `FP_MAX` from the trace,
+  so `verify_trace(&trace)` is unchanged at the call site.
+- Parameter-order convention: where a function carries both a hasher type and the
+  width const, the order is `<…, H: Hasher<FP_MAX>, const FP_MAX: usize>` (H
+  first) — `multiplication::certify`, `axis::cryptanalyze`,
+  `mint_cohomology_class`, and `mint_homology_class` were reordered to match.
+
+### Fixed
+
+- `PrismModel::forward`'s trait-method return type was pinned to `FP_MAX = 32`
+  even where the impl selected another width — a latent defect no 32-width model
+  could surface. Now threaded; proven by `behavior_hasher_fp_max_64.rs`, which
+  grounds a real `Hasher<64>` model through `forward()` → `run_route` and
+  round-trips its 64-byte fingerprint through `Derivation::replay` →
+  `certify_from_trace` bit-identically.
+
+### Unchanged
+
+- Resolver-*provided* content addresses (`PartitionHandle`, `NullPartition`, the
+  partition witness records) keep their default-width `ContentFingerprint`: they
+  never bound on `Hasher`, so they never constrained the substituted width.
+- `ContentFingerprint<FP_MAX = 32>` and `Trace<TR_MAX = 256, FP_MAX = 32>` keep
+  their ergonomic defaults; `TRACE_REPLAY_FORMAT_VERSION` stays foundation-fixed.
+
 ## 0.5.1 — ADR-060 source-polymorphic application I/O (input + Grounded output) — 2026-05-22
 
 Completes ADR-060: 0.5.0 made the **intermediate** carriers source-polymorphic

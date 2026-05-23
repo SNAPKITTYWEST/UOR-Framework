@@ -78,8 +78,9 @@ fn subscription_receives_events_from_real_pipeline_trace() {
     });
 
     let unit = build();
-    let grounded = run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
-        .expect("run_const succeeds");
+    let grounded =
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
+            .expect("run_const succeeds");
     let trace: uor_foundation::Trace = grounded.derivation().replay();
 
     // Walk the trace, dispatch every event through the subscription.

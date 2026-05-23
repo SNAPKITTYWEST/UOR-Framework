@@ -31,7 +31,7 @@ fn eval_zero<'a>(
     arena: &'a [Term<'a, N>],
     input_bytes: &'a [u8],
 ) -> Result<TermValue<'a, N>, PipelineFailure> {
-    evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+    evaluate_term_tree::<ZeroHasher, NullResolverTuple, N, 32>(
         arena,
         TermValue::borrowed(input_bytes),
         &NullResolverTuple,
@@ -65,7 +65,7 @@ impl Hasher for ZeroHasher {
 fn evaluator_surface_resolves_at_crate_root() {
     // The function exists at the foundation public path and evaluates the
     // identity (empty) route to the threaded input bytes.
-    let out = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+    let out = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N, 32>(
         &[],
         TermValue::borrowed(&[0xaa]),
         &NullResolverTuple,
@@ -606,7 +606,7 @@ fn resolver_bound_psi_term_consults_resolver_tuple() {
         Term::Nerve { value_index: 0 },
     ];
     let input = [0x11u8, 0x22, 0x33];
-    let result = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+    let result = evaluate_term_tree::<ZeroHasher, NullResolverTuple, N, 32>(
         &arena,
         TermValue::borrowed(&input),
         &NullResolverTuple,

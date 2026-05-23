@@ -52,35 +52,35 @@ fn probe_validated() -> uor_foundation::enforcement::Validated<Probe> {
 fn two_sat_decider_produces_grounding_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::two_sat_decider::certify::<_, _, H>(&input);
+        resolver::two_sat_decider::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn horn_sat_decider_produces_grounding_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::horn_sat_decider::certify::<_, _, H>(&input);
+        resolver::horn_sat_decider::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn residual_verdict_produces_grounding_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::residual_verdict::certify::<_, _, H>(&input);
+        resolver::residual_verdict::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn jacobian_guided_produces_grounding_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::jacobian_guided::certify::<_, _, H>(&input);
+        resolver::jacobian_guided::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn evaluation_produces_grounding_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::evaluation::certify::<_, _, H>(&input);
+        resolver::evaluation::certify::<_, _, H, 32>(&input);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -91,28 +91,28 @@ fn evaluation_produces_grounding_certificate() {
 fn canonical_form_produces_transform_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::canonical_form::certify::<_, _, H>(&input);
+        resolver::canonical_form::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn type_synthesis_produces_transform_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::type_synthesis::certify::<_, _, H>(&input);
+        resolver::type_synthesis::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn homotopy_produces_transform_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::homotopy::certify::<_, _, H>(&input);
+        resolver::homotopy::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn moduli_produces_transform_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::moduli::certify::<_, _, H>(&input);
+        resolver::moduli::certify::<_, _, H, 32>(&input);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -126,28 +126,28 @@ fn moduli_produces_transform_certificate() {
 fn monodromy_produces_isometry_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<IsometryCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::monodromy::certify::<_, _, H>(&input);
+        resolver::monodromy::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn dihedral_factorization_produces_involution_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<InvolutionCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::dihedral_factorization::certify::<_, _, H>(&input);
+        resolver::dihedral_factorization::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn completeness_produces_completeness_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<CompletenessCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::completeness::certify::<_, _, H>(&input);
+        resolver::completeness::certify::<_, _, H, 32>(&input);
 }
 
 #[test]
 fn geodesic_validator_produces_geodesic_certificate() {
     let input = probe_validated();
     let _r: Result<Certified<GeodesicCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::geodesic_validator::certify::<_, _, H>(&input);
+        resolver::geodesic_validator::certify::<_, _, H, 32>(&input);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -177,28 +177,28 @@ fn probe_unit(
 fn session_produces_grounding_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::session::certify::<_, H, N>(&u);
+        resolver::session::certify::<_, H, N, 32>(&u);
 }
 
 #[test]
 fn superposition_produces_born_rule_verification() {
     let u = probe_unit();
     let _r: Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>> =
-        resolver::superposition::certify::<_, H, N>(&u);
+        resolver::superposition::certify::<_, H, N, 32>(&u);
 }
 
 #[test]
 fn measurement_produces_measurement_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::measurement::certify::<_, H, N>(&u);
+        resolver::measurement::certify::<_, H, N, 32>(&u);
 }
 
 #[test]
 fn witt_level_produces_grounding_certificate() {
     let u = probe_unit();
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::witt_level_resolver::certify::<_, H, N>(&u);
+        resolver::witt_level_resolver::certify::<_, H, N, 32>(&u);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -210,17 +210,17 @@ fn witt_level_produces_grounding_certificate() {
 #[test]
 fn cert_witness_carries_witt_bits_and_fingerprint() {
     let input = probe_validated();
-    if let Ok(c) = resolver::homotopy::certify::<_, _, H>(&input) {
+    if let Ok(c) = resolver::homotopy::certify::<_, _, H, 32>(&input) {
         assert_eq!(c.certificate().witt_bits(), 32);
         assert!(c.certificate().content_fingerprint().width_bytes() > 0);
     } else {
         panic!("homotopy must certify the probe shape");
     }
-    if let Ok(c) = resolver::monodromy::certify::<_, _, H>(&input) {
+    if let Ok(c) = resolver::monodromy::certify::<_, _, H, 32>(&input) {
         assert_eq!(c.certificate().witt_bits(), 32);
         assert!(c.certificate().content_fingerprint().width_bytes() > 0);
     }
-    if let Ok(c) = resolver::dihedral_factorization::certify::<_, _, H>(&input) {
+    if let Ok(c) = resolver::dihedral_factorization::certify::<_, _, H, 32>(&input) {
         assert_eq!(c.certificate().witt_bits(), 32);
         assert!(c.certificate().content_fingerprint().width_bytes() > 0);
     }

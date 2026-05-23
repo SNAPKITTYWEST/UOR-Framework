@@ -60,12 +60,12 @@ fn axis_extension_requires_substrate_term_body_supertrait() {
     // SubstrateTermBody. If the supertrait bound is missing this fails to
     // compile. Coerce one method from each trait to assert both surfaces
     // are reachable through the joint bound.
-    fn pair_check<T: AxisExtension<N> + SubstrateTermBody<N>>() -> (
+    fn pair_check<T: AxisExtension<N, 32> + SubstrateTermBody<N>>() -> (
         &'static str,
         fn() -> &'static [uor_foundation::enforcement::Term<'static, N>],
     ) {
         (
-            <T as AxisExtension<N>>::AXIS_ADDRESS,
+            <T as AxisExtension<N, 32>>::AXIS_ADDRESS,
             <T as SubstrateTermBody<N>>::body_arena,
         )
     }
@@ -91,8 +91,8 @@ fn axis_tuple_exposes_body_arena_at_per_position() {
     // AxisTuple::body_arena_at(axis_index) delegates to the per-axis
     // SubstrateTermBody impl. For a 1-tuple, axis_index = 0 routes to A0;
     // out-of-range indices return &[].
-    let body0 = <(HashAxis<ProbeHasher>,) as AxisTuple<N>>::body_arena_at(0);
-    let body1 = <(HashAxis<ProbeHasher>,) as AxisTuple<N>>::body_arena_at(1);
+    let body0 = <(HashAxis<ProbeHasher>,) as AxisTuple<N, 32>>::body_arena_at(0);
+    let body1 = <(HashAxis<ProbeHasher>,) as AxisTuple<N, 32>>::body_arena_at(1);
     assert!(body0.is_empty());
     assert!(body1.is_empty());
 }
@@ -101,7 +101,7 @@ fn axis_tuple_exposes_body_arena_at_per_position() {
 fn hasher_blanket_axis_tuple_body_arena_at_returns_empty() {
     // The foundation-built `impl<H: Hasher> AxisTuple for H` blanket has the
     // ADR-055 body_arena_at signature too — empty for the canonical hash axis.
-    let body = <ProbeHasher as AxisTuple<N>>::body_arena_at(0);
+    let body = <ProbeHasher as AxisTuple<N, 32>>::body_arena_at(0);
     assert!(body.is_empty());
 }
 
@@ -121,7 +121,7 @@ fn axis_invocation_fold_rule_uses_dispatch_kernel_when_body_empty() {
             input_index: 0,
         },
     ];
-    let result = evaluate_term_tree::<ProbeHasher, NullResolverTuple, N>(
+    let result = evaluate_term_tree::<ProbeHasher, NullResolverTuple, N, 32>(
         &arena,
         uor_foundation::pipeline::TermValue::borrowed(&[0x42u8]),
         &NullResolverTuple,

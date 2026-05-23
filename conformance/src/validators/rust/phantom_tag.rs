@@ -16,19 +16,23 @@ const VALIDATOR: &str = "rust/phantom_tag";
 /// Required exact-string anchors in `foundation/src/enforcement.rs` for Phase B.
 const REQUIRED_ANCHORS: &[(&str, &str)] = &[
     (
-        "pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {",
-        "Grounded must declare `Tag = T` default type parameter",
+        // ADR-018/060: `FP_MAX` (default 32) is threaded between `INLINE_BYTES`
+        // and `Tag`; the struct signature is rustfmt-wrapped, so the anchor
+        // pins the trailing const-default + `Tag = T` default pair — unique to
+        // `Grounded` (no other foundation struct carries a `Tag = T` default).
+        "    const FP_MAX: usize = 32,\n    Tag = T,\n> {",
+        "Grounded must declare `FP_MAX` (default 32) + `Tag = T` default parameters",
     ),
     (
         "_tag: PhantomData<Tag>,",
         "Grounded must hold a `_tag: PhantomData<Tag>` field",
     ),
     (
-        "impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLINE_BYTES, Tag>",
-        "Grounded impl block must take both T and Tag generic parameters",
+        "impl<'a, T: GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize, Tag>",
+        "Grounded impl block must take T, INLINE_BYTES, FP_MAX, and Tag generic parameters",
     ),
     (
-        "pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, NewTag>",
+        "pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, FP_MAX, NewTag>",
         "Grounded::tag::<NewTag>() coercion must be public",
     ),
 ];

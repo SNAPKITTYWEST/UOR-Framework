@@ -40,37 +40,42 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
 
     // Each pipeline entry point takes H: Hasher.
     let required_signatures: &[(&str, &str)] = &[
+        // ADR-018/060: every entry point threads `const FP_MAX: usize` after
+        // `INLINE_BYTES` and bounds its hasher `H: Hasher<FP_MAX>`, so any
+        // fingerprint width (e.g. SHA-512 at 64) flows. The four short-list
+        // entries stay single-line; the resolver-runner signatures below are
+        // rustfmt-wrapped after `<`, so their anchors match up to that point.
         (
             "pipeline::run",
-            "pub fn run<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
         // Phase C.2: run_const carries `M: Total + Invertible` per target §6.
         ("pipeline::run_const", "pub fn run_const<T, M, H"),
         (
             "pipeline::run_parallel",
-            "pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run_parallel<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
         (
             "pipeline::run_stream",
-            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run_stream<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
         (
             "pipeline::run_interactive",
-            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(",
+            "pub fn run_interactive<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
         ),
         (
-            "run_tower_completeness<T, H>",
-            "pub fn run_tower_completeness<T",
+            "run_tower_completeness<T, H, FP_MAX>",
+            "pub fn run_tower_completeness<",
         ),
         (
-            "run_incremental_completeness<T, H>",
+            "run_incremental_completeness<T, H, FP_MAX>",
             "pub fn run_incremental_completeness<",
         ),
         (
-            "run_grounding_aware<H>",
-            "pub fn run_grounding_aware<const INLINE_BYTES: usize, H",
+            "run_grounding_aware<INLINE_BYTES, H, FP_MAX>",
+            "pub fn run_grounding_aware<",
         ),
-        ("run_inhabitance<T, H>", "pub fn run_inhabitance<T"),
+        ("run_inhabitance<T, H, FP_MAX>", "pub fn run_inhabitance<"),
     ];
 
     // Substrate-threading anchors: the pipeline body must invoke these.

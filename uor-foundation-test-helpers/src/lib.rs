@@ -66,6 +66,15 @@ impl HostBounds for ReferenceHostBounds {
 pub const REFERENCE_INLINE_BYTES: usize =
     uor_foundation::pipeline::carrier_inline_bytes::<ReferenceHostBounds>();
 
+/// ADR-018/060 fingerprint width for [`ReferenceHostBounds`], read from its
+/// `HostBounds::FINGERPRINT_MAX_BYTES`. Consumers thread this as the `FP_MAX`
+/// const-generic argument alongside [`REFERENCE_INLINE_BYTES`]
+/// (`PrismModel<.., REFERENCE_INLINE_BYTES, REFERENCE_FP_MAX, ..>`,
+/// `Grounded<_, REFERENCE_INLINE_BYTES, REFERENCE_FP_MAX>`,
+/// `run_route::<.., REFERENCE_INLINE_BYTES, REFERENCE_FP_MAX>`, …).
+pub const REFERENCE_FP_MAX: usize =
+    <ReferenceHostBounds as uor_foundation::HostBounds>::FINGERPRINT_MAX_BYTES;
+
 /// Test-only ctor: build a Trace from a slice of events with a
 /// `ContentFingerprint::zero()` placeholder. Tests that need a non-zero
 /// fingerprint use `trace_with_fingerprint` instead.

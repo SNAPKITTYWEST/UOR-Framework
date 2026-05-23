@@ -92,17 +92,27 @@ pub use uor_foundation::HostBounds;
 /// # Example
 ///
 /// ```no_run
-/// use uor_foundation::enforcement::Derivation;
+/// use uor_foundation::enforcement::{Derivation, Trace};
 /// use uor_foundation_verify::verify_trace;
 ///
 /// # fn example(derivation: &Derivation) {
-/// let trace = derivation.replay();
+/// // ADR-018/060: `TR_MAX`/`FP_MAX` come from the application's `HostBounds`;
+/// // here the type-annotated binding fixes the defaults (256 events, 32-byte
+/// // fingerprint). `verify_trace` infers both const-generics from the trace.
+/// let trace: Trace = derivation.replay();
 /// let certified = verify_trace(&trace).expect("trace verifies");
 /// let fingerprint = certified.certificate().content_fingerprint();
 /// # let _ = fingerprint;
 /// # }
 /// ```
+///
+/// ADR-018/060: `verify_trace` is parametric over the trace's event-count
+/// ceiling `TR_MAX` and fingerprint width `FP_MAX`; both are inferred from the
+/// `trace` argument, so an application using a 64-byte-fingerprint `HostBounds`
+/// (e.g. SHA-512) round-trips through this same call with no turbofish.
 #[inline]
-pub fn verify_trace(trace: &Trace) -> Result<Certified<GroundingCertificate>, ReplayError> {
+pub fn verify_trace<const TR_MAX: usize, const FP_MAX: usize>(
+    trace: &Trace<TR_MAX, FP_MAX>,
+) -> Result<Certified<GroundingCertificate<FP_MAX>>, ReplayError> {
     certify_from_trace(trace)
 }

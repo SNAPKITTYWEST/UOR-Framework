@@ -100,12 +100,20 @@ fn prism_model_input_bound_includes_into_binding_value() {
     // `ConstrainedTypeShape + IntoBindingValue`. The parametric check
     // pins the bound: any `M: PrismModel<…>` has `M::Input:
     // IntoBindingValue`.
-    fn _input_implements_into_binding<'a, H, B, A, M, const INLINE_BYTES: usize>()
+    fn _input_implements_into_binding<
+        'a,
+        H,
+        B,
+        A,
+        M,
+        const INLINE_BYTES: usize,
+        const FP_MAX: usize,
+    >()
     where
         H: HostTypes,
         B: HostBounds,
-        A: Hasher,
-        M: PrismModel<'a, H, B, A, INLINE_BYTES>,
+        A: Hasher<FP_MAX>,
+        M: PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX>,
     {
         fn _check<'a, T: IntoBindingValue<'a>>() {}
         _check::<M::Input>();
@@ -113,7 +121,9 @@ fn prism_model_input_bound_includes_into_binding_value() {
     // Identity route via the foundation-sanctioned impl.
     struct IdentityModel;
     impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
-    impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
+    impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N, 32>
+        for IdentityModel
+    {
         type Input = ConstrainedTypeInput;
         type Output = ConstrainedTypeInput;
         type Route = ConstrainedTypeInput;
@@ -121,7 +131,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
         fn forward(
             input: Self::Input,
         ) -> Result<
-            uor_foundation::enforcement::Grounded<'a, Self::Output, N>,
+            uor_foundation::enforcement::Grounded<'a, Self::Output, N, 32>,
             uor_foundation::PipelineFailure,
         > {
             uor_foundation::pipeline::run_route::<
@@ -132,6 +142,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
                 uor_foundation::pipeline::NullResolverTuple,
                 uor_foundation::pipeline::EmptyCommitment,
                 N,
+                32,
             >(
                 input,
                 &uor_foundation::pipeline::NullResolverTuple,
@@ -145,6 +156,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
         TestHasher,
         IdentityModel,
         N,
+        32,
     >();
 
     // The ConstrainedTypeShape bound is preserved.
@@ -154,6 +166,7 @@ fn prism_model_input_bound_includes_into_binding_value() {
         ReferenceHostBounds,
         TestHasher,
         N,
+        32,
     >>::Input as ConstrainedTypeShape>::IRI;
     assert!(iri.contains("ConstrainedType"));
 }

@@ -968,7 +968,7 @@ impl<T> From<Validated<T, CompileTime>> for Validated<T, Runtime> {
 /// verify path can re-derive the source certificate via
 /// `Derivation::replay() -> Trace -> verify_trace`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Derivation {
+pub struct Derivation<const FP_MAX: usize = 32> {
     /// Number of rewrite steps in this derivation.
     step_count: u32,
     /// v0.2.2 T5: Witt level the source grounding was minted at. Carried
@@ -978,10 +978,10 @@ pub struct Derivation {
     /// full state, computed at grounding time by the consumer-supplied
     /// `Hasher`. Carried through replay so the verifier can reproduce
     /// the source certificate via passthrough.
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl Derivation {
+impl<const FP_MAX: usize> Derivation<FP_MAX> {
     /// Returns the number of rewrite steps.
     #[inline]
     #[must_use]
@@ -1000,7 +1000,7 @@ impl Derivation {
     /// unit, computed at grounding time by the consumer-supplied `Hasher`.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -1011,7 +1011,7 @@ impl Derivation {
     pub(crate) const fn new(
         step_count: u32,
         witt_level_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             step_count,
@@ -5611,16 +5611,18 @@ pub trait OntologyTarget: ontology_target_sealed::Sealed {}
 
 /// Sealed shim for `cert:GroundingCertificate`. Produced by GroundingAwareResolver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GroundingCertificate {
+pub struct GroundingCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl GroundingCertificate {
+impl<const FP_MAX: usize> GroundingCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5636,7 +5638,7 @@ impl GroundingCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5649,7 +5651,7 @@ impl GroundingCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5660,16 +5662,18 @@ impl GroundingCertificate {
 
 /// Sealed shim for `cert:LiftChainCertificate`. Carries the v0.2.1 `target_level()` accessor populated from the pipeline's StageOutcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LiftChainCertificate {
+pub struct LiftChainCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl LiftChainCertificate {
+impl<const FP_MAX: usize> LiftChainCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5685,7 +5689,7 @@ impl LiftChainCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5698,7 +5702,7 @@ impl LiftChainCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5709,16 +5713,18 @@ impl LiftChainCertificate {
 
 /// Sealed shim for `cert:InhabitanceCertificate` (v0.2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InhabitanceCertificate {
+pub struct InhabitanceCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl InhabitanceCertificate {
+impl<const FP_MAX: usize> InhabitanceCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5734,7 +5740,7 @@ impl InhabitanceCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5747,7 +5753,7 @@ impl InhabitanceCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5758,16 +5764,18 @@ impl InhabitanceCertificate {
 
 /// Sealed shim for `cert:CompletenessCertificate`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CompletenessCertificate {
+pub struct CompletenessCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl CompletenessCertificate {
+impl<const FP_MAX: usize> CompletenessCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5783,7 +5791,7 @@ impl CompletenessCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5796,7 +5804,7 @@ impl CompletenessCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5807,16 +5815,18 @@ impl CompletenessCertificate {
 
 /// Sealed shim for `cert:MultiplicationCertificate` (v0.2.2 Phase C.4). Carries the cost-optimal Toom-Cook splitting factor R, the recursive sub-multiplication count, and the accumulated Landauer cost in nats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MultiplicationCertificate {
+pub struct MultiplicationCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl MultiplicationCertificate {
+impl<const FP_MAX: usize> MultiplicationCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5832,7 +5842,7 @@ impl MultiplicationCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5845,7 +5855,7 @@ impl MultiplicationCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5856,16 +5866,18 @@ impl MultiplicationCertificate {
 
 /// Sealed shim for `cert:PartitionCertificate` (v0.2.2 Phase E). Attests the partition component classification of a Datum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PartitionCertificate {
+pub struct PartitionCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
     /// v0.2.2 T5: parametric content fingerprint computed at mint time
     /// by the consumer-supplied `Hasher`. Bit-equality on the full
     /// buffer + width tag, so two certs with different `OUTPUT_BYTES`
-    /// are never equal even when leading bytes coincide.
-    content_fingerprint: ContentFingerprint,
+    /// are never equal even when leading bytes coincide. `FP_MAX` is the
+    /// application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);
+    /// threaded, not pinned, so any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
 }
 
-impl PartitionCertificate {
+impl<const FP_MAX: usize> PartitionCertificate<FP_MAX> {
     /// Returns the Witt level the certificate was issued for. Sourced
     /// from the pipeline's substrate hash output at minting time.
     #[inline]
@@ -5881,7 +5893,7 @@ impl PartitionCertificate {
     /// `ContentFingerprint::Eq` compares the full buffer + width tag.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -5894,7 +5906,7 @@ impl PartitionCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -5993,12 +6005,12 @@ impl InhabitanceCertificate {
 pub(crate) mod ontology_target_sealed {
     /// Private supertrait. Not implementable outside this crate.
     pub trait Sealed {}
-    impl Sealed for super::GroundingCertificate {}
-    impl Sealed for super::LiftChainCertificate {}
-    impl Sealed for super::InhabitanceCertificate {}
-    impl Sealed for super::CompletenessCertificate {}
-    impl Sealed for super::MultiplicationCertificate {}
-    impl Sealed for super::PartitionCertificate {}
+    impl<const FP_MAX: usize> Sealed for super::GroundingCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::LiftChainCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::InhabitanceCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::CompletenessCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::MultiplicationCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::PartitionCertificate<FP_MAX> {}
     impl Sealed for super::GenericImpossibilityWitness {}
     impl Sealed for super::InhabitanceImpossibilityWitness {}
     impl Sealed for super::ConstrainedTypeInput {}
@@ -6008,12 +6020,12 @@ pub(crate) mod ontology_target_sealed {
     impl<const INLINE_BYTES: usize> Sealed for super::CompileUnit<'_, INLINE_BYTES> {}
 }
 
-impl OntologyTarget for GroundingCertificate {}
-impl OntologyTarget for LiftChainCertificate {}
-impl OntologyTarget for InhabitanceCertificate {}
-impl OntologyTarget for CompletenessCertificate {}
-impl OntologyTarget for MultiplicationCertificate {}
-impl OntologyTarget for PartitionCertificate {}
+impl<const FP_MAX: usize> OntologyTarget for GroundingCertificate<FP_MAX> {}
+impl<const FP_MAX: usize> OntologyTarget for LiftChainCertificate<FP_MAX> {}
+impl<const FP_MAX: usize> OntologyTarget for InhabitanceCertificate<FP_MAX> {}
+impl<const FP_MAX: usize> OntologyTarget for CompletenessCertificate<FP_MAX> {}
+impl<const FP_MAX: usize> OntologyTarget for MultiplicationCertificate<FP_MAX> {}
+impl<const FP_MAX: usize> OntologyTarget for PartitionCertificate<FP_MAX> {}
 impl OntologyTarget for GenericImpossibilityWitness {}
 impl OntologyTarget for InhabitanceImpossibilityWitness {}
 impl OntologyTarget for ConstrainedTypeInput {}
@@ -6047,13 +6059,13 @@ pub struct GeodesicEvidenceBundle {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TransformCertificate {
+pub struct TransformCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl TransformCertificate {
+impl<const FP_MAX: usize> TransformCertificate<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6062,7 +6074,7 @@ impl TransformCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6094,7 +6106,7 @@ impl TransformCertificate {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6105,13 +6117,13 @@ impl TransformCertificate {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct IsometryCertificate {
+pub struct IsometryCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl IsometryCertificate {
+impl<const FP_MAX: usize> IsometryCertificate<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6120,7 +6132,7 @@ impl IsometryCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6152,7 +6164,7 @@ impl IsometryCertificate {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6163,13 +6175,13 @@ impl IsometryCertificate {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InvolutionCertificate {
+pub struct InvolutionCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl InvolutionCertificate {
+impl<const FP_MAX: usize> InvolutionCertificate<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6178,7 +6190,7 @@ impl InvolutionCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6210,7 +6222,7 @@ impl InvolutionCertificate {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6221,13 +6233,13 @@ impl InvolutionCertificate {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GeodesicCertificate {
+pub struct GeodesicCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl GeodesicCertificate {
+impl<const FP_MAX: usize> GeodesicCertificate<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6236,7 +6248,7 @@ impl GeodesicCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6268,7 +6280,7 @@ impl GeodesicCertificate {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6279,13 +6291,13 @@ impl GeodesicCertificate {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeasurementCertificate {
+pub struct MeasurementCertificate<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl MeasurementCertificate {
+impl<const FP_MAX: usize> MeasurementCertificate<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6294,7 +6306,7 @@ impl MeasurementCertificate {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6326,7 +6338,7 @@ impl MeasurementCertificate {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6337,13 +6349,13 @@ impl MeasurementCertificate {
 /// its decision into a content-addressed witness. The `with_level_and_fingerprint_const`
 /// constructor matches every other `cert:Certificate` subclass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BornRuleVerification {
+pub struct BornRuleVerification<const FP_MAX: usize = 32> {
     witt_bits: u16,
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _private: (),
 }
 
-impl BornRuleVerification {
+impl<const FP_MAX: usize> BornRuleVerification<FP_MAX> {
     /// Phase X.1: content-addressed constructor. Mints a certificate
     /// carrying the Witt level and substrate-hasher fingerprint of the
     /// resolver decision. Crate-sealed so that only resolver kernels mint.
@@ -6352,7 +6364,7 @@ impl BornRuleVerification {
     #[allow(dead_code)]
     pub(crate) const fn with_level_and_fingerprint_const(
         witt_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             witt_bits,
@@ -6384,7 +6396,7 @@ impl BornRuleVerification {
     /// Phase X.1: the content fingerprint of the resolver decision.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 }
@@ -6402,18 +6414,18 @@ pub trait Certificate: certificate_sealed::Sealed {
 pub(crate) mod certificate_sealed {
     /// Private supertrait. Not implementable outside this crate.
     pub trait Sealed {}
-    impl Sealed for super::GroundingCertificate {}
-    impl Sealed for super::LiftChainCertificate {}
-    impl Sealed for super::InhabitanceCertificate {}
-    impl Sealed for super::CompletenessCertificate {}
-    impl Sealed for super::TransformCertificate {}
-    impl Sealed for super::IsometryCertificate {}
-    impl Sealed for super::InvolutionCertificate {}
-    impl Sealed for super::GeodesicCertificate {}
-    impl Sealed for super::MeasurementCertificate {}
-    impl Sealed for super::BornRuleVerification {}
-    impl Sealed for super::MultiplicationCertificate {}
-    impl Sealed for super::PartitionCertificate {}
+    impl<const FP_MAX: usize> Sealed for super::GroundingCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::LiftChainCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::InhabitanceCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::CompletenessCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::TransformCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::IsometryCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::InvolutionCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::GeodesicCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::MeasurementCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::BornRuleVerification<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::MultiplicationCertificate<FP_MAX> {}
+    impl<const FP_MAX: usize> Sealed for super::PartitionCertificate<FP_MAX> {}
     impl Sealed for super::GenericImpossibilityWitness {}
     impl Sealed for super::InhabitanceImpossibilityWitness {}
     impl Sealed for super::PartitionProductWitness {}
@@ -6421,62 +6433,62 @@ pub(crate) mod certificate_sealed {
     impl Sealed for super::CartesianProductWitness {}
 }
 
-impl Certificate for GroundingCertificate {
+impl<const FP_MAX: usize> Certificate for GroundingCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/GroundingCertificate";
     type Evidence = ();
 }
 
-impl Certificate for LiftChainCertificate {
+impl<const FP_MAX: usize> Certificate for LiftChainCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/LiftChainCertificate";
     type Evidence = ChainAuditTrail;
 }
 
-impl Certificate for InhabitanceCertificate {
+impl<const FP_MAX: usize> Certificate for InhabitanceCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/InhabitanceCertificate";
     type Evidence = ();
 }
 
-impl Certificate for CompletenessCertificate {
+impl<const FP_MAX: usize> Certificate for CompletenessCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/CompletenessCertificate";
     type Evidence = CompletenessAuditTrail;
 }
 
-impl Certificate for TransformCertificate {
+impl<const FP_MAX: usize> Certificate for TransformCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/TransformCertificate";
     type Evidence = ();
 }
 
-impl Certificate for IsometryCertificate {
+impl<const FP_MAX: usize> Certificate for IsometryCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/IsometryCertificate";
     type Evidence = ();
 }
 
-impl Certificate for InvolutionCertificate {
+impl<const FP_MAX: usize> Certificate for InvolutionCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/InvolutionCertificate";
     type Evidence = ();
 }
 
-impl Certificate for GeodesicCertificate {
+impl<const FP_MAX: usize> Certificate for GeodesicCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/GeodesicCertificate";
     type Evidence = GeodesicEvidenceBundle;
 }
 
-impl Certificate for MeasurementCertificate {
+impl<const FP_MAX: usize> Certificate for MeasurementCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/MeasurementCertificate";
     type Evidence = ();
 }
 
-impl Certificate for BornRuleVerification {
+impl<const FP_MAX: usize> Certificate for BornRuleVerification<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/BornRuleVerification";
     type Evidence = ();
 }
 
-impl Certificate for MultiplicationCertificate {
+impl<const FP_MAX: usize> Certificate for MultiplicationCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/MultiplicationCertificate";
     type Evidence = MultiplicationEvidence;
 }
 
-impl Certificate for PartitionCertificate {
+impl<const FP_MAX: usize> Certificate for PartitionCertificate<FP_MAX> {
     const IRI: &'static str = "https://uor.foundation/cert/PartitionCertificate";
     type Evidence = ();
 }
@@ -6498,17 +6510,17 @@ impl Certificate for InhabitanceImpossibilityWitness {
 /// documentation alongside `Certificate`.
 pub(crate) mod certify_const_mint {
     use super::{Certificate, ContentFingerprint};
-    pub trait MintWithLevelFingerprint: Certificate {
+    pub trait MintWithLevelFingerprint<const FP_MAX: usize>: Certificate {
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self;
     }
-    impl MintWithLevelFingerprint for super::GroundingCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::GroundingCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::GroundingCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6516,11 +6528,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::LiftChainCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::LiftChainCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::LiftChainCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6528,11 +6540,13 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::InhabitanceCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX>
+        for super::InhabitanceCertificate<FP_MAX>
+    {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::InhabitanceCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6540,11 +6554,13 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::CompletenessCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX>
+        for super::CompletenessCertificate<FP_MAX>
+    {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::CompletenessCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6552,11 +6568,13 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::MultiplicationCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX>
+        for super::MultiplicationCertificate<FP_MAX>
+    {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::MultiplicationCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6564,11 +6582,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::PartitionCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::PartitionCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::PartitionCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6576,11 +6594,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::TransformCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::TransformCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::TransformCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6588,11 +6606,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::IsometryCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::IsometryCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::IsometryCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6600,11 +6618,13 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::InvolutionCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX>
+        for super::InvolutionCertificate<FP_MAX>
+    {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::InvolutionCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6612,11 +6632,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::GeodesicCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::GeodesicCertificate<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::GeodesicCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6624,11 +6644,13 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::MeasurementCertificate {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX>
+        for super::MeasurementCertificate<FP_MAX>
+    {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::MeasurementCertificate::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6636,11 +6658,11 @@ pub(crate) mod certify_const_mint {
             )
         }
     }
-    impl MintWithLevelFingerprint for super::BornRuleVerification {
+    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::BornRuleVerification<FP_MAX> {
         #[inline]
         fn mint_with_level_fingerprint(
             witt_bits: u16,
-            content_fingerprint: ContentFingerprint,
+            content_fingerprint: ContentFingerprint<FP_MAX>,
         ) -> Self {
             super::BornRuleVerification::with_level_and_fingerprint_const(
                 witt_bits,
@@ -6779,7 +6801,7 @@ impl MultiplicationEvidence {
     }
 }
 
-impl MultiplicationCertificate {
+impl<const FP_MAX: usize> MultiplicationCertificate<FP_MAX> {
     /// v0.2.2 T6.7: construct a `MultiplicationCertificate` with substrate-
     /// computed evidence. Crate-internal only; downstream obtains certificates
     /// via `resolver::multiplication::certify::<H>`.
@@ -6789,7 +6811,7 @@ impl MultiplicationCertificate {
         splitting_factor: u32,
         sub_multiplication_count: u32,
         landauer_cost_nats_bits: u64,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         let _ = MultiplicationEvidence {
             splitting_factor,
@@ -7289,28 +7311,28 @@ pub trait Hasher<const FP_MAX: usize = 32> {
 /// through the wrapped Hasher and writes the first `OUTPUT_BYTES`
 /// digest bytes to the caller-provided buffer.
 #[derive(Debug, Clone, Copy)]
-pub struct HashAxis<H: Hasher>(core::marker::PhantomData<H>);
+pub struct HashAxis<H>(core::marker::PhantomData<H>);
 
-impl<H: Hasher> HashAxis<H> {
+impl<H> HashAxis<H> {
     /// Canonical kernel id for the hash operation. The closure-body
     /// grammar G19 form `hash(input)` lowers to
     /// `Term::AxisInvocation { axis_index: 0, kernel_id: HashAxis::KERNEL_HASH, input_index }`.
     pub const KERNEL_HASH: u32 = 0;
 }
 
-impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}
-impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::SubstrateTermBody<INLINE_BYTES>
+impl<H> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}
+impl<const INLINE_BYTES: usize, H> crate::pipeline::SubstrateTermBody<INLINE_BYTES>
     for HashAxis<H>
 {
     fn body_arena() -> &'static [Term<'static, INLINE_BYTES>] {
         &[]
     }
 }
-impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE_BYTES>
-    for HashAxis<H>
+impl<const INLINE_BYTES: usize, const FP_MAX: usize, H: Hasher<FP_MAX>>
+    crate::pipeline::AxisExtension<INLINE_BYTES, FP_MAX> for HashAxis<H>
 {
     const AXIS_ADDRESS: &'static str = "https://uor.foundation/axis/HashAxis";
-    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;
+    const MAX_OUTPUT_BYTES: usize = <H as Hasher<FP_MAX>>::OUTPUT_BYTES;
     fn dispatch_kernel(
         kernel_id: u32,
         input: &[u8],
@@ -7327,10 +7349,12 @@ impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE
                 kind: crate::ViolationKind::ValueCheck,
             });
         }
-        let mut hasher = <H as Hasher>::initial();
+        let mut hasher = <H as Hasher<FP_MAX>>::initial();
         hasher = hasher.fold_bytes(input);
         let digest = hasher.finalize();
-        let n = <H as Hasher>::OUTPUT_BYTES.min(out.len()).min(digest.len());
+        let n = <H as Hasher<FP_MAX>>::OUTPUT_BYTES
+            .min(out.len())
+            .min(digest.len());
         let mut i = 0;
         while i < n {
             out[i] = digest[i];
@@ -7552,7 +7576,10 @@ pub const fn certificate_kind_discriminant(kind: CertificateKind) -> u8 {
 /// variants requires bumping `TRACE_REPLAY_FORMAT_VERSION`.
 /// Used by `pipeline::run`, `run_const`, and the four `certify_*` entry
 /// points to fold a unit's constraint set into the substrate fingerprint.
-pub fn fold_constraint_ref<H: Hasher>(mut hasher: H, c: &crate::pipeline::ConstraintRef) -> H {
+pub fn fold_constraint_ref<const FP_MAX: usize, H: Hasher<FP_MAX>>(
+    mut hasher: H,
+    c: &crate::pipeline::ConstraintRef,
+) -> H {
     use crate::pipeline::ConstraintRef as C;
     match c {
         C::Residue { modulus, residue } => {
@@ -7660,7 +7687,7 @@ pub fn fold_constraint_ref<H: Hasher>(mut hasher: H, c: &crate::pipeline::Constr
 /// Locked at v0.2.2 by the `rust/trace_byte_layout_pinned` conformance
 /// validator. Used by `pipeline::run`, `run_const`, and the four
 /// `certify_*` entry points.
-pub fn fold_unit_digest<H: Hasher>(
+pub fn fold_unit_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     level_bits: u16,
     budget: u64,
@@ -7686,7 +7713,7 @@ pub fn fold_unit_digest<H: Hasher>(
 /// v0.2.2 T5: fold the canonical ParallelDeclaration byte layout into a `Hasher`.
 /// Layout: `site_count (8 BE) || iri bytes || 0x00 || decl_site_count (8 BE) ||
 /// for each constraint: fold_constraint_ref || certificate_kind_discriminant`.
-pub fn fold_parallel_digest<H: Hasher>(
+pub fn fold_parallel_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     decl_site_count: u64,
     iri: &str,
@@ -7708,7 +7735,7 @@ pub fn fold_parallel_digest<H: Hasher>(
 }
 
 /// v0.2.2 T5: fold the canonical StreamDeclaration byte layout into a `Hasher`.
-pub fn fold_stream_digest<H: Hasher>(
+pub fn fold_stream_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     productivity_bound: u64,
     iri: &str,
@@ -7728,7 +7755,7 @@ pub fn fold_stream_digest<H: Hasher>(
 }
 
 /// v0.2.2 T5: fold the canonical InteractionDeclaration byte layout into a `Hasher`.
-pub fn fold_interaction_digest<H: Hasher>(
+pub fn fold_interaction_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     convergence_seed: u64,
     iri: &str,
@@ -7762,7 +7789,7 @@ pub(crate) fn primitive_terminal_reduction<T: crate::pipeline::ConstrainedTypeSh
 }
 
 /// v0.2.2 Phase J: fold the TerminalReduction triple into the hasher.
-pub(crate) fn fold_terminal_reduction<H: Hasher>(
+pub(crate) fn fold_terminal_reduction<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     witt_bits: u16,
     constraint_count: u32,
@@ -8235,7 +8262,10 @@ pub(crate) const fn mod_pow(base: i64, exp: i64, p: i64) -> i64 {
 }
 
 /// v0.2.2 Phase J: fold the Betti tuple into the hasher.
-pub(crate) fn fold_betti_tuple<H: Hasher>(mut hasher: H, betti: &[u32; MAX_BETTI_DIMENSION]) -> H {
+pub(crate) fn fold_betti_tuple<const FP_MAX: usize, H: Hasher<FP_MAX>>(
+    mut hasher: H,
+    betti: &[u32; MAX_BETTI_DIMENSION],
+) -> H {
     let mut i = 0;
     while i < MAX_BETTI_DIMENSION {
         hasher = hasher.fold_bytes(&betti[i].to_be_bytes());
@@ -8305,7 +8335,7 @@ pub(crate) fn primitive_dihedral_signature<T: crate::pipeline::ConstrainedTypeSh
 }
 
 /// v0.2.2 Phase J: fold the dihedral `(orbit_size, representative)` pair.
-pub(crate) fn fold_dihedral_signature<H: Hasher>(
+pub(crate) fn fold_dihedral_signature<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     orbit_size: u32,
     representative: u32,
@@ -8355,7 +8385,7 @@ pub(crate) fn primitive_dc10_select(jac: &[i32; JACOBIAN_MAX_SITES]) -> usize {
 }
 
 /// v0.2.2 Phase J: fold the Jacobian profile into the hasher.
-pub(crate) fn fold_jacobian_profile<H: Hasher>(
+pub(crate) fn fold_jacobian_profile<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     jac: &[i32; JACOBIAN_MAX_SITES],
 ) -> H {
@@ -8396,7 +8426,7 @@ pub(crate) fn primitive_session_binding_signature(bindings: &[Binding]) -> (u32,
 }
 
 /// v0.2.2 Phase J: fold the session-binding signature into the hasher.
-pub(crate) fn fold_session_signature<H: Hasher>(
+pub(crate) fn fold_session_signature<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     binding_count: u32,
     fold_address: u64,
@@ -8456,7 +8486,7 @@ pub(crate) fn primitive_measurement_projection(budget: u64) -> (u64, u64) {
 /// v0.2.2 Phase J / Phase 9: fold the Born-rule outcome into the hasher.
 /// `probability_bits` is the IEEE-754 bit pattern (call sites convert via
 /// `<H::Decimal as DecimalTranscendental>::to_bits` if working in `H::Decimal`).
-pub(crate) fn fold_born_outcome<H: Hasher>(
+pub(crate) fn fold_born_outcome<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     outcome_index: u64,
     probability_bits: u64,
@@ -8491,7 +8521,7 @@ pub(crate) fn primitive_descent_metrics<T: crate::pipeline::ConstrainedTypeShape
 
 /// v0.2.2 Phase J / Phase 9: fold the descent metrics into the hasher.
 /// `entropy_bits` is the IEEE-754 bit pattern of the descent entropy.
-pub(crate) fn fold_descent_metrics<H: Hasher>(
+pub(crate) fn fold_descent_metrics<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     residual_count: u32,
     entropy_bits: u64,
@@ -8511,20 +8541,20 @@ pub const MAX_COHOMOLOGY_DIMENSION: u32 = 32;
 /// dimension via a runtime field because generic-const-expression arithmetic
 /// over `N + M` is unstable at the crate's MSRV (Rust 1.81).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CohomologyClass {
+pub struct CohomologyClass<const FP_MAX: usize = 32> {
     dimension: u32,
-    fingerprint: ContentFingerprint,
+    fingerprint: ContentFingerprint<FP_MAX>,
     _sealed: (),
 }
 
-impl CohomologyClass {
+impl<const FP_MAX: usize> CohomologyClass<FP_MAX> {
     /// Phase X.2: crate-sealed constructor. Public callers go through
     /// `mint_cohomology_class` so that construction always routes through a
     /// validating hash of the cochain representative.
     #[inline]
     pub(crate) const fn with_dimension_and_fingerprint(
         dimension: u32,
-        fingerprint: ContentFingerprint,
+        fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             dimension,
@@ -8543,7 +8573,7 @@ impl CohomologyClass {
     /// The content fingerprint of the underlying cochain representative.
     #[inline]
     #[must_use]
-    pub const fn fingerprint(&self) -> ContentFingerprint {
+    pub const fn fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.fingerprint
     }
 
@@ -8555,10 +8585,10 @@ impl CohomologyClass {
     /// # Errors
     /// Returns `CohomologyError::DimensionOverflow` when `n + m >
     /// MAX_COHOMOLOGY_DIMENSION`.
-    pub fn cup<H: Hasher>(
+    pub fn cup<H: Hasher<FP_MAX>>(
         self,
-        other: CohomologyClass,
-    ) -> Result<CohomologyClass, CohomologyError> {
+        other: CohomologyClass<FP_MAX>,
+    ) -> Result<CohomologyClass<FP_MAX>, CohomologyError> {
         let sum = self.dimension.saturating_add(other.dimension);
         if sum > MAX_COHOMOLOGY_DIMENSION {
             return Err(CohomologyError::DimensionOverflow {
@@ -8605,19 +8635,19 @@ impl core::error::Error for CohomologyError {}
 /// `H_n(·)` at dimension `n` with a content fingerprint of its chain
 /// representative. Shares the dimension-as-runtime-field discipline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HomologyClass {
+pub struct HomologyClass<const FP_MAX: usize = 32> {
     dimension: u32,
-    fingerprint: ContentFingerprint,
+    fingerprint: ContentFingerprint<FP_MAX>,
     _sealed: (),
 }
 
-impl HomologyClass {
+impl<const FP_MAX: usize> HomologyClass<FP_MAX> {
     /// Phase X.2: crate-sealed constructor. Public callers go through
     /// `mint_homology_class`.
     #[inline]
     pub(crate) const fn with_dimension_and_fingerprint(
         dimension: u32,
-        fingerprint: ContentFingerprint,
+        fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             dimension,
@@ -8636,19 +8666,19 @@ impl HomologyClass {
     /// The content fingerprint of the underlying chain representative.
     #[inline]
     #[must_use]
-    pub const fn fingerprint(&self) -> ContentFingerprint {
+    pub const fn fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.fingerprint
     }
 }
 
 /// Phase X.2: fold the cup-product operand pair into the hasher. Ordered
 /// (lhs dimension + fingerprint, then rhs dimension + fingerprint).
-pub fn fold_cup_product<H: Hasher>(
+pub fn fold_cup_product<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     lhs_dim: u32,
-    lhs_fp: &ContentFingerprint,
+    lhs_fp: &ContentFingerprint<FP_MAX>,
     rhs_dim: u32,
-    rhs_fp: &ContentFingerprint,
+    rhs_fp: &ContentFingerprint<FP_MAX>,
 ) -> H {
     hasher = hasher.fold_bytes(&lhs_dim.to_be_bytes());
     hasher = hasher.fold_bytes(lhs_fp.as_bytes());
@@ -8663,10 +8693,10 @@ pub fn fold_cup_product<H: Hasher>(
 /// # Errors
 /// Returns `CohomologyError::DimensionOverflow` when `dimension >
 /// MAX_COHOMOLOGY_DIMENSION`.
-pub fn mint_cohomology_class<H: Hasher>(
+pub fn mint_cohomology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>(
     dimension: u32,
     seed: &[u8],
-) -> Result<CohomologyClass, CohomologyError> {
+) -> Result<CohomologyClass<FP_MAX>, CohomologyError> {
     if dimension > MAX_COHOMOLOGY_DIMENSION {
         return Err(CohomologyError::DimensionOverflow {
             lhs: dimension,
@@ -8688,10 +8718,10 @@ pub fn mint_cohomology_class<H: Hasher>(
 /// # Errors
 /// Returns `CohomologyError::DimensionOverflow` when `dimension >
 /// MAX_COHOMOLOGY_DIMENSION`.
-pub fn mint_homology_class<H: Hasher>(
+pub fn mint_homology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>(
     dimension: u32,
     seed: &[u8],
-) -> Result<HomologyClass, CohomologyError> {
+) -> Result<HomologyClass<FP_MAX>, CohomologyError> {
     if dimension > MAX_COHOMOLOGY_DIMENSION {
         return Err(CohomologyError::DimensionOverflow {
             lhs: dimension,
@@ -8709,7 +8739,7 @@ pub fn mint_homology_class<H: Hasher>(
 /// v0.2.2 T6.1: per-step canonical byte layout for `StreamDriver::next()`.
 /// Layout: `productivity_remaining (8 BE) || rewrite_steps (8 BE) || seed (8 BE) ||
 /// iri bytes || 0x00 || certificate_kind_discriminant (1 byte trailing)`.
-pub fn fold_stream_step_digest<H: Hasher>(
+pub fn fold_stream_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     productivity_remaining: u64,
     rewrite_steps: u64,
@@ -8730,7 +8760,7 @@ pub fn fold_stream_step_digest<H: Hasher>(
 /// and `InteractionDriver::finalize()`.
 /// Layout: `commutator_acc[0..4] (4 × 8 BE bytes) || peer_step_count (8 BE) ||
 /// seed (8 BE) || iri bytes || 0x00 || certificate_kind_discriminant (1 byte trailing)`.
-pub fn fold_interaction_step_digest<H: Hasher>(
+pub fn fold_interaction_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(
     mut hasher: H,
     commutator_acc: &[u64; 4],
     peer_step_count: u64,
@@ -8895,9 +8925,15 @@ impl core::error::Error for BindingsTableError {}
 /// `<https://uor.foundation/cert/witness>`,
 /// `<https://uor.foundation/cert/searchTrace>`.
 #[derive(Debug, Clone)]
-pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
+pub struct Grounded<
+    'a,
+    T: GroundedShape,
+    const INLINE_BYTES: usize,
+    const FP_MAX: usize = 32,
+    Tag = T,
+> {
     /// The validated grounding certificate this wrapper carries.
-    validated: Validated<GroundingCertificate>,
+    validated: Validated<GroundingCertificate<FP_MAX>>,
     /// The compile-time-materialized bindings table.
     bindings: BindingsTable,
     /// The Witt level the grounded value was minted at.
@@ -8929,8 +8965,10 @@ pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     /// full state, computed at grounding time by the consumer-supplied
     /// `Hasher`. Width is `ContentFingerprint::width_bytes()`, set by
     /// `H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`
-    /// so the verify path can re-derive the source certificate.
-    content_fingerprint: ContentFingerprint,
+    /// so the verify path can re-derive the source certificate. The buffer
+    /// width `FP_MAX` is the application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES`
+    /// (threaded, not pinned) — any `Hasher<FP_MAX>` width flows.
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     /// Wiki ADR-028 (amended by ADR-060): output-value payload — the
     /// catamorphism's evaluation result populated by `pipeline::run_route`
     /// per ADR-029's per-variant fold rules, carried as a source-polymorphic
@@ -8948,7 +8986,9 @@ pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {
     _tag: PhantomData<Tag>,
 }
 
-impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLINE_BYTES, Tag> {
+impl<'a, T: GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize, Tag>
+    Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag>
+{
     /// Returns the binding for the given query address, or `None` if not in
     /// the table. Resolves in O(log n) via binary search; for true `op:GS_5`
     /// zero-step access, downstream code uses statically-known indices.
@@ -8985,7 +9025,7 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     /// Returns the validated grounding certificate this wrapper carries.
     #[inline]
     #[must_use]
-    pub const fn certificate(&self) -> &Validated<GroundingCertificate> {
+    pub const fn certificate(&self) -> &Validated<GroundingCertificate<FP_MAX>> {
         &self.validated
     }
 
@@ -9044,7 +9084,7 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     /// `verify_trace` then passes through to the re-derived certificate.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -9060,7 +9100,7 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     /// holds for every conforming substrate `Hasher`.
     #[inline]
     #[must_use]
-    pub const fn derivation(&self) -> Derivation {
+    pub const fn derivation(&self) -> Derivation<FP_MAX> {
         Derivation::new(
             (self.jacobian_len as u32) + 1,
             self.witt_level_bits,
@@ -9078,7 +9118,7 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     /// foundation's contract is about ring soundness, not domain semantics.
     #[inline]
     #[must_use]
-    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, NewTag> {
+    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, FP_MAX, NewTag> {
         Grounded {
             validated: self.validated,
             bindings: self.bindings,
@@ -9168,11 +9208,11 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     #[inline]
     #[allow(dead_code)]
     pub(crate) const fn new_internal(
-        validated: Validated<GroundingCertificate>,
+        validated: Validated<GroundingCertificate<FP_MAX>>,
         bindings: BindingsTable,
         witt_level_bits: u16,
         unit_address: ContentAddress,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         let bound_count = bindings.entries.len() as u32;
         let declared_sites = if witt_level_bits == 0 {
@@ -9300,7 +9340,7 @@ impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLIN
     #[must_use]
     pub fn as_inhabitance_certificate(
         &self,
-    ) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, Tag> {
+    ) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, FP_MAX, Tag> {
         crate::pipeline::InhabitanceCertificateView(self)
     }
 }
@@ -9541,15 +9581,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<T, P, H>(
+        pub fn certify<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
-        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Certify at an explicit Witt level.
@@ -9557,16 +9597,16 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<T, P, H>(
+        pub fn certify_at<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            crate::pipeline::run_tower_completeness::<T, H>(input.inner(), level)
+            crate::pipeline::run_tower_completeness::<T, H, FP_MAX>(input.inner(), level)
                 .map(|v| Certified::new(*v.inner()))
                 .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))
         }
@@ -9580,15 +9620,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<T, P, H>(
+        pub fn certify<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
-        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Certify at an explicit Witt level.
@@ -9596,16 +9636,16 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<T, P, H>(
+        pub fn certify_at<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            crate::pipeline::run_incremental_completeness::<T, H>(input.inner(), level)
+            crate::pipeline::run_incremental_completeness::<T, H, FP_MAX>(input.inner(), level)
                 .map(|v| Certified::new(*v.inner()))
                 .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))
         }
@@ -9619,14 +9659,14 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify<P, H, const INLINE_BYTES: usize>(
+        pub fn certify<P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Certify at an explicit Witt level.
@@ -9634,15 +9674,15 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
-        pub fn certify_at<P, H, const INLINE_BYTES: usize>(
+        pub fn certify_at<P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         where
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)
+            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H, FP_MAX>(input.inner(), level)
                 .map(|v| Certified::new(*v.inner()))
                 .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))
         }
@@ -9656,15 +9696,18 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<InhabitanceImpossibilityWitness>` on failure.
-        pub fn certify<T, P, H>(
+        pub fn certify<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
-        ) -> Result<Certified<InhabitanceCertificate>, Certified<InhabitanceImpossibilityWitness>>
+        ) -> Result<
+            Certified<InhabitanceCertificate<FP_MAX>>,
+            Certified<InhabitanceImpossibilityWitness>,
+        >
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Certify at an explicit Witt level.
@@ -9672,17 +9715,20 @@ pub mod resolver {
         /// # Errors
         ///
         /// Returns `Certified<InhabitanceImpossibilityWitness>` on failure.
-        pub fn certify_at<T, P, H>(
+        pub fn certify_at<T, P, H, const FP_MAX: usize>(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<InhabitanceCertificate>, Certified<InhabitanceImpossibilityWitness>>
+        ) -> Result<
+            Certified<InhabitanceCertificate<FP_MAX>>,
+            Certified<InhabitanceImpossibilityWitness>,
+        >
         where
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
         {
-            crate::pipeline::run_inhabitance::<T, H>(input.inner(), level)
-                .map(|v: Validated<InhabitanceCertificate>| Certified::new(*v.inner()))
+            crate::pipeline::run_inhabitance::<T, H, FP_MAX>(input.inner(), level)
+                .map(|v: Validated<InhabitanceCertificate<FP_MAX>>| Certified::new(*v.inner()))
                 .map_err(|_| Certified::new(InhabitanceImpossibilityWitness::default()))
         }
     }
@@ -9712,9 +9758,10 @@ pub mod resolver {
         /// Returns `GenericImpossibilityWitness` if the call-site context is
         /// inadmissible (`stack_budget_bytes == 0`). The resolver is otherwise
         /// total over admissible inputs.
-        pub fn certify<H: crate::enforcement::Hasher>(
+        pub fn certify<H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(
             context: &MulContext,
-        ) -> Result<Certified<MultiplicationCertificate>, GenericImpossibilityWitness> {
+        ) -> Result<Certified<MultiplicationCertificate<FP_MAX>>, GenericImpossibilityWitness>
+        {
             if context.stack_budget_bytes == 0 {
                 return Err(GenericImpossibilityWitness::default());
             }
@@ -9790,7 +9837,11 @@ pub mod resolver {
         const KIND: crate::enforcement::CertificateKind;
         /// Phase X.1: the ontology-declared certificate class produced by
         /// this resolver (per `resolver:CertifyMapping`).
-        type Cert: crate::enforcement::Certificate;
+        ///
+        /// ADR-018/060: parameterized over the application's fingerprint
+        /// width `FP_MAX` (GAT, stable since Rust 1.65) so a resolver minting
+        /// through an arbitrary-width `Hasher` carries the matching width.
+        type Cert<const FP_MAX: usize>: crate::enforcement::Certificate;
     }
 
     /// Phase D (target §4.2): `resolver:TwoSatDecider` — certify that `predicate:Is2SatShape` inputs are 2-SAT-decidable via the Aspvall-Plass-Tarjan strongly-connected-components decider.
@@ -9816,7 +9867,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::TwoSat;
         }
@@ -9829,12 +9880,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -9845,11 +9897,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -9878,7 +9931,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -9906,7 +9959,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::HornSat;
         }
@@ -9919,12 +9972,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -9935,11 +9989,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -9968,7 +10023,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -9996,7 +10051,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::ResidualVerdict;
         }
@@ -10009,12 +10064,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10025,11 +10081,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10058,7 +10115,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10086,7 +10143,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::TransformCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::TransformCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::CanonicalForm;
         }
@@ -10099,12 +10156,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10115,11 +10173,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10161,7 +10220,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10189,7 +10248,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::TransformCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::TransformCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::TypeSynthesis;
         }
@@ -10202,12 +10261,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10218,11 +10278,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10256,7 +10317,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10284,7 +10345,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::TransformCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::TransformCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Homotopy;
         }
@@ -10297,12 +10358,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10313,11 +10375,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10349,7 +10412,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10377,7 +10440,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::IsometryCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::IsometryCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Monodromy;
         }
@@ -10390,12 +10453,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<IsometryCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<IsometryCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10406,11 +10470,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<IsometryCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<IsometryCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10446,7 +10511,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10474,7 +10539,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::TransformCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::TransformCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Moduli;
         }
@@ -10487,12 +10552,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10503,11 +10569,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<TransformCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10552,7 +10619,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10580,7 +10647,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::JacobianGuided;
         }
@@ -10593,12 +10660,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10609,11 +10677,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10646,7 +10715,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10674,7 +10743,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Evaluation;
         }
@@ -10687,12 +10756,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10703,11 +10773,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10736,7 +10807,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10764,7 +10835,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Session;
         }
@@ -10776,13 +10847,14 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10792,12 +10864,13 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify_at<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let unit = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10819,7 +10892,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10847,7 +10920,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::BornRuleVerification;
+            type Cert<const FP_MAX: usize> = crate::enforcement::BornRuleVerification<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Superposition;
         }
@@ -10859,13 +10932,14 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-        ) -> Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<BornRuleVerification<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10875,12 +10949,13 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify_at<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
-        ) -> Result<Certified<BornRuleVerification>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<BornRuleVerification<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let unit = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10905,7 +10980,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -10933,7 +11008,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::MeasurementCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::MeasurementCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Measurement;
         }
@@ -10945,13 +11020,14 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-        ) -> Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<MeasurementCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -10961,12 +11037,13 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify_at<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
-        ) -> Result<Certified<MeasurementCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<MeasurementCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let unit = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -10988,7 +11065,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -11016,7 +11093,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GroundingCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GroundingCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::WittLevel;
         }
@@ -11028,13 +11105,14 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)
+            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -11044,12 +11122,13 @@ pub mod resolver {
         /// Returns `Certified<GenericImpossibilityWitness>` on failure.
         pub fn certify_at<
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
             const INLINE_BYTES: usize,
+            const FP_MAX: usize,
         >(
             input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,
             level: WittLevel,
-        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let unit = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -11071,7 +11150,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -11099,7 +11178,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::InvolutionCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::InvolutionCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::DihedralFactorization;
         }
@@ -11112,12 +11191,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<InvolutionCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<InvolutionCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -11128,11 +11208,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<InvolutionCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<InvolutionCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -11165,7 +11246,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -11193,7 +11274,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::CompletenessCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::CompletenessCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::Completeness;
         }
@@ -11206,12 +11287,15 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<CompletenessCertificate>, Certified<GenericImpossibilityWitness>>
-        {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+        ) -> Result<
+            Certified<CompletenessCertificate<FP_MAX>>,
+            Certified<GenericImpossibilityWitness>,
+        > {
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -11222,12 +11306,15 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<CompletenessCertificate>, Certified<GenericImpossibilityWitness>>
-        {
+        ) -> Result<
+            Certified<CompletenessCertificate<FP_MAX>>,
+            Certified<GenericImpossibilityWitness>,
+        > {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
             let (tr_bits, tr_constraints, tr_sat) =
@@ -11260,7 +11347,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -11288,7 +11375,7 @@ pub mod resolver {
         #[doc(hidden)]
         pub struct Kernel;
         impl super::ResolverKernel for Kernel {
-            type Cert = crate::enforcement::GeodesicCertificate;
+            type Cert<const FP_MAX: usize> = crate::enforcement::GeodesicCertificate<FP_MAX>;
             const KIND: crate::enforcement::CertificateKind =
                 crate::enforcement::CertificateKind::GeodesicValidator;
         }
@@ -11301,12 +11388,13 @@ pub mod resolver {
         pub fn certify<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
-        ) -> Result<Certified<GeodesicCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GeodesicCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
-            certify_at::<T, P, H>(input, WittLevel::W32)
+            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)
         }
 
         /// Phase D (target §4.2): certify at an explicit Witt level.
@@ -11317,11 +11405,12 @@ pub mod resolver {
         pub fn certify_at<
             T: crate::pipeline::ConstrainedTypeShape,
             P: crate::enforcement::ValidationPhase,
-            H: crate::enforcement::Hasher,
+            H: crate::enforcement::Hasher<FP_MAX>,
+            const FP_MAX: usize,
         >(
             input: &Validated<T, P>,
             level: WittLevel,
-        ) -> Result<Certified<GeodesicCertificate>, Certified<GenericImpossibilityWitness>>
+        ) -> Result<Certified<GeodesicCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>
         {
             let _ = input.inner();
             let witt_bits = level.witt_length() as u16;
@@ -11354,7 +11443,7 @@ pub mod resolver {
             let buffer = hasher.finalize();
             let fp =
                 crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);
-            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);
+            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);
             Ok(Certified::new(cert))
         }
     }
@@ -19208,7 +19297,7 @@ impl TraceEvent {
 /// can reconstruct the source `GroundingCertificate` via structural-
 /// validation + fingerprint passthrough (no hash recomputation).
 #[derive(Debug, Clone, Copy)]
-pub struct Trace<const TR_MAX: usize = 256> {
+pub struct Trace<const TR_MAX: usize = 256, const FP_MAX: usize = 32> {
     events: [Option<TraceEvent>; TR_MAX],
     len: u16,
     /// Witt level the source grounding was minted at, packed
@@ -19221,11 +19310,11 @@ pub struct Trace<const TR_MAX: usize = 256> {
     /// unchanged. The fingerprint's `FP_MAX` follows the application's
     /// selected `<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES`; this
     /// field uses the default-bound `ContentFingerprint`.
-    content_fingerprint: ContentFingerprint,
+    content_fingerprint: ContentFingerprint<FP_MAX>,
     _sealed: (),
 }
 
-impl<const TR_MAX: usize> Trace<TR_MAX> {
+impl<const TR_MAX: usize, const FP_MAX: usize> Trace<TR_MAX, FP_MAX> {
     /// An empty Trace.
     #[inline]
     #[must_use]
@@ -19251,7 +19340,7 @@ impl<const TR_MAX: usize> Trace<TR_MAX> {
         events: [Option<TraceEvent>; TR_MAX],
         len: u16,
         witt_level_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Self {
         Self {
             events,
@@ -19297,7 +19386,7 @@ impl<const TR_MAX: usize> Trace<TR_MAX> {
     /// certificate, upholding the round-trip property.
     #[inline]
     #[must_use]
-    pub const fn content_fingerprint(&self) -> ContentFingerprint {
+    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {
         self.content_fingerprint
     }
 
@@ -19315,7 +19404,7 @@ impl<const TR_MAX: usize> Trace<TR_MAX> {
     pub fn try_from_events(
         events: &[TraceEvent],
         witt_level_bits: u16,
-        content_fingerprint: ContentFingerprint,
+        content_fingerprint: ContentFingerprint<FP_MAX>,
     ) -> Result<Self, ReplayError> {
         if events.is_empty() {
             return Err(ReplayError::EmptyTrace);
@@ -19364,7 +19453,7 @@ impl<const TR_MAX: usize> Default for Trace<TR_MAX> {
 /// Trace the verifier can re-walk without invoking the deciders. The trace
 /// length matches the derivation's `step_count()`, and each event's
 /// `step_index` reflects its position in the derivation.
-impl Derivation {
+impl<const FP_MAX: usize> Derivation<FP_MAX> {
     /// Replay this derivation as a fixed-size `Trace<TR_MAX>` whose length matches
     /// `self.step_count()` (capped at the application's `<HostBounds>::TRACE_MAX_EVENTS`).
     /// Callers either annotate the binding (`let trace: Trace = ...;` picks
@@ -19393,8 +19482,8 @@ impl Derivation {
     ///     .thermodynamic_budget(1024).target_domains(&doms)
     ///     .result_type::<ConstrainedTypeInput>()
     ///     .validate().expect("unit well-formed");
-    /// let grounded: Grounded<ConstrainedTypeInput, N> =
-    ///     run::<ConstrainedTypeInput, _, H, N>(unit).expect("grounds");
+    /// let grounded: Grounded<ConstrainedTypeInput, N, 32> =
+    ///     run::<ConstrainedTypeInput, _, H, N, 32>(unit).expect("grounds");
     /// // Replay → round-trip verification. The trace's event-count
     /// // capacity comes from the application's `HostBounds`; here the
     /// // type-annotated binding defaults `Trace`'s `TR_MAX` to 256.
@@ -19405,7 +19494,7 @@ impl Derivation {
     /// ```
     #[inline]
     #[must_use]
-    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX> {
+    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX, FP_MAX> {
         let steps = self.step_count() as usize;
         let len = if steps > TR_MAX { TR_MAX } else { steps };
         let mut events = [None; TR_MAX];
@@ -19548,9 +19637,9 @@ pub mod replay {
     ///   `ContentAddress::zero()`.
     /// - `ReplayError::NonContiguousSteps { declared, last_step }` if
     ///   the event step indices skip values.
-    pub fn certify_from_trace<const TR_MAX: usize>(
-        trace: &Trace<TR_MAX>,
-    ) -> Result<Certified<GroundingCertificate>, ReplayError> {
+    pub fn certify_from_trace<const TR_MAX: usize, const FP_MAX: usize>(
+        trace: &Trace<TR_MAX, FP_MAX>,
+    ) -> Result<Certified<GroundingCertificate<FP_MAX>>, ReplayError> {
         let len = trace.len() as usize;
         if len == 0 {
             return Err(ReplayError::EmptyTrace);

@@ -4668,6 +4668,17 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         { ::uor_foundation::pipeline::carrier_inline_bytes::<#b_ty>() }
     };
 
+    // ADR-018/060: the application's selected fingerprint width, read from its
+    // `HostBounds` (#b_ty). `#b_ty` is concrete at the call site so this is a
+    // concrete `const` expression, admissible as a const-generic argument on
+    // stable Rust (no `generic_const_exprs`). Threaded through `PrismModel`,
+    // `Grounded`, and `run_route` exactly parallel to `inline_bytes`, so the
+    // application's substituted `Hasher` width flows end-to-end without the
+    // author writing it — ergonomically identical to the `=32`-default form.
+    let fp_max = quote! {
+        { <#b_ty as ::uor_foundation::HostBounds>::FINGERPRINT_MAX_BYTES }
+    };
+
     // Per wiki ADR-024, verb fragments are inlined into the route's
     // arena at compile time via the const-fn arena builder when any
     // verb invocation is present. Pure (verb-free) routes use the
@@ -4723,18 +4734,19 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
         // TypedCommitment per ADR-048 (EmptyCommitment default). The
         // macro-emitted `forward` body constructs both substrate instances
         // and threads them to `pipeline::run_route` per ADR-022 D5.
-        impl<'a> ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
+        impl<'a> ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #fp_max, #resolver_ty_tokens, #commitment_ty_tokens> for #model_name {
             type Input = #input_ty;
             type Output = #output_ty;
             type Route = #route_name;
 
             fn forward(
-                input: <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
+                input: <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #fp_max, #resolver_ty_tokens, #commitment_ty_tokens>>::Input,
             ) -> ::core::result::Result<
                 ::uor_foundation::enforcement::Grounded<
                     'a,
-                    <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
+                    <Self as ::uor_foundation::pipeline::PrismModel<'a, #h_ty, #b_ty, #a_ty, #inline_bytes, #fp_max, #resolver_ty_tokens, #commitment_ty_tokens>>::Output,
                     #inline_bytes,
+                    #fp_max,
                 >,
                 ::uor_foundation::PipelineFailure,
             > {
@@ -4748,6 +4760,7 @@ pub fn prism_model(input: TokenStream) -> TokenStream {
                     #resolver_ty_tokens,
                     #commitment_ty_tokens,
                     #inline_bytes,
+                    #fp_max,
                 >(input, &__resolvers, &__commitment)
             }
         }
@@ -5781,7 +5794,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
                         #body_arena_expr
                     }
                 }
-                impl<const INLINE_BYTES: usize> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES> for $struct_ident {
+                impl<const INLINE_BYTES: usize, const FP_MAX: usize> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES, FP_MAX> for $struct_ident {
                     const AXIS_ADDRESS: &'static str =
                         <$struct_ident as #trait_name>::AXIS_ADDRESS;
                     const MAX_OUTPUT_BYTES: usize =
@@ -5836,7 +5849,7 @@ pub fn axis(input: TokenStream) -> TokenStream {
                         #body_arena_expr
                     }
                 }
-                impl<const INLINE_BYTES: usize, $($generic_params)*> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES> for $struct_ty
+                impl<const INLINE_BYTES: usize, const FP_MAX: usize, $($generic_params)*> ::uor_foundation::pipeline::AxisExtension<INLINE_BYTES, FP_MAX> for $struct_ty
                 $(where $($where_clauses)*)?
                 {
                     const AXIS_ADDRESS: &'static str =

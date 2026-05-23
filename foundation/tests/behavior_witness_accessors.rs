@@ -43,7 +43,7 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N
 
 fn ground(level: WittLevel, budget: u64) -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
-    run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
+    run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
         .expect("fixture: run_const succeeds")
 }
 

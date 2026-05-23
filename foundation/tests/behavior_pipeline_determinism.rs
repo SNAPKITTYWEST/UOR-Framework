@@ -41,9 +41,11 @@ fn build(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N>, Co
 #[test]
 fn pipeline_run_equal_inputs_produce_equal_grounded() {
     let a: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("a");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W32, 100))
+            .expect("a");
     let b: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("b");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W32, 100))
+            .expect("b");
     assert_eq!(a.witt_level_bits(), b.witt_level_bits());
     assert_eq!(a.unit_address(), b.unit_address());
     assert_eq!(a.content_fingerprint(), b.content_fingerprint());
@@ -53,9 +55,11 @@ fn pipeline_run_equal_inputs_produce_equal_grounded() {
 #[test]
 fn pipeline_run_differing_budgets_differ_on_fingerprint() {
     let a: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("a");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W32, 100))
+            .expect("a");
     let b: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 200)).expect("b");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W32, 200))
+            .expect("b");
     assert_ne!(
         a.content_fingerprint(),
         b.content_fingerprint(),
@@ -71,9 +75,10 @@ fn pipeline_run_differing_budgets_differ_on_fingerprint() {
 #[test]
 fn pipeline_run_differing_witt_levels_differ_on_witt_bits() {
     let a: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W8, 100)).expect("a");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W8, 100)).expect("a");
     let b: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(build(WittLevel::W32, 100)).expect("b");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(build(WittLevel::W32, 100))
+            .expect("b");
     assert_ne!(a.witt_level_bits(), b.witt_level_bits());
     assert_ne!(a.content_fingerprint(), b.content_fingerprint());
 }
@@ -84,9 +89,11 @@ fn pipeline_run_differing_witt_levels_differ_on_witt_bits() {
 fn pipeline_run_const_equal_inputs_produce_equal_grounded() {
     let unit = build(WittLevel::W16, 77);
     let a: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit).expect("a");
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
+            .expect("a");
     let b: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit).expect("b");
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
+            .expect("b");
     assert_eq!(a.content_fingerprint(), b.content_fingerprint());
     assert_eq!(a.uor_time(), b.uor_time());
     assert_eq!(a.triad(), b.triad());
@@ -103,10 +110,10 @@ fn pipeline_run_and_run_const_agree_for_same_unit() {
     // re-building to avoid Phase mismatch.
     let unit_for_run = build(WittLevel::W16, 55);
     let a: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
             .expect("const");
     let b: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_for_run).expect("runtime");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_for_run).expect("runtime");
     assert_eq!(
         a.content_fingerprint(),
         b.content_fingerprint(),
@@ -135,9 +142,9 @@ fn pipeline_run_parallel_different_site_counts_produce_different_witnesses() {
             ConstrainedTypeInput,
         >(PARTITION_7, DISJOINTNESS_WITNESS));
     let g_3: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_3).expect("3");
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_3).expect("3");
     let g_7: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_7).expect("7");
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_7).expect("7");
     assert_ne!(
         g_3.unit_address(),
         g_7.unit_address(),
@@ -154,7 +161,7 @@ fn pipeline_run_parallel_zero_site_count_is_rejected() {
         validated_runtime(ParallelDeclaration::new_with_partition::<
             ConstrainedTypeInput,
         >(EMPTY, DISJOINTNESS_WITNESS));
-    let result = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(zero_site);
+    let result = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(zero_site);
     assert!(
         result.is_err(),
         "run_parallel must reject empty partition as inadmissible"
@@ -172,8 +179,8 @@ fn pipeline_run_parallel_equal_site_counts_produce_equal_witnesses() {
         validated_runtime(ParallelDeclaration::new_with_partition::<
             ConstrainedTypeInput,
         >(PARTITION_5, DISJOINTNESS_WITNESS));
-    let g_a = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(u_a).expect("a");
-    let g_b = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(u_b).expect("b");
+    let g_a = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(u_a).expect("a");
+    let g_b = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(u_b).expect("b");
     assert_eq!(g_a.unit_address(), g_b.unit_address());
     assert_eq!(g_a.content_fingerprint(), g_b.content_fingerprint());
 }
@@ -184,7 +191,7 @@ fn pipeline_run_parallel_equal_site_counts_produce_equal_witnesses() {
 fn stream_driver_successive_steps_have_distinct_unit_addresses() {
     let unit: Validated<StreamDeclaration<N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(3));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> = run_stream(unit);
     // Pull three steps; assert successive unit_addresses differ.
     let first = driver.next().expect("step 1").expect("ok");
     let second = driver.next().expect("step 2").expect("ok");
@@ -200,7 +207,7 @@ fn stream_driver_terminates_after_productivity_bound_steps() {
     // Productivity bound = 2 → step 1 Some, step 2 Some, step 3 None.
     let unit: Validated<StreamDeclaration<N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(2));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> = run_stream(unit);
     assert!(driver.next().is_some(), "step 1");
     assert!(driver.next().is_some(), "step 2");
     assert!(

@@ -42,7 +42,7 @@ fn grounded_probe() -> Grounded<'static, ConstrainedTypeInput, N> {
         .result_type::<ConstrainedTypeInput>()
         .validate()
         .expect("unit valid");
-    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits")
+    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit).expect("pipeline admits")
 }
 
 // ──────────────────────────────────────────────────────────────────────────

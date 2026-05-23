@@ -35,7 +35,8 @@ fn main() {
 
     // Step 3: run through the pipeline.
     let grounded: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit)
+            .expect("pipeline admits the unit");
 
     // Step 4: inspect the BaseMetric accessors.
     println!("Witt level bits: {}", grounded.witt_level_bits());

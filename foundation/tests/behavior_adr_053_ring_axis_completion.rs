@@ -227,7 +227,7 @@ mod catamorphism {
     }
 
     fn eval<'a>(arena: &'a [Term<'a, N>]) -> Result<TermValue<'a, N>, PipelineFailure> {
-        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N>(
+        evaluate_term_tree::<ZeroHasher, NullResolverTuple, N, 32>(
             arena,
             TermValue::empty(),
             &NullResolverTuple,

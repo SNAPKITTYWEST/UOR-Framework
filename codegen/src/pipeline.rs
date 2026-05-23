@@ -296,12 +296,12 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("parametric content fingerprint, distinguishing two units that share a");
     f.doc_comment("witt level but differ in budget, IRI, site count, or constraints.");
     f.line("#[must_use]");
-    f.line("pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn certify_tower_completeness_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Validated<GroundingCertificate, CompileTime>");
+    f.line(") -> Validated<GroundingCertificate<FP_MAX>, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let level_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -329,12 +329,12 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("parametric fingerprint; uses `CertificateKind::IncrementalCompleteness`");
     f.doc_comment("as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_incremental_completeness_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn certify_incremental_completeness_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Validated<GroundingCertificate, CompileTime>");
+    f.line(") -> Validated<GroundingCertificate<FP_MAX>, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let level_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -361,12 +361,14 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Threads `H: Hasher` for the parametric fingerprint; uses");
     f.doc_comment("`CertificateKind::Inhabitance` as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize>(");
+    f.line(
+        "pub fn certify_inhabitance_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(",
+    );
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Validated<GroundingCertificate, CompileTime>");
+    f.line(") -> Validated<GroundingCertificate<FP_MAX>, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let level_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -394,12 +396,12 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("fingerprint; uses `CertificateKind::Multiplication` as the trailing");
     f.doc_comment("discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn certify_multiplication_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Validated<MultiplicationCertificate, CompileTime>");
+    f.line(") -> Validated<MultiplicationCertificate<FP_MAX>, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let level_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -427,12 +429,12 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Threads `H: Hasher` for the parametric fingerprint; uses");
     f.doc_comment("`CertificateKind::Grounding` as the trailing discriminant byte.");
     f.line("#[must_use]");
-    f.line("pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn certify_grounding_aware_const<T, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Validated<GroundingCertificate, CompileTime>");
+    f.line(") -> Validated<GroundingCertificate<FP_MAX>, CompileTime>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let level_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -470,9 +472,9 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.doc_comment("Returns `PipelineFailure::ShapeMismatch` when the unit's declared");
     f.doc_comment("`result_type_iri` does not match `T::IRI`, or propagates any");
     f.doc_comment("failure from the reduction stage executor.");
-    f.line("pub fn run_const<T, M, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn run_const<T, M, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: &Validated<CompileUnit<'_, INLINE_BYTES>, CompileTime>,");
-    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    // Phase C.2 (target §6): const-eval admits only those grounding-map kinds");
@@ -481,7 +483,7 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.line("    M: crate::enforcement::GroundingMapKind");
     f.line("        + crate::enforcement::Total");
     f.line("        + crate::enforcement::Invertible,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    // The marker bound on M is purely type-level — no runtime use.");
     f.line("    let _phantom_map: core::marker::PhantomData<M> = core::marker::PhantomData;");
@@ -517,7 +519,7 @@ fn emit_phase_g_const_surface(f: &mut RustFile) {
     f.line("        GroundingCertificate::with_level_and_fingerprint_const(level_bits, content_fingerprint),");
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        level_bits,");
@@ -823,14 +825,14 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("#[derive(Debug, Clone)]");
     f.line("#[non_exhaustive]");
     f.line(
-        "pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize> {",
+        "pub enum StepResult<T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize = 32> {",
     );
     f.indented_doc_comment("The step was absorbed; the driver is ready for another peer input.");
     f.line("    Continue,");
     f.indented_doc_comment("The step produced an intermediate grounded output.");
-    f.line("    Output(Grounded<'static, T, INLINE_BYTES>),");
+    f.line("    Output(Grounded<'static, T, INLINE_BYTES, FP_MAX>),");
     f.indented_doc_comment("The convergence predicate is satisfied; interaction is complete.");
-    f.line("    Converged(Grounded<'static, T, INLINE_BYTES>),");
+    f.line("    Converged(Grounded<'static, T, INLINE_BYTES, FP_MAX>),");
     f.indented_doc_comment("v0.2.2 Phase T.1: the commutator norm failed to decrease for");
     f.indented_doc_comment(
         "`INTERACTION_DIVERGENCE_BUDGET` consecutive steps — the interaction is",
@@ -880,7 +882,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`next()` decrements the countdown and yields a `Grounded` whose");
     f.doc_comment("`unit_address` differs from the previous step's.");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct StreamDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> {");
+    f.line("pub struct StreamDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher<FP_MAX>, const INLINE_BYTES: usize, const FP_MAX: usize = 32> {");
     f.line("    rewrite_steps: u64,");
     f.line("    landauer_nats: u64,");
     f.line("    productivity_countdown: u64,");
@@ -893,7 +895,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> StreamDriver<T, P, H, INLINE_BYTES> {");
+    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher<FP_MAX>, const INLINE_BYTES: usize, const FP_MAX: usize> StreamDriver<T, P, H, INLINE_BYTES, FP_MAX> {");
     f.indented_doc_comment(
         "Crate-internal constructor. Callable only from `pipeline::run_stream`.",
     );
@@ -941,8 +943,8 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("    pub const fn is_terminated(&self) -> bool { self.terminated }");
     f.line("}");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape + ConstrainedTypeShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> Iterator for StreamDriver<T, P, H, INLINE_BYTES> {");
-    f.line("    type Item = Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>;");
+    f.line("impl<T: crate::enforcement::GroundedShape + ConstrainedTypeShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher<FP_MAX>, const INLINE_BYTES: usize, const FP_MAX: usize> Iterator for StreamDriver<T, P, H, INLINE_BYTES, FP_MAX> {");
+    f.line("    type Item = Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>;");
     f.line("    fn next(&mut self) -> Option<Self::Item> {");
     f.line("        if self.terminated || self.productivity_countdown == 0 {");
     f.line("            self.terminated = true;");
@@ -985,7 +987,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("            GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("        );");
     f.line("        let bindings = empty_bindings_table();");
-    f.line("        Some(Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("        Some(Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("            grounding,");
     f.line("            bindings,");
     f.line("            32, // default witt level for stream output");
@@ -1003,7 +1005,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`commutator_acc` accumulator via XOR; convergence is signalled when");
     f.doc_comment("a peer input arrives with `peer_id == 0` (the closing handshake).");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct InteractionDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> {");
+    f.line("pub struct InteractionDriver<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher<FP_MAX>, const INLINE_BYTES: usize, const FP_MAX: usize = 32> {");
     f.line("    commutator_acc: [u64; 4],");
     f.line("    peer_step_count: u64,");
     f.line("    converged: bool,");
@@ -1033,7 +1035,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("`InteractionDeclaration` level not supported in this release.");
     f.line("pub const INTERACTION_DIVERGENCE_BUDGET: u32 = 16;");
     f.blank();
-    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher, const INLINE_BYTES: usize> InteractionDriver<T, P, H, INLINE_BYTES> {");
+    f.line("impl<T: crate::enforcement::GroundedShape, P: crate::enforcement::ValidationPhase, H: crate::enforcement::Hasher<FP_MAX>, const INLINE_BYTES: usize, const FP_MAX: usize> InteractionDriver<T, P, H, INLINE_BYTES, FP_MAX> {");
     f.indented_doc_comment(
         "Crate-internal constructor. Callable only from `pipeline::run_interactive`.",
     );
@@ -1093,7 +1095,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     );
     f.indented_doc_comment("* **Continue** otherwise.");
     f.line("    #[must_use]");
-    f.line("    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES>");
+    f.line("    pub fn step(&mut self, input: PeerInput) -> StepResult<T, INLINE_BYTES, FP_MAX>");
     f.line("    where");
     f.line("        T: ConstrainedTypeShape,");
     f.line("    {");
@@ -1141,7 +1143,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("                GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("            );");
     f.line("            let bindings = empty_bindings_table();");
-    f.line("            return StepResult::Converged(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("            return StepResult::Converged(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("                grounding,");
     f.line("                bindings,");
     f.line("                32,");
@@ -1190,7 +1192,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.indented_doc_comment("not converged, or `PipelineFailure::ShapeMismatch` if the source");
     f.indented_doc_comment("declaration's result_type_iri does not match `T::IRI`.");
     f.line(
-        "    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>",
+        "    pub fn finalize(self) -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>",
     );
     f.line("    where");
     f.line("        T: ConstrainedTypeShape,");
@@ -1239,7 +1241,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.line("            GroundingCertificate::with_level_and_fingerprint_const(32, content_fingerprint),");
     f.line("        );");
     f.line("        let bindings = empty_bindings_table();");
-    f.line("        Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("        Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("            grounding,");
     f.line("            bindings,");
     f.line("            32,");
@@ -1298,7 +1300,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     f.doc_comment("// application derives from its `HostBounds`; thread it through");
     f.doc_comment("// `run_parallel`'s 4th const argument.");
     f.doc_comment(
-        "let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32>(decl)",
+        "let grounded = run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, 32, 32>(decl)",
     );
     f.doc_comment("    .expect(\"partition admits\");");
     f.doc_comment("# let _ = grounded;");
@@ -1307,13 +1309,13 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // already `#[must_use]` — no extra attribute needed. The must-use
     // discipline is enforced on run_stream/run_interactive where the
     // returned driver struct is not inherently must_use.
-    f.line("pub fn run_parallel<T, P, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn run_parallel<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: Validated<ParallelDeclaration, P>,");
-    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let decl = unit.inner();");
     f.line("    let site_count = decl.site_count();");
@@ -1408,7 +1410,7 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     );
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        32,");
@@ -1430,13 +1432,13 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // Phase M.3: `#[must_use]` — dropping the StreamDriver silently discards
     // the iterator without pulling any items.
     f.line("#[must_use]");
-    f.line("pub fn run_stream<T, P, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn run_stream<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: Validated<StreamDeclaration<'_, INLINE_BYTES>, P>,");
-    f.line(") -> StreamDriver<T, P, H, INLINE_BYTES>");
+    f.line(") -> StreamDriver<T, P, H, INLINE_BYTES, FP_MAX>");
     f.line("where");
     f.line("    T: crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let bound = unit.inner().productivity_bound();");
     f.line("    let result_type_iri = unit.inner().result_type_iri();");
@@ -1454,13 +1456,13 @@ fn emit_phase_f_drivers(f: &mut RustFile) {
     // Phase M.3: `#[must_use]` — dropping the InteractionDriver discards all
     // peer state and convergence progress.
     f.line("#[must_use]");
-    f.line("pub fn run_interactive<T, P, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn run_interactive<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: Validated<InteractionDeclaration, P>,");
-    f.line(") -> InteractionDriver<T, P, H, INLINE_BYTES>");
+    f.line(") -> InteractionDriver<T, P, H, INLINE_BYTES, FP_MAX>");
     f.line("where");
     f.line("    T: crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    InteractionDriver::new_internal(");
     f.line("        unit.inner().convergence_seed(),");
@@ -2382,7 +2384,18 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("evaluated kernel input bound in scope, and emits the resulting");
     f.doc_comment("`TermValue`. The legacy `dispatch_kernel` fast-path remains as an");
     f.doc_comment("optimization for axes whose body is empty (primitive fast-path).");
-    f.line("pub trait AxisExtension<const INLINE_BYTES: usize>: SubstrateTermBody<INLINE_BYTES> {");
+    f.indented_doc_comment(
+        "ADR-018 + ADR-030: `FP_MAX` is the application's fingerprint-width axis",
+    );
+    f.indented_doc_comment(
+        "(`<B as HostBounds>::FINGERPRINT_MAX_BYTES`), threaded so a `HashAxis`",
+    );
+    f.indented_doc_comment(
+        "wrapping a `Hasher<FP_MAX>` of any width composes — there is no pinned",
+    );
+    f.indented_doc_comment("32-byte fingerprint. Parallel to `INLINE_BYTES`: the application");
+    f.indented_doc_comment("instantiates it from its `HostBounds`, never a contrived literal.");
+    f.line("pub trait AxisExtension<const INLINE_BYTES: usize, const FP_MAX: usize>: SubstrateTermBody<INLINE_BYTES> {");
     f.indented_doc_comment("ADR-017 content address of this axis trait. The SDK macro");
     f.indented_doc_comment("derives this from the trait name and method signatures.");
     f.line("    const AXIS_ADDRESS: &'static str;");
@@ -2411,7 +2424,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Foundation provides tuple impls for arities 1 through");
     f.doc_comment("[`MAX_AXIS_TUPLE_ARITY`].");
-    f.line("pub trait AxisTuple<const INLINE_BYTES: usize> {");
+    f.line("pub trait AxisTuple<const INLINE_BYTES: usize, const FP_MAX: usize> {");
     f.indented_doc_comment("Number of axes carried in this tuple.");
     f.line("    const AXIS_COUNT: usize;");
     f.indented_doc_comment("Maximum kernel-output byte width across all axes in this tuple.");
@@ -2447,9 +2460,9 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.doc_comment("ADR-030 blanket: every [`crate::enforcement::Hasher`] is");
     f.doc_comment("automatically an [`AxisTuple`] of arity 1 — the canonical");
     f.doc_comment("hash axis at position 0, kernel id 0.");
-    f.line("impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> AxisTuple<INLINE_BYTES> for H {");
+    f.line("impl<const INLINE_BYTES: usize, const FP_MAX: usize, H: crate::enforcement::Hasher<FP_MAX>> AxisTuple<INLINE_BYTES, FP_MAX> for H {");
     f.line("    const AXIS_COUNT: usize = 1;");
-    f.line("    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <H as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;");
     f.line("    fn dispatch(");
     f.line("        axis_index: u32,");
     f.line("        kernel_id: u32,");
@@ -2467,10 +2480,10 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            });");
     f.line("        }");
-    f.line("        let mut hasher = <H as crate::enforcement::Hasher>::initial();");
+    f.line("        let mut hasher = <H as crate::enforcement::Hasher<FP_MAX>>::initial();");
     f.line("        hasher = hasher.fold_bytes(input);");
     f.line("        let digest = hasher.finalize();");
-    f.line("        let n_max = <H as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line("        let n_max = <H as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;");
     f.line("        let n = if n_max > out.len() { out.len() } else { n_max };");
     f.line("        let mut i = 0;");
     f.line("        while i < n {");
@@ -2490,9 +2503,9 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.blank();
     // 1-tuple impl — the most common case (a single hash axis).
     f.doc_comment("ADR-030: 1-tuple AxisTuple impl — applications selecting a single axis.");
-    f.line("impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0,) {");
+    f.line("impl<const INLINE_BYTES: usize, const FP_MAX: usize, A0: AxisExtension<INLINE_BYTES, FP_MAX>> AxisTuple<INLINE_BYTES, FP_MAX> for (A0,) {");
     f.line("    const AXIS_COUNT: usize = 1;");
-    f.line("    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;");
     f.line("    fn dispatch(");
     f.line("        axis_index: u32,");
     f.line("        kernel_id: u32,");
@@ -2500,7 +2513,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        out: &mut [u8],");
     f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out),");
     f.line("            _ => Err(crate::enforcement::ShapeViolation {");
     f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
     f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
@@ -2522,11 +2535,11 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.blank();
     // 2-tuple impl
     f.doc_comment("ADR-030: 2-tuple AxisTuple impl.");
-    f.line("impl<const INLINE_BYTES: usize, A0: AxisExtension<INLINE_BYTES>, A1: AxisExtension<INLINE_BYTES>> AxisTuple<INLINE_BYTES> for (A0, A1) {");
+    f.line("impl<const INLINE_BYTES: usize, const FP_MAX: usize, A0: AxisExtension<INLINE_BYTES, FP_MAX>, A1: AxisExtension<INLINE_BYTES, FP_MAX>> AxisTuple<INLINE_BYTES, FP_MAX> for (A0, A1) {");
     f.line("    const AXIS_COUNT: usize = 2;");
     f.line("    const MAX_OUTPUT_BYTES: usize = {");
-    f.line("        let a = <A0 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
-    f.line("        let b = <A1 as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;");
+    f.line("        let a = <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;");
+    f.line("        let b = <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;");
     f.line("        if a > b { a } else { b }");
     f.line("    };");
     f.line("    fn dispatch(");
@@ -2536,8 +2549,8 @@ fn emit_axis_extension(f: &mut RustFile) {
     f.line("        out: &mut [u8],");
     f.line("    ) -> Result<usize, crate::enforcement::ShapeViolation> {");
     f.line("        match axis_index {");
-    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
-    f.line("            1 => <A1 as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            0 => <A0 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out),");
+    f.line("            1 => <A1 as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out),");
     f.line("            _ => Err(crate::enforcement::ShapeViolation {");
     f.line("                shape_iri: \"https://uor.foundation/pipeline/AxisTupleShape\",");
     f.line("                constraint_iri: \"https://uor.foundation/pipeline/AxisTupleShape/inBounds\",");
@@ -2562,7 +2575,7 @@ fn emit_axis_extension(f: &mut RustFile) {
     for arity in 3..=8 {
         f.doc_comment(&format!("ADR-030: {arity}-tuple AxisTuple impl."));
         let type_params: String = (0..arity)
-            .map(|i| format!("A{i}: AxisExtension<INLINE_BYTES>"))
+            .map(|i| format!("A{i}: AxisExtension<INLINE_BYTES, FP_MAX>"))
             .collect::<Vec<_>>()
             .join(", ");
         let tuple_args: String = (0..arity)
@@ -2570,14 +2583,14 @@ fn emit_axis_extension(f: &mut RustFile) {
             .collect::<Vec<_>>()
             .join(", ");
         f.line(&format!(
-            "impl<const INLINE_BYTES: usize, {type_params}> AxisTuple<INLINE_BYTES> for ({tuple_args},) {{"
+            "impl<const INLINE_BYTES: usize, const FP_MAX: usize, {type_params}> AxisTuple<INLINE_BYTES, FP_MAX> for ({tuple_args},) {{"
         ));
         f.line(&format!("    const AXIS_COUNT: usize = {arity};"));
         f.line("    const MAX_OUTPUT_BYTES: usize = {");
         // saturating max chain of MAX_OUTPUT_BYTES
         for i in 0..arity {
             f.line(&format!(
-                "        let a{i} = <A{i} as AxisExtension<INLINE_BYTES>>::MAX_OUTPUT_BYTES;"
+                "        let a{i} = <A{i} as AxisExtension<INLINE_BYTES, FP_MAX>>::MAX_OUTPUT_BYTES;"
             ));
         }
         // Compute max via const-fn-friendly chained ifs.
@@ -2596,7 +2609,7 @@ fn emit_axis_extension(f: &mut RustFile) {
         f.line("        match axis_index {");
         for i in 0..arity {
             f.line(&format!(
-                "            {i} => <A{i} as AxisExtension<INLINE_BYTES>>::dispatch_kernel(kernel_id, input, out),"
+                "            {i} => <A{i} as AxisExtension<INLINE_BYTES, FP_MAX>>::dispatch_kernel(kernel_id, input, out),"
             ));
         }
         f.line("            _ => Err(crate::enforcement::ShapeViolation {");
@@ -2851,7 +2864,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.doc_comment("caller-supplied `&mut [u8]` scratch and no per-ψ-stage byte-width");
         f.doc_comment("ceiling (ADR-060 amends the ADR-036/ADR-041 writer-style surface).");
         f.line(&format!(
-            "pub trait {trait_name}<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>: __sdk_seal::Sealed {{"
+            "pub trait {trait_name}<const INLINE_BYTES: usize, H>: __sdk_seal::Sealed {{"
         ));
         f.indented_doc_comment("Resolve per-value content for this category.");
         f.indented_doc_comment("");
@@ -2914,7 +2927,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.doc_comment("The `prism_model!` macro infers the where-clause bound for each");
         f.doc_comment("resolver-bound ψ-Term variant a verb body emits.");
         f.line(&format!(
-            "pub trait {marker}<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>: ResolverTuple {{"
+            "pub trait {marker}<const INLINE_BYTES: usize, H>: ResolverTuple {{"
         ));
         f.indented_doc_comment(&format!(
             "Returns the `{resolver}` impl this ResolverTuple carries."
@@ -2988,12 +3001,10 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.doc_comment("default-propagation handler (ADR-022 D3 G9).");
         f.line("#[derive(Debug, Default)]");
         f.line(&format!(
-            "pub struct {null_ty}<H: crate::enforcement::Hasher>(core::marker::PhantomData<H>);"
+            "pub struct {null_ty}<H>(core::marker::PhantomData<H>);"
         ));
         f.blank();
-        f.line(&format!(
-            "impl<H: crate::enforcement::Hasher> {null_ty}<H> {{"
-        ));
+        f.line(&format!("impl<H> {null_ty}<H> {{"));
         f.indented_doc_comment("Construct a new Null resolver.");
         f.line("    #[must_use]");
         f.line("    pub const fn new() -> Self {");
@@ -3001,12 +3012,10 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.line("    }");
         f.line("}");
         f.blank();
-        f.line(&format!(
-            "impl<H: crate::enforcement::Hasher> __sdk_seal::Sealed for {null_ty}<H> {{}}"
-        ));
+        f.line(&format!("impl<H> __sdk_seal::Sealed for {null_ty}<H> {{}}"));
         f.blank();
         f.line(&format!(
-            "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for {null_ty}<H> {{"
+            "impl<const INLINE_BYTES: usize, H> {resolver_trait}<INLINE_BYTES, H> for {null_ty}<H> {{"
         ));
         f.line("    fn resolve<'a>(");
         f.line("        &self,");
@@ -3102,7 +3111,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
         f.doc_comment("The `resolve` method emits the `RESOLVER_ABSENT` shape violation —");
         f.doc_comment("recoverable via `Term::Try`'s default-propagation handler (ADR-022 D3 G9).");
         f.line(&format!(
-            "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {resolver_trait}<INLINE_BYTES, H> for NullResolverTuple {{"
+            "impl<const INLINE_BYTES: usize, H> {resolver_trait}<INLINE_BYTES, H> for NullResolverTuple {{"
         ));
         f.line("    fn resolve<'a>(");
         f.line("        &self,");
@@ -3126,7 +3135,7 @@ fn emit_resolver_tuple(f: &mut RustFile) {
             "ADR-036: NullResolverTuple satisfies `{marker}<INLINE_BYTES, H>` (returns `self`)."
         ));
         f.line(&format!(
-            "impl<const INLINE_BYTES: usize, H: crate::enforcement::Hasher> {marker}<INLINE_BYTES, H> for NullResolverTuple {{"
+            "impl<const INLINE_BYTES: usize, H> {marker}<INLINE_BYTES, H> for NullResolverTuple {{"
         ));
         f.line(&format!(
             "    fn {accessor}(&self) -> &dyn {resolver_trait}<INLINE_BYTES, H> {{"
@@ -3176,13 +3185,13 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line("#[repr(transparent)]");
     f.line("#[derive(Debug, Clone, Copy)]");
     f.line(
-        "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag = T>(",
+        "pub struct InhabitanceCertificateView<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize = 32, Tag = T>(",
     );
-    f.line("    pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>,");
+    f.line("    pub &'a crate::enforcement::Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag>,");
     f.line(");");
     f.blank();
     f.line(
-        "impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> InhabitanceCertificateView<'a, T, INLINE_BYTES, Tag> {",
+        "impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize, Tag> InhabitanceCertificateView<'a, T, INLINE_BYTES, FP_MAX, Tag> {",
     );
     f.indented_doc_comment("The κ-label — the homotopy-classification structural witness at");
     f.indented_doc_comment("ψ_9 per ADR-035. The bytes are the `Term::KInvariants` emission's");
@@ -3214,7 +3223,7 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.indented_doc_comment("the replay with.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn certificate(&self) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate> {");
+    f.line("    pub fn certificate(&self) -> &crate::enforcement::Validated<crate::enforcement::GroundingCertificate<FP_MAX>> {");
     f.line("        self.0.certificate()");
     f.line("    }");
     f.blank();
@@ -3285,8 +3294,8 @@ fn emit_inhabitance_verdict_surface(f: &mut RustFile) {
     f.line("    fn binding_bytes_at(&self, idx: usize) -> Option<&'static [u8]>;");
     f.line("}");
     f.blank();
-    f.line("impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, Tag> WitnessTupleSource");
-    f.line("    for crate::enforcement::Grounded<'a, T, INLINE_BYTES, Tag>");
+    f.line("impl<'a, T: crate::enforcement::GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize, Tag> WitnessTupleSource");
+    f.line("    for crate::enforcement::Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag>");
     f.line("{");
     f.line("    fn binding_count(&self) -> usize {");
     f.line("        self.iter_bindings().count()");
@@ -3847,7 +3856,7 @@ fn emit_cryptanalysis_battery(f: &mut RustFile) {
     f.line("pub mod axis {");
     f.indented_doc_comment("Wiki ADR-049 cryptanalysis-battery entry point.");
     f.line("    #[must_use]");
-    f.line("    pub fn cryptanalyze<H: crate::enforcement::Hasher>(samples: usize) -> super::CryptanalysisReport {");
+    f.line("    pub fn cryptanalyze<H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(samples: usize) -> super::CryptanalysisReport {");
     f.line("        // Minimum-viable foundation surface: the cryptanalysis surface is");
     f.line("        // declared at the trait level; production implementations consume");
     f.line("        // the H impl's `initial()` + `fold_byte()` + `finalize()` surface to");
@@ -3857,7 +3866,7 @@ fn emit_cryptanalysis_battery(f: &mut RustFile) {
     f.line("        // building on `axis::cryptanalyze` consume the typed report directly");
     f.line("        // without re-deriving the test-harness scaffolding.");
     f.line("        let _ = samples;");
-    f.line("        let _ = <H as crate::enforcement::Hasher>::initial();");
+    f.line("        let _ = <H as crate::enforcement::Hasher<FP_MAX>>::initial();");
     f.line("        super::CryptanalysisReport {");
     f.line("            samples,");
     f.line("            a_triadic_uniformity: super::TestOutcome::Pass,");
@@ -4329,7 +4338,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("`Route` associated type aliases) and the value-level `TermArena` slice");
     f.doc_comment("[`run_route`] traverses (per ADR-022 D2 + D3 + D5).");
     f.line(
-        "pub trait PrismModel<'a, H, B, A, const INLINE_BYTES: usize, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
+        "pub trait PrismModel<'a, H, B, A, const INLINE_BYTES: usize, const FP_MAX: usize, R = crate::pipeline::NullResolverTuple, C = crate::pipeline::EmptyCommitment>: __sdk_seal::Sealed",
     );
     f.line("where");
     f.line("    H: crate::HostTypes,");
@@ -4339,7 +4348,7 @@ fn emit_prism_model(f: &mut RustFile) {
     // `Hasher` so resolver-bound ψ-Term fold-rules per ADR-035 can invoke
     // `<A as Hasher>::initial()` at evaluation time (parameterizes the eight
     // resolver traits per ADR-036).
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX>,");
     f.line("    R: crate::pipeline::ResolverTuple,");
     // Wiki ADR-048: the 5th substrate parameter is the model's
     // `TypedCommitment` — prism's cost-model commitment surface. The
@@ -4390,7 +4399,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("coherence, dispatch coverage, timing) or when reduction stages");
     f.indented_doc_comment("detect contradiction along the route.");
     f.line("    fn forward(input: Self::Input) -> Result<");
-    f.line("        crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES>,");
+    f.line("        crate::enforcement::Grounded<'a, Self::Output, INLINE_BYTES, FP_MAX>,");
     f.line("        PipelineFailure,");
     f.line("    >;");
     f.line("}");
@@ -4419,19 +4428,21 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] from the underlying [`run`] call.");
-    f.line("pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize>(");
+    f.line(
+        "pub fn run_route<'a, H, B, A, M, R, C, const INLINE_BYTES: usize, const FP_MAX: usize>(",
+    );
     f.line("    input: M::Input,");
     f.line("    resolvers: &R,");
     f.line("    commitment: &C,");
     f.line(") -> Result<");
-    f.line("    crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES>,");
+    f.line("    crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES, FP_MAX>,");
     f.line("    PipelineFailure,");
     f.line(">");
     f.line("where");
     f.line("    H: crate::HostTypes,");
     f.line("    B: crate::HostBounds,");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
-    f.line("    M: PrismModel<'a, H, B, A, INLINE_BYTES, R, C>,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,");
+    f.line("    M: PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX, R, C>,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -4470,9 +4481,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // full canonical sequence. The fold output is truncated to u64 for the");
     f.line("    // `Binding.content_address` carrier, matching the `to_binding_entry`");
     f.line("    // convention foundation uses for static bindings.");
-    f.line("    let mut hasher = <A as crate::enforcement::Hasher>::initial();");
+    f.line("    let mut hasher = <A as crate::enforcement::Hasher<FP_MAX>>::initial();");
     f.line("    input_value.for_each_chunk(&mut |chunk| {");
-    f.line("        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())");
+    f.line("        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher<FP_MAX>>::initial())");
     f.line("            .fold_bytes(chunk);");
     f.line("    });");
     f.line("    let digest = hasher.finalize();");
@@ -4525,7 +4536,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // catamorphism's output carrier flows into the Grounded's output");
     f.line("    // payload (ADR-028). The input carrier threads `'a` so a Borrowed/");
     f.line("    // Stream output borrows the same input data the `Grounded<'a>` carries.");
-    f.line("    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES>(arena_slice, input_value, resolvers)?;");
+    f.line("    let evaluation = evaluate_term_tree::<A, R, INLINE_BYTES, FP_MAX>(arena_slice, input_value, resolvers)?;");
     f.line("    // Wiki ADR-048: post-resolver typed-bandwidth admission. The");
     f.line("    // catamorphism evaluates the model's `C: TypedCommitment` on the");
     f.line("    // κ-label byte sequence (the route's evaluated output, which for the");
@@ -4556,8 +4567,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // `Grounded<'a>` (TermValue is covariant in its lifetime) so the");
     f.line("    // evaluated output carrier (which borrows the route's `'a` input data)");
     f.line("    // can be attached via `with_output`.");
-    f.line("    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES> =");
-    f.line("        run::<M::Output, _, A, INLINE_BYTES>(unit)?;");
+    f.line("    let grounded: crate::enforcement::Grounded<'a, M::Output, INLINE_BYTES, FP_MAX> =");
+    f.line("        run::<M::Output, _, A, INLINE_BYTES, FP_MAX>(unit)?;");
     f.line("    Ok(grounded.with_output(evaluation))");
     f.line("}");
     f.blank();
@@ -4945,6 +4956,12 @@ fn emit_prism_model(f: &mut RustFile) {
     f.indented_doc_comment("`Vec<u8>` (works for all three variants, including `Stream`).");
     f.line("    #[cfg(feature = \"alloc\")]");
     f.line("    #[must_use]");
+    // `to_vec(&self)` mirrors `<[T]>::to_vec(&self)` in the standard library —
+    // a borrowing read, not a consuming conversion. clippy's
+    // `wrong_self_convention` flags `to_*` on `Copy` types as "take self by
+    // value", which is the wrong call here (the carrier may borrow `'a` data or
+    // wrap a `&dyn ChunkSource`; reading it must not move it).
+    f.line("    #[allow(clippy::wrong_self_convention)]");
     f.line("    pub fn to_vec(&self) -> alloc::vec::Vec<u8> {");
     f.line("        let mut out = alloc::vec::Vec::new();");
     f.line("        self.for_each_chunk(&mut |chunk| out.extend_from_slice(chunk));");
@@ -5040,7 +5057,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Returns [`PipelineFailure`] when the term tree is malformed (out-of-bounds");
     f.doc_comment("index, level mismatch, exhausted match without wildcard arm, etc.).");
-    f.line("pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize>(");
+    f.line(
+        "pub fn evaluate_term_tree<'a, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(",
+    );
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    input: TermValue<'a, INLINE_BYTES>,");
     f.line("    // ADR-060: the resolver borrow `'r` is decoupled from the value/output");
@@ -5051,7 +5070,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5072,7 +5091,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    // arena (the `prism_model!` macro emits in post-order, so the root");
     f.line("    // is the final node).");
     f.line("    let root_idx = arena.len() - 1;");
-    f.line("    evaluate_term_at::<A, R, INLINE_BYTES>(arena, root_idx, input, None, None, None, None, resolvers)");
+    f.line("    evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, root_idx, input, None, None, None, None, resolvers)");
     f.line("}");
     f.blank();
 
@@ -5088,7 +5107,9 @@ fn emit_prism_model(f: &mut RustFile) {
     // required. The Term enum carries exactly the ten variants ADR-029
     // enumerates.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(");
+    f.line(
+        "fn evaluate_term_at<'a, 'b, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(",
+    );
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    idx: usize,");
     f.line("    input: TermValue<'a, INLINE_BYTES>,");
@@ -5099,7 +5120,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5172,11 +5193,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        crate::enforcement::Term::Application { operator, args } => {");
     f.line("            let start = args.start as usize;");
     f.line("            let len = args.len as usize;");
-    f.line("            apply_primitive_op::<A, R, INLINE_BYTES>(arena, operator, start, len, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
+    f.line("            apply_primitive_op::<A, R, INLINE_BYTES, FP_MAX>(arena, operator, start, len, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)");
     f.line("        }");
     f.line("        crate::enforcement::Term::Lift { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > INLINE_BYTES {");
@@ -5195,7 +5216,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Project { operand_index, target } => {");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, operand_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let target_width = (target.witt_length() / 8) as usize;");
     f.line("            let target_width = if target_width > INLINE_BYTES {");
@@ -5208,7 +5229,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        }");
     f.line("        crate::enforcement::Term::Match { scrutinee_index, arms } => {");
     f.line(
-        "            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES>(arena, scrutinee_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let scrutinee = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, scrutinee_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let start = arms.start as usize;");
     f.line("            let count = arms.len as usize;");
@@ -5224,13 +5245,13 @@ fn emit_prism_model(f: &mut RustFile) {
     );
     f.line("                );");
     f.line("                if is_wildcard {");
-    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
+    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line(
-        "                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, pattern_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "                let pattern_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, pattern_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("                if pattern_val.bytes() == scrutinee.bytes() {");
-    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
+    f.line("                    return evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, body_idx, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers);");
     f.line("                }");
     f.line("                i += 2;");
     f.line("            }");
@@ -5265,11 +5286,11 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // forms within the measure/base computations; step body uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let measure = evaluate_term_at::<A, R, INLINE_BYTES>(arena, measure_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let measure = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, measure_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(measure.bytes());");
     f.line(
-        "            let base_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, base_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let base_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, base_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            if n == 0 {");
     f.line("                return Ok(base_val);");
@@ -5293,7 +5314,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // u64 packing so callers can read it as a u64-shaped value.");
     f.line("                let descent_measure: u64 = n - iter;");
     f.line("                let descent_bytes = descent_measure.to_be_bytes();");
-    f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES>(");
+    f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
     f.line("                    input,");
@@ -5325,7 +5346,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // within the seed; step body's state placeholder uses the");
     f.line("            // iteration's accumulator.");
     f.line(
-        "            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES>(arena, seed_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let seed_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, seed_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let mut state_buf = [0u8; INLINE_BYTES];");
     f.line("            let mut state_len = seed_val.bytes().len();");
@@ -5336,7 +5357,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            }");
     f.line("            let mut iter = 0usize;");
     f.line("            while iter < UNFOLD_MAX_ITERATIONS {");
-    f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES>(");
+    f.line("                let next = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(");
     f.line("                    arena,");
     f.line("                    step_index as usize,");
     f.line("                    input,");
@@ -5363,14 +5384,14 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            Ok(TermValue::inline_from_slice(&state_buf[..state_len]))");
     f.line("        }");
     f.line("        crate::enforcement::Term::Try { body_index, handler_index } => {");
-    f.line("            match evaluate_term_at::<A, R, INLINE_BYTES>(arena, body_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers) {");
+    f.line("            match evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, body_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers) {");
     f.line("                Ok(v) => Ok(v),");
     f.line("                Err(e) => {");
     f.line("                    if handler_index == u32::MAX {");
     f.line("                        Err(e)");
     f.line("                    } else {");
     f.line(
-        "                        evaluate_term_at::<A, R, INLINE_BYTES>(arena, handler_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)",
+        "                        evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, handler_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)",
     );
     f.line("                    }");
     f.line("                }");
@@ -5389,8 +5410,8 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // `axis!` SDK macro extend the dispatch surface to additional");
     f.line("            // (axis_index, kernel_id) combinations and may provide substrate-");
     f.line("            // Term bodies the catamorphism walks structurally.");
-    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, input_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
-    f.line("            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::body_arena_at(axis_index);");
+    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, input_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("            let body = <A as crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX>>::body_arena_at(axis_index);");
     f.line("            if body.is_empty() {");
     f.line("                if axis_index == 0 && kernel_id == 0 {");
     f.line("                    // ADR-060: the canonical σ-projection / hash axis (axis 0,");
@@ -5401,13 +5422,15 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                    // an empty slice for a `Stream` operand.) The digest is");
     f.line("                    // always Inline — its width is bounded by the application's");
     f.line("                    // fingerprint width, ≤ the derived inline width.");
-    f.line("                    let mut hasher = <A as crate::enforcement::Hasher>::initial();");
+    f.line("                    let mut hasher = <A as crate::enforcement::Hasher<FP_MAX>>::initial();");
     f.line("                    v.for_each_chunk(&mut |chunk| {");
-    f.line("                        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher>::initial())");
+    f.line("                        hasher = core::mem::replace(&mut hasher, <A as crate::enforcement::Hasher<FP_MAX>>::initial())");
     f.line("                            .fold_bytes(chunk);");
     f.line("                    });");
     f.line("                    let digest = hasher.finalize();");
-    f.line("                    let n_max = <A as crate::enforcement::Hasher>::OUTPUT_BYTES;");
+    f.line(
+        "                    let n_max = <A as crate::enforcement::Hasher<FP_MAX>>::OUTPUT_BYTES;",
+    );
     f.line(
         "                    let width = if n_max > INLINE_BYTES { INLINE_BYTES } else { n_max };",
     );
@@ -5417,7 +5440,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // the bounded operand bytes (user-declared axes operate on");
     f.line("                // bounded values; `v.bytes()` yields the Inline/Borrowed slice).");
     f.line("                let mut out = [0u8; INLINE_BYTES];");
-    f.line("                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES>>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
+    f.line("                let written = match <A as crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX>>::dispatch(axis_index, kernel_id, v.bytes(), &mut out) {");
     f.line("                    Ok(n) => n,");
     f.line("                    Err(report) => return Err(PipelineFailure::ShapeViolation { report }),");
     f.line("                };");
@@ -5434,13 +5457,13 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("                // body's input; the recursively-folded body result is");
     f.line("                // materialized into an owned `Inline` carrier so it does not");
     f.line("                // borrow the body arena's transient scope.");
-    f.line("                let folded = evaluate_term_at::<A, R, INLINE_BYTES>(body, root, v, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("                let folded = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(body, root, v, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("                Ok(TermValue::inline_from_slice(folded.bytes()))");
     f.line("            }");
     f.line("        }");
     f.line("        crate::enforcement::Term::ProjectField { source_index, byte_offset, byte_length } => {");
     f.line("            // ADR-033 G20: evaluate source, slice [byte_offset .. byte_offset+byte_length].");
-    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, source_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, source_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("            let bytes = v.bytes();");
     f.line("            let start = byte_offset as usize;");
     f.line("            let end = start.saturating_add(byte_length as usize);");
@@ -5472,7 +5495,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // 0x01 || idx_bytes); after exhausting the domain return the");
     f.line("            // \"not-found\" coproduct value 0x00 || idx-width zero bytes.");
     f.line(
-        "            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES>(arena, domain_size_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let domain_size = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, domain_size_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            let n = bytes_to_u64_be(domain_size.bytes());");
     f.line("            // Determine the idx byte width from the domain size's");
@@ -5492,7 +5515,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            while idx_iter < n {");
     f.line("                let idx_bytes_full = idx_iter.to_be_bytes();");
     f.line("                let idx_bytes = &idx_bytes_full[8 - idx_byte_width..];");
-    f.line("                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES>(");
+    f.line("                let pred_val = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(");
     f.line("                    arena,");
     f.line("                    predicate_index as usize,");
     f.line("                    input,");
@@ -5615,7 +5638,7 @@ fn emit_prism_model(f: &mut RustFile) {
         f.line("            // `PipelineFailure::ShapeViolation` (the Null defaults emit");
         f.line("            // `RESOLVER_ABSENT`, recoverable via `Term::Try`).");
         f.line(&format!(
-            "            let operand = evaluate_term_at::<A, R, INLINE_BYTES>(arena, {operand_field} as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
+            "            let operand = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, {operand_field} as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;"
         ));
         f.line(&format!(
             "            match resolvers.{accessor}().resolve(operand) {{"
@@ -5635,7 +5658,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("            // are returned as-is; downstream consumers slice the");
     f.line("            // Betti tuple positions out of the result.");
     f.line(
-        "            let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, homology_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "            let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, homology_index as usize, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("            Ok(v)");
     f.line("        }");
@@ -5646,7 +5669,9 @@ fn emit_prism_model(f: &mut RustFile) {
 
     // Per-PrimitiveOp arithmetic evaluation — ADR-029 Application rule.
     f.line("#[allow(clippy::too_many_arguments)]");
-    f.line("fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize>(");
+    f.line(
+        "fn apply_primitive_op<'a, 'b, 'r, A, R, const INLINE_BYTES: usize, const FP_MAX: usize>(",
+    );
     f.line("    arena: &'a [crate::enforcement::Term<'a, INLINE_BYTES>],");
     f.line("    operator: crate::PrimitiveOp,");
     f.line("    args_start: usize,");
@@ -5659,7 +5684,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    resolvers: &'r R,");
     f.line(") -> Result<TermValue<'a, INLINE_BYTES>, PipelineFailure>");
     f.line("where");
-    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES> + crate::enforcement::Hasher + 'a,");
+    f.line("    A: crate::pipeline::AxisTuple<INLINE_BYTES, FP_MAX> + crate::enforcement::Hasher<FP_MAX> + 'a,");
     f.line("    R: crate::pipeline::ResolverTuple");
     f.line("        + crate::pipeline::HasNerveResolver<INLINE_BYTES, A>");
     f.line("        + crate::pipeline::HasChainComplexResolver<INLINE_BYTES, A>");
@@ -5711,7 +5736,7 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("    }");
     f.line("    if arity == 1 {");
     f.line(
-        "        let v = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "        let v = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
     f.line("        let x = bytes_to_u64_be(v.bytes());");
     f.line("        let r = match operator {");
@@ -5742,9 +5767,9 @@ fn emit_prism_model(f: &mut RustFile) {
     f.line("        Ok(TermValue::inline_from_slice(&arr[8 - width..]))");
     f.line("    } else {");
     f.line(
-        "        let lhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
+        "        let lhs = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, args_start, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;",
     );
-    f.line("        let rhs = evaluate_term_at::<A, R, INLINE_BYTES>(arena, args_start + 1, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
+    f.line("        let rhs = evaluate_term_at::<A, R, INLINE_BYTES, FP_MAX>(arena, args_start + 1, input, recurse_value, recurse_idx_value, unfold_value, first_admit_idx_value, resolvers)?;");
     f.line("        // ADR-013/TR-08 substrate-amendment ops: byte-level Concat and");
     f.line("        // comparison primitives bypass the u64 fold and operate on the");
     f.line("        // operands' full byte sequences.");
@@ -7595,10 +7620,10 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("");
     f.doc_comment("Returns `GenericImpossibilityWitness` when the input is unsatisfiable or");
     f.doc_comment("when any preflight / reduction stage rejects it.");
-    f.line("pub fn run_tower_completeness<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher>(");
+    f.line("pub fn run_tower_completeness<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("    _input: &T,");
     f.line("    level: WittLevel,");
-    f.line(") -> Result<Validated<LiftChainCertificate>, GenericImpossibilityWitness> {");
+    f.line(") -> Result<Validated<LiftChainCertificate<FP_MAX>>, GenericImpossibilityWitness> {");
     f.line("    let witt_bits = level.witt_length() as u16;");
     f.line("    preflight_budget_solvency(witt_bits as u64, witt_bits as u32)");
     f.line("        .map_err(|_| GenericImpossibilityWitness::default())?;");
@@ -7733,10 +7758,10 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("///");
     f.line("/// Returns `GenericImpossibilityWitness` when any page's differential");
     f.line("/// does not vanish, or when preflight checks reject the input.");
-    f.line("pub fn run_incremental_completeness<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher>(");
+    f.line("pub fn run_incremental_completeness<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("    _input: &T,");
     f.line("    target_level: WittLevel,");
-    f.line(") -> Result<Validated<LiftChainCertificate>, GenericImpossibilityWitness> {");
+    f.line(") -> Result<Validated<LiftChainCertificate<FP_MAX>>, GenericImpossibilityWitness> {");
     f.line("    let target_bits = target_level.witt_length() as u16;");
     f.line("    preflight_budget_solvency(target_bits as u64, target_bits as u32)");
     f.line("        .map_err(|_| GenericImpossibilityWitness::default())?;");
@@ -7865,10 +7890,10 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("/// Returns `GenericImpossibilityWitness` on grounding failure: unresolved");
     f.line("/// variables, or any variable reference whose name index is absent from");
     f.line("/// `unit.bindings()`.");
-    f.line("pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Hasher>(");
+    f.line("pub fn run_grounding_aware<const INLINE_BYTES: usize, H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("    unit: &CompileUnit<'_, INLINE_BYTES>,");
     f.line("    level: WittLevel,");
-    f.line(") -> Result<Validated<GroundingCertificate>, GenericImpossibilityWitness> {");
+    f.line(") -> Result<Validated<GroundingCertificate<FP_MAX>>, GenericImpossibilityWitness> {");
     f.line("    let witt_bits = level.witt_length() as u16;");
     f.line("    // v0.2.2 Phase H2: walk root_term enumerating Term::Variable name_indices,");
     f.line("    // linear-search unit.bindings() for each, reject unresolved variables.");
@@ -7924,11 +7949,13 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("///");
     f.line("/// Returns `InhabitanceImpossibilityWitness` when the input is unsatisfiable.");
     f.line(
-        "pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher>(",
+        "pub fn run_inhabitance<T: ConstrainedTypeShape + ?Sized, H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(",
     );
     f.line("    _input: &T,");
     f.line("    level: WittLevel,");
-    f.line(") -> Result<Validated<InhabitanceCertificate>, InhabitanceImpossibilityWitness> {");
+    f.line(
+        ") -> Result<Validated<InhabitanceCertificate<FP_MAX>>, InhabitanceImpossibilityWitness> {",
+    );
     f.line("    let witt_bits = level.witt_length() as u16;");
     f.line("    preflight_budget_solvency(witt_bits as u64, witt_bits as u32)");
     f.line("        .map_err(|_| InhabitanceImpossibilityWitness::default())?;");
@@ -8032,18 +8059,18 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.doc_comment("    .result_type::<ConstrainedTypeInput>()");
     f.doc_comment("    .validate()");
     f.doc_comment("    .expect(\"unit well-formed\");");
-    f.doc_comment("let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit)");
+    f.doc_comment("let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit)");
     f.doc_comment("    .expect(\"pipeline admits\");");
     f.doc_comment("# let _ = grounded;");
     f.doc_comment("```");
     // Phase M.3: `run` returns `Result`, which is already `#[must_use]`.
-    f.line("pub fn run<T, P, H, const INLINE_BYTES: usize>(");
+    f.line("pub fn run<T, P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("    unit: Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
-    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES>, PipelineFailure>");
+    f.line(") -> Result<Grounded<'static, T, INLINE_BYTES, FP_MAX>, PipelineFailure>");
     f.line("where");
     f.line("    T: ConstrainedTypeShape + crate::enforcement::GroundedShape,");
     f.line("    P: crate::enforcement::ValidationPhase,");
-    f.line("    H: crate::enforcement::Hasher,");
+    f.line("    H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("{");
     f.line("    let witt_bits = unit.inner().witt_level().witt_length() as u16;");
     f.line("    let budget = unit.inner().thermodynamic_budget();");
@@ -8105,7 +8132,7 @@ fn emit_resolver_entry_points(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        GroundingCertificate::with_level_and_fingerprint_const(witt_bits, content_fingerprint),");
     f.line("    );");
     f.line("    let bindings = empty_bindings_table();");
-    f.line("    Ok(Grounded::<T, INLINE_BYTES>::new_internal(");
+    f.line("    Ok(Grounded::<T, INLINE_BYTES, FP_MAX>::new_internal(");
     f.line("        grounding,");
     f.line("        bindings,");
     f.line("        outcome.witt_bits,");

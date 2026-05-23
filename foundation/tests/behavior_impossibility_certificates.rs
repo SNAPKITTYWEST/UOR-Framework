@@ -57,7 +57,7 @@ fn multiplication_certify_emits_witness_on_zero_stack_budget() {
     // so downstream can wrap in `Certified<>` through their own paths
     // or match directly on the witness.
     let ctx: MulContext = mul_context(0, false, 4);
-    let result = resolver::multiplication::certify::<Fnv1aHasher16>(&ctx);
+    let result = resolver::multiplication::certify::<Fnv1aHasher16, 32>(&ctx);
     assert!(
         result.is_err(),
         "stack_budget_bytes == 0 must return Err(GenericImpossibilityWitness)"

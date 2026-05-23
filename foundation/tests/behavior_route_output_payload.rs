@@ -54,7 +54,7 @@ fn grounded_output_bytes_accessor_is_public() {
     // returned slice must fit within the application's inline carrier width.
     let unit = build_unit();
     let grounded: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
             .expect("fixture: run_const succeeds");
     let out = grounded.output_bytes();
     assert!(

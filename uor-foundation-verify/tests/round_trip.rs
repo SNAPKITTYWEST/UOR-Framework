@@ -53,7 +53,7 @@ fn fingerprint_32(bytes: &[u8]) -> ContentFingerprint {
 
 #[test]
 fn empty_trace_rejects() {
-    match verify_trace(&Trace::empty()) {
+    match verify_trace(&Trace::<256, 32>::empty()) {
         Err(ReplayError::EmptyTrace) => {}
         other => panic!("expected EmptyTrace, got {other:?}"),
     }

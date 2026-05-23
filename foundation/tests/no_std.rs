@@ -36,7 +36,7 @@ fn no_std_resolver_free_functions_reachable() {
     // free-function path. The unit-struct `Certify` façades are deleted;
     // downstream reaches the resolvers through `enforcement::resolver::*`.
     let input = uor_foundation_test_helpers::validated_runtime(ConstrainedTypeInput::default());
-    let _ = inhabitance::certify::<_, _, Fnv1aHasher16>(&input);
-    let _ = tower_completeness::certify::<_, _, Fnv1aHasher16>(&input);
+    let _ = inhabitance::certify::<_, _, Fnv1aHasher16, 32>(&input);
+    let _ = tower_completeness::certify::<_, _, Fnv1aHasher16, 32>(&input);
     let _: &str = <ConstrainedTypeInput as ConstrainedTypeShape>::IRI;
 }

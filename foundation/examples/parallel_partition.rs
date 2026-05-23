@@ -30,9 +30,11 @@ fn main() {
         >(PARTITION_432, DISJOINTNESS_WITNESS));
 
     let g_abc: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_abc).expect("3-3-3 admits");
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_abc)
+            .expect("3-3-3 admits");
     let g_432: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_432).expect("4-3-2 admits");
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_432)
+            .expect("4-3-2 admits");
 
     // Both partitions have site_count = 9 but differ in component structure —
     // the per-component fold produces distinct fingerprints.

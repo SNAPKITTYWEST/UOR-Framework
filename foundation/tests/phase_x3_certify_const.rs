@@ -56,79 +56,79 @@ const COMPILE_TIME_PROBE: Validated<Probe, uor_foundation::enforcement::CompileT
 #[test]
 fn two_sat_decider_accepts_compile_time_phase() {
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::two_sat_decider::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::two_sat_decider::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn horn_sat_decider_accepts_compile_time_phase() {
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::horn_sat_decider::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::horn_sat_decider::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn residual_verdict_accepts_compile_time_phase() {
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::residual_verdict::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::residual_verdict::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn canonical_form_accepts_compile_time_phase() {
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::canonical_form::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::canonical_form::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn type_synthesis_accepts_compile_time_phase() {
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::type_synthesis::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::type_synthesis::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn homotopy_accepts_compile_time_phase() {
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::homotopy::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::homotopy::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn monodromy_accepts_compile_time_phase() {
     let _r: Result<Certified<IsometryCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::monodromy::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::monodromy::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn moduli_accepts_compile_time_phase() {
     let _r: Result<Certified<TransformCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::moduli::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::moduli::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn jacobian_guided_accepts_compile_time_phase() {
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::jacobian_guided::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::jacobian_guided::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn evaluation_accepts_compile_time_phase() {
     let _r: Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::evaluation::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::evaluation::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn dihedral_factorization_accepts_compile_time_phase() {
     let _r: Result<Certified<InvolutionCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::dihedral_factorization::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::dihedral_factorization::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn completeness_accepts_compile_time_phase() {
     let _r: Result<Certified<CompletenessCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::completeness::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::completeness::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 #[test]
 fn geodesic_validator_accepts_compile_time_phase() {
     let _r: Result<Certified<GeodesicCertificate>, Certified<GenericImpossibilityWitness>> =
-        resolver::geodesic_validator::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::geodesic_validator::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -152,8 +152,8 @@ const PROBE2: Validated<Probe2, uor_foundation::enforcement::CompileTime> =
 
 #[test]
 fn const_path_preserves_shape_discrimination() {
-    let a = resolver::homotopy::certify::<_, _, H>(&COMPILE_TIME_PROBE).unwrap();
-    let b = resolver::homotopy::certify::<_, _, H>(&PROBE2).unwrap();
+    let a = resolver::homotopy::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE).unwrap();
+    let b = resolver::homotopy::certify::<_, _, H, 32>(&PROBE2).unwrap();
     assert_ne!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -167,15 +167,15 @@ fn const_path_preserves_shape_discrimination() {
 fn _compile_time_type_check() {
     // The type annotations are load-bearing.
     let _: Result<Certified<TransformCertificate>, _> =
-        resolver::homotopy::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::homotopy::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
     let _: Result<Certified<IsometryCertificate>, _> =
-        resolver::monodromy::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::monodromy::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
     let _: Result<Certified<InvolutionCertificate>, _> =
-        resolver::dihedral_factorization::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::dihedral_factorization::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
     let _: Result<Certified<CompletenessCertificate>, _> =
-        resolver::completeness::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::completeness::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
     let _: Result<Certified<GeodesicCertificate>, _> =
-        resolver::geodesic_validator::certify::<_, _, H>(&COMPILE_TIME_PROBE);
+        resolver::geodesic_validator::certify::<_, _, H, 32>(&COMPILE_TIME_PROBE);
 }
 
 /// Exempt types: ensure imports resolve (MeasurementCertificate / BornRuleVerification

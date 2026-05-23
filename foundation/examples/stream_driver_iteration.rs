@@ -17,7 +17,7 @@ fn main() {
     let decl: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(5));
 
-    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(decl);
+    let driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> = run_stream(decl);
 
     let mut step = 0u32;
     let mut last_address = None;

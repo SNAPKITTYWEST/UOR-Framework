@@ -45,7 +45,7 @@ fn inhabitance_dispatch_target_resolvers_match_ontology() {
 #[test]
 fn inhabitance_resolver_vacuous_satisfies_empty_input() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let result = inhabitance::certify::<_, _, Fnv1aHasher16>(&input);
+    let result = inhabitance::certify::<_, _, Fnv1aHasher16, 32>(&input);
     assert!(
         result.is_ok(),
         "inhabitance::certify must return Ok for vacuous (no-constraint) inputs"

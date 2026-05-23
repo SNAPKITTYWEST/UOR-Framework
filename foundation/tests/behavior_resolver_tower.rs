@@ -52,18 +52,20 @@ fn constrained_type_resolvers_produce_distinct_fingerprints() {
     let input = uor_foundation_test_helpers::validated_runtime(ConstrainedTypeInput::default());
 
     let tower =
-        resolver::tower_completeness::certify::<_, _, Fnv1aHasher16>(&input).expect("tower");
-    let incr =
-        resolver::incremental_completeness::certify::<_, _, Fnv1aHasher16>(&input).expect("incr");
-    let inhab = resolver::inhabitance::certify::<_, _, Fnv1aHasher16>(&input).expect("inhab");
+        resolver::tower_completeness::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("tower");
+    let incr = resolver::incremental_completeness::certify::<_, _, Fnv1aHasher16, 32>(&input)
+        .expect("incr");
+    let inhab = resolver::inhabitance::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("inhab");
     let two_sat =
-        resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16>(&input).expect("two_sat");
-    let horn = resolver::horn_sat_decider::certify::<_, _, Fnv1aHasher16>(&input).expect("horn");
-    let canon = resolver::canonical_form::certify::<_, _, Fnv1aHasher16>(&input).expect("canon");
-    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("homotopy");
-    let moduli = resolver::moduli::certify::<_, _, Fnv1aHasher16>(&input).expect("moduli");
+        resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("two_sat");
+    let horn =
+        resolver::horn_sat_decider::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("horn");
+    let canon =
+        resolver::canonical_form::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("canon");
+    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("homotopy");
+    let moduli = resolver::moduli::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("moduli");
     let geodesic =
-        resolver::geodesic_validator::certify::<_, _, Fnv1aHasher16>(&input).expect("geodesic");
+        resolver::geodesic_validator::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("geodesic");
 
     // Pairwise-distinct fingerprint assertion.
     let fps = [
@@ -107,13 +109,14 @@ fn compile_unit_resolvers_produce_distinct_fingerprints() {
     let unit = build_unit();
 
     let grounding =
-        resolver::grounding_aware::certify::<_, Fnv1aHasher16, N>(&unit).expect("grounding");
-    let session = resolver::session::certify::<_, Fnv1aHasher16, N>(&unit).expect("session");
+        resolver::grounding_aware::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("grounding");
+    let session = resolver::session::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("session");
     let superp =
-        resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superposition");
-    let meas = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("measurement");
-    let witt_l =
-        resolver::witt_level_resolver::certify::<_, Fnv1aHasher16, N>(&unit).expect("witt_level");
+        resolver::superposition::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("superposition");
+    let meas =
+        resolver::measurement::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("measurement");
+    let witt_l = resolver::witt_level_resolver::certify::<_, Fnv1aHasher16, N, 32>(&unit)
+        .expect("witt_level");
 
     let fps = [
         (
@@ -144,8 +147,8 @@ fn compile_unit_resolvers_produce_distinct_fingerprints() {
 #[test]
 fn resolvers_are_pure_same_input_same_fingerprint() {
     let input = uor_foundation_test_helpers::validated_runtime(ConstrainedTypeInput::default());
-    let a = resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16>(&input).expect("a");
-    let b = resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16>(&input).expect("b");
+    let a = resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("a");
+    let b = resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("b");
     assert_eq!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -160,12 +163,12 @@ fn incremental_completeness_walks_multiple_pages() {
     // page counts, so their fingerprints differ (page_index folds into the
     // digest's budget slot).
     let input = uor_foundation_test_helpers::validated_runtime(ConstrainedTypeInput::default());
-    let w8 = resolver::incremental_completeness::certify_at::<_, _, Fnv1aHasher16>(
+    let w8 = resolver::incremental_completeness::certify_at::<_, _, Fnv1aHasher16, 32>(
         &input,
         WittLevel::W8,
     )
     .expect("w8 single-page walk");
-    let w64 = resolver::incremental_completeness::certify_at::<_, _, Fnv1aHasher16>(
+    let w64 = resolver::incremental_completeness::certify_at::<_, _, Fnv1aHasher16, 32>(
         &input,
         WittLevel::new(64),
     )
@@ -182,10 +185,11 @@ fn resolvers_differ_on_witt_level() {
     // tower_completeness::certify_at with different WittLevels must
     // produce different fingerprints.
     let input = uor_foundation_test_helpers::validated_runtime(ConstrainedTypeInput::default());
-    let w8 = resolver::tower_completeness::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W8)
-        .expect("w8");
+    let w8 =
+        resolver::tower_completeness::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W8)
+            .expect("w8");
     let w32 =
-        resolver::tower_completeness::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W32)
+        resolver::tower_completeness::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W32)
             .expect("w32");
     assert_ne!(
         w8.certificate().content_fingerprint(),

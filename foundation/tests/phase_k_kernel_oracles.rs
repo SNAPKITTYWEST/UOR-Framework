@@ -55,8 +55,8 @@ fn build_unit() -> Validated<CompileUnit<'static, N>, uor_foundation::enforcemen
 #[test]
 fn homotopy_is_deterministic_across_calls() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let a = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("a");
-    let b = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("b");
+    let a = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("a");
+    let b = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("b");
     assert_eq!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -66,8 +66,8 @@ fn homotopy_is_deterministic_across_calls() {
 #[test]
 fn measurement_is_deterministic_across_calls() {
     let unit = build_unit();
-    let a = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("a");
-    let b = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("b");
+    let a = resolver::measurement::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("a");
+    let b = resolver::measurement::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("b");
     assert_eq!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -77,8 +77,10 @@ fn measurement_is_deterministic_across_calls() {
 #[test]
 fn dihedral_factorization_is_deterministic_across_calls() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let a = resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16>(&input).expect("a");
-    let b = resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16>(&input).expect("b");
+    let a =
+        resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("a");
+    let b =
+        resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("b");
     assert_eq!(
         a.certificate().content_fingerprint(),
         b.certificate().content_fingerprint(),
@@ -90,10 +92,10 @@ fn dihedral_factorization_is_deterministic_across_calls() {
 #[test]
 fn homotopy_fingerprint_changes_with_level() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let at_w8 =
-        resolver::homotopy::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W8).expect("w8");
-    let at_w32 =
-        resolver::homotopy::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W32).expect("w32");
+    let at_w8 = resolver::homotopy::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W8)
+        .expect("w8");
+    let at_w32 = resolver::homotopy::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W32)
+        .expect("w32");
     assert_ne!(
         at_w8.certificate().content_fingerprint(),
         at_w32.certificate().content_fingerprint(),
@@ -105,9 +107,9 @@ fn homotopy_fingerprint_changes_with_level() {
 #[test]
 fn monodromy_fingerprint_changes_with_level() {
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let at_w8 =
-        resolver::monodromy::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W8).expect("w8");
-    let at_w32 = resolver::monodromy::certify_at::<_, _, Fnv1aHasher16>(&input, WittLevel::W32)
+    let at_w8 = resolver::monodromy::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W8)
+        .expect("w8");
+    let at_w32 = resolver::monodromy::certify_at::<_, _, Fnv1aHasher16, 32>(&input, WittLevel::W32)
         .expect("w32");
     assert_ne!(
         at_w8.certificate().content_fingerprint(),
@@ -126,8 +128,8 @@ fn homotopy_differs_from_moduli() {
     // homotopy: full Betti tuple (all 8 dimensions).
     // moduli:   bidegree-(0,1,2) projection reading H^0/H^1/H^2 explicitly.
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("homo");
-    let moduli = resolver::moduli::certify::<_, _, Fnv1aHasher16>(&input).expect("moduli");
+    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("homo");
+    let moduli = resolver::moduli::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("moduli");
     assert_ne!(
         homo.certificate().content_fingerprint(),
         moduli.certificate().content_fingerprint(),
@@ -141,9 +143,9 @@ fn monodromy_differs_from_dihedral_factorization() {
     // monodromy:              SimplicialNerve + DihedralAction.
     // dihedral_factorization: DihedralAction alone.
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let mono = resolver::monodromy::certify::<_, _, Fnv1aHasher16>(&input).expect("mono");
-    let dihedral =
-        resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16>(&input).expect("dihedral");
+    let mono = resolver::monodromy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("mono");
+    let dihedral = resolver::dihedral_factorization::certify::<_, _, Fnv1aHasher16, 32>(&input)
+        .expect("dihedral");
     assert_ne!(
         mono.certificate().content_fingerprint(),
         dihedral.certificate().content_fingerprint(),
@@ -159,8 +161,9 @@ fn jacobian_guided_differs_from_geodesic_validator() {
     // CertificateKind::JacobianGuided. The CertificateKind byte enters
     // fold_unit_digest at the kernel's final fold, so they must still differ.
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let jac = resolver::jacobian_guided::certify::<_, _, Fnv1aHasher16>(&input).expect("jac");
-    let geo = resolver::geodesic_validator::certify::<_, _, Fnv1aHasher16>(&input).expect("geo");
+    let jac = resolver::jacobian_guided::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("jac");
+    let geo =
+        resolver::geodesic_validator::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("geo");
     assert_ne!(
         jac.certificate().content_fingerprint(),
         geo.certificate().content_fingerprint(),
@@ -172,8 +175,9 @@ fn session_differs_from_superposition() {
     // session:       SessionBinding only.
     // superposition: SessionBinding + MeasurementProjection (Born outcome folded).
     let unit = build_unit();
-    let session = resolver::session::certify::<_, Fnv1aHasher16, N>(&unit).expect("session");
-    let superp = resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superp");
+    let session = resolver::session::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("session");
+    let superp =
+        resolver::superposition::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("superp");
     assert_ne!(
         session.certificate().content_fingerprint(),
         superp.certificate().content_fingerprint(),
@@ -185,8 +189,9 @@ fn measurement_differs_from_superposition() {
     // measurement:   MeasurementProjection only.
     // superposition: SessionBinding + MeasurementProjection.
     let unit = build_unit();
-    let meas = resolver::measurement::certify::<_, Fnv1aHasher16, N>(&unit).expect("meas");
-    let superp = resolver::superposition::certify::<_, Fnv1aHasher16, N>(&unit).expect("superp");
+    let meas = resolver::measurement::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("meas");
+    let superp =
+        resolver::superposition::certify::<_, Fnv1aHasher16, N, 32>(&unit).expect("superp");
     assert_ne!(
         meas.certificate().content_fingerprint(),
         superp.certificate().content_fingerprint(),
@@ -199,10 +204,11 @@ fn canonical_form_differs_from_terminal_reduction_only_kernels() {
     // two_sat_decider / horn_sat_decider / residual_verdict / evaluation:
     //                 TerminalReduction only (differ only by CertificateKind).
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let canon = resolver::canonical_form::certify::<_, _, Fnv1aHasher16>(&input).expect("canon");
+    let canon =
+        resolver::canonical_form::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("canon");
     let twosat =
-        resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16>(&input).expect("two_sat");
-    let eval = resolver::evaluation::certify::<_, _, Fnv1aHasher16>(&input).expect("eval");
+        resolver::two_sat_decider::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("two_sat");
+    let eval = resolver::evaluation::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("eval");
     assert_ne!(
         canon.certificate().content_fingerprint(),
         twosat.certificate().content_fingerprint(),
@@ -218,8 +224,8 @@ fn completeness_differs_from_homotopy_same_nerve() {
     // completeness: SimplicialNerve + fold χ (Euler char from Betti).
     // homotopy:     SimplicialNerve only.
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let comp = resolver::completeness::certify::<_, _, Fnv1aHasher16>(&input).expect("comp");
-    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("homo");
+    let comp = resolver::completeness::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("comp");
+    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("homo");
     assert_ne!(
         comp.certificate().content_fingerprint(),
         homo.certificate().content_fingerprint(),
@@ -233,8 +239,8 @@ fn type_synthesis_differs_from_homotopy() {
     // type_synthesis: SimplicialNerve + DescentTermination.
     // homotopy:       SimplicialNerve only.
     let input = validated_runtime(ConstrainedTypeInput::default());
-    let ts = resolver::type_synthesis::certify::<_, _, Fnv1aHasher16>(&input).expect("ts");
-    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&input).expect("homo");
+    let ts = resolver::type_synthesis::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("ts");
+    let homo = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&input).expect("homo");
     assert_ne!(
         ts.certificate().content_fingerprint(),
         homo.certificate().content_fingerprint(),

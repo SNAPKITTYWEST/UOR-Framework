@@ -35,7 +35,7 @@ fn build_unit(level: WittLevel, budget: u64) -> Validated<CompileUnit<'static, N
 
 fn ground(level: WittLevel, budget: u64) -> Grounded<'static, ConstrainedTypeInput, N> {
     let unit = build_unit(level, budget);
-    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("run succeeds")
+    run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit).expect("run succeeds")
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn certified_exposes_uor_time_from_cert_iri() {
     // the same formula, so it's equal to run's uor_time for matching inputs.
     let unit = build_unit(WittLevel::W8, 100);
     let g_const: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&unit)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&unit)
             .expect("const grounds");
     assert_eq!(
         g_a.uor_time().rewrite_steps(),

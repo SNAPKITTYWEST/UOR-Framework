@@ -29,7 +29,7 @@ use uor_foundation::pipeline::{
 };
 use uor_foundation::{DefaultHostTypes, PipelineFailure};
 use uor_foundation_test_helpers::{
-    Fnv1aHasher32, ReferenceHostBounds, REFERENCE_INLINE_BYTES as N,
+    Fnv1aHasher32, ReferenceHostBounds, REFERENCE_FP_MAX as FP, REFERENCE_INLINE_BYTES as N,
 };
 
 // ── A borrowing-handle input shape carrying a `&'a [u8]` of any size ──────
@@ -110,13 +110,13 @@ impl FoundationClosed<N> for HashRoute {
 
 struct HashBorrowedModel;
 impl uor_foundation::pipeline::__sdk_seal::Sealed for HashBorrowedModel {}
-impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N>
+impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N, FP>
     for HashBorrowedModel
 {
     type Input = ByteHandle<'a>;
     type Output = ConstrainedTypeInput;
     type Route = HashRoute;
-    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N>, PipelineFailure> {
+    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N, FP>, PipelineFailure> {
         run_route::<
             DefaultHostTypes,
             ReferenceHostBounds,
@@ -125,19 +125,20 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N>
             NullResolverTuple,
             EmptyCommitment,
             N,
+            FP,
         >(input, &NullResolverTuple, &EmptyCommitment)
     }
 }
 
 struct HashStreamModel;
 impl uor_foundation::pipeline::__sdk_seal::Sealed for HashStreamModel {}
-impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N>
+impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N, FP>
     for HashStreamModel
 {
     type Input = StreamHandle<'a>;
     type Output = ConstrainedTypeInput;
     type Route = HashRoute;
-    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N>, PipelineFailure> {
+    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N, FP>, PipelineFailure> {
         run_route::<
             DefaultHostTypes,
             ReferenceHostBounds,
@@ -146,6 +147,7 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N>
             NullResolverTuple,
             EmptyCommitment,
             N,
+            FP,
         >(input, &NullResolverTuple, &EmptyCommitment)
     }
 }
@@ -167,11 +169,13 @@ impl FoundationClosed<N> for IdentityRoute {
 
 struct IdentityModel;
 impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
-impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N> for IdentityModel {
+impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N, FP>
+    for IdentityModel
+{
     type Input = ByteHandle<'a>;
     type Output = ConstrainedTypeInput;
     type Route = IdentityRoute;
-    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N>, PipelineFailure> {
+    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N, FP>, PipelineFailure> {
         run_route::<
             DefaultHostTypes,
             ReferenceHostBounds,
@@ -180,6 +184,7 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, Fnv1aHasher32, N>
             NullResolverTuple,
             EmptyCommitment,
             N,
+            FP,
         >(input, &NullResolverTuple, &EmptyCommitment)
     }
 }

@@ -69,8 +69,8 @@ fn main() {
 
     // Step 2: run the pipeline to mint a Grounded<'static, T>. This sealed value is
     // the only admissible input to a Sinking projection.
-    let grounded =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits the unit");
+    let grounded = run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit)
+        .expect("pipeline admits the unit");
 
     // Step 3: project through two different Sinking impls. Each one serves
     // a distinct ProjectionMap kind; the foundation contract ensures both

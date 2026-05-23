@@ -5,8 +5,8 @@
 //! PartitionComponent/Trace/TraceEvent types, the six BaseMetric accessors on
 //! `Grounded<T, Tag>`, the `MAX_BETTI_DIMENSION` / `JACOBIAN_MAX_SITES`
 //! constants, the `SigmaValue` and `JacobianMetric<L>` sealed carriers, the
-//! `HomologyClass<N>` / `CohomologyClass<N>` parametric classes, the
-//! `Derivation::replay` accessor, and the `InteractionDeclarationBuilder`
+//! `HomologyClass<FP_MAX>` / `CohomologyClass<FP_MAX>` fingerprint-width-
+//! parametric classes, the `Derivation::replay` accessor, and the `InteractionDeclarationBuilder`
 //! entry point.
 
 use std::path::Path;
@@ -71,18 +71,30 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ("TraceEvent sealed type", "pub struct TraceEvent"),
         ("Trace sealed type", "pub struct Trace"),
         // Phase X.2: dimension-as-runtime-field carriers + cup-product algebra.
-        ("HomologyClass", "pub struct HomologyClass {"),
-        ("CohomologyClass", "pub struct CohomologyClass {"),
+        // ADR-018/060: cohomology/homology classes carry the application's
+        // fingerprint width `FP_MAX` (default 32) — they are minted through
+        // the consumer's `Hasher<FP_MAX>`, so the digest survives at full width.
+        (
+            "HomologyClass",
+            "pub struct HomologyClass<const FP_MAX: usize = 32> {",
+        ),
+        (
+            "CohomologyClass",
+            "pub struct CohomologyClass<const FP_MAX: usize = 32> {",
+        ),
         ("CohomologyError", "pub enum CohomologyError {"),
         (
             "mint_cohomology_class",
-            "pub fn mint_cohomology_class<H: Hasher>",
+            "pub fn mint_cohomology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>",
         ),
         (
             "mint_homology_class",
-            "pub fn mint_homology_class<H: Hasher>",
+            "pub fn mint_homology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>",
         ),
-        ("fold_cup_product", "pub fn fold_cup_product<H: Hasher>"),
+        (
+            "fold_cup_product",
+            "pub fn fold_cup_product<const FP_MAX: usize, H: Hasher<FP_MAX>>",
+        ),
         (
             "MAX_COHOMOLOGY_DIMENSION",
             "pub const MAX_COHOMOLOGY_DIMENSION: u32 = 32;",
@@ -172,7 +184,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         // application's selected `HostBounds`.
         (
             "Derivation::replay accessor",
-            "pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX>",
+            "pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX, FP_MAX>",
         ),
     ];
 

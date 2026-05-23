@@ -55,9 +55,9 @@ fn main() {
     // constraint nerve into the content fingerprint. Different (site_count,
     // constraint_count) tuples produce different Betti tuples → different
     // fingerprints.
-    let cert_mod7 = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&mod7)
+    let cert_mod7 = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&mod7)
         .expect("homotopy certifies ModSeven4Site");
-    let cert_hamm = resolver::homotopy::certify::<_, _, Fnv1aHasher16>(&hamm)
+    let cert_hamm = resolver::homotopy::certify::<_, _, Fnv1aHasher16, 32>(&hamm)
         .expect("homotopy certifies HammingBounded");
 
     assert_ne!(

@@ -309,6 +309,12 @@ impl HostBounds for SmokeHostBounds {
 // thread this explicitly as the const-generic argument.
 const SMOKE_IB: usize = uor_foundation::pipeline::carrier_inline_bytes::<SmokeHostBounds>();
 
+// ADR-018/060: foundation-derived fingerprint width for `SmokeHostBounds`.
+// Bare references to `PrismModel`/`AxisExtension`/`Grounded`/`evaluate_term_tree`
+// in test-assertion code (outside the macro blocks, which synthesize it)
+// thread this explicitly as the second capacity const-generic argument.
+const SMOKE_FP: usize = <SmokeHostBounds as HostBounds>::FINGERPRINT_MAX_BYTES;
+
 prism_model! {
     pub struct AddTwoLiterals;
     pub struct AddTwoLiteralsRoute;
@@ -385,7 +391,10 @@ fn prism_model_macro_recognises_input_variable_and_unary_op() {
 fn prism_model_macro_satisfies_prism_model_bound() {
     // The macro emitted `impl PrismModel<H, B, A> for AddTwoLiterals` —
     // pin that the impl resolves at compile time.
-    fn _accepts<'a, M: PrismModel<'a, DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB>>() {
+    fn _accepts<
+        'a,
+        M: PrismModel<'a, DefaultHostTypes, SmokeHostBounds, SmokeHasher, SMOKE_IB, SMOKE_FP>,
+    >() {
     }
     _accepts::<AddTwoLiterals>();
     _accepts::<VariableThenSucc>();
@@ -397,6 +406,7 @@ fn prism_model_macro_satisfies_prism_model_bound() {
                 SmokeHostBounds,
                 SmokeHasher,
                 SMOKE_IB,
+                SMOKE_FP,
             >>::Route,
         >(),
         core::any::type_name::<AddTwoLiteralsRoute>(),
@@ -1791,7 +1801,12 @@ fn psi_chain_nerve_term_dispatches_through_user_declared_resolver() {
         _phantom: core::marker::PhantomData,
     };
     let input = [0x00, 0x00, 0x00];
-    let result = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
+    let result = evaluate_term_tree::<
+        SmokeHasher,
+        SingleCategoryResolvers<SmokeHasher>,
+        SMOKE_IB,
+        SMOKE_FP,
+    >(
         &arena,
         uor_foundation::pipeline::TermValue::borrowed(&input),
         &resolvers,
@@ -1822,7 +1837,12 @@ fn undeclared_resolver_categories_propagate_resolver_absent() {
         _phantom: core::marker::PhantomData,
     };
     let input = [0u8; 1];
-    let outcome = evaluate_term_tree::<SmokeHasher, SingleCategoryResolvers<SmokeHasher>, SMOKE_IB>(
+    let outcome = evaluate_term_tree::<
+        SmokeHasher,
+        SingleCategoryResolvers<SmokeHasher>,
+        SMOKE_IB,
+        SMOKE_FP,
+    >(
         &arena,
         uor_foundation::pipeline::TermValue::borrowed(&input),
         &resolvers,
@@ -2045,12 +2065,13 @@ fn psi_chain_homology_branch_routes_feature_to_betti_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xFEu8, 0xED];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena,
-            uor_foundation::pipeline::TermValue::borrowed(&input),
-            &resolvers,
-        )
-        .expect("homology-branch chain should resolve end-to-end");
+        let result =
+            evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB, SMOKE_FP>(
+                &arena,
+                uor_foundation::pipeline::TermValue::borrowed(&input),
+                &resolvers,
+            )
+            .expect("homology-branch chain should resolve end-to-end");
         let expected = &[0xFE, 0xED, PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
         assert_eq!(
             result.bytes(),
@@ -2077,12 +2098,13 @@ fn psi_chain_cohomology_branch_routes_feature_to_cohomology_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xCAu8, 0xFE];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena,
-            uor_foundation::pipeline::TermValue::borrowed(&input),
-            &resolvers,
-        )
-        .expect("cohomology-branch chain should resolve end-to-end");
+        let result =
+            evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB, SMOKE_FP>(
+                &arena,
+                uor_foundation::pipeline::TermValue::borrowed(&input),
+                &resolvers,
+            )
+            .expect("cohomology-branch chain should resolve end-to-end");
         let expected = &[
             0xCA,
             0xFE,
@@ -2117,12 +2139,13 @@ fn psi_chain_k_invariant_branch_routes_feature_to_k_invariant_label() {
         ];
         let resolvers = complete_resolvers();
         let input = [0xBEu8, 0xEF];
-        let result = evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB>(
-            &arena,
-            uor_foundation::pipeline::TermValue::borrowed(&input),
-            &resolvers,
-        )
-        .expect("k-invariant-branch chain should resolve end-to-end");
+        let result =
+            evaluate_term_tree::<SmokeHasher, CompleteResolvers<SmokeHasher>, SMOKE_IB, SMOKE_FP>(
+                &arena,
+                uor_foundation::pipeline::TermValue::borrowed(&input),
+                &resolvers,
+            )
+            .expect("k-invariant-branch chain should resolve end-to-end");
         let expected = &[
             0xBE,
             0xEF,
@@ -2225,10 +2248,11 @@ fn prism_model_forward_walks_k_invariant_psi_chain_end_to_end() {
             SmokeHostBounds,
             SmokeHasher,
             SMOKE_IB,
+            SMOKE_FP,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through the ψ-chain should resolve end-to-end");
-        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB> = result;
+        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB, SMOKE_FP> = result;
         // Input is empty (ConstrainedTypeInput's `IntoBindingValue::MAX_BYTES
         // = 0`), so the chain emits only the per-ψ marker bytes:
         //   ψ_1 appends 0x01, ψ_7 appends 0x07, ψ_8 appends 0x08, ψ_9 appends 0x09.
@@ -2280,10 +2304,11 @@ fn prism_model_forward_walks_homology_psi_chain_via_default_resolvers() {
             SmokeHostBounds,
             SmokeHasher,
             SMOKE_IB,
+            SMOKE_FP,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("forward() through default-constructed resolvers should resolve");
-        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB> = result;
+        let grounded: Grounded<'static, ConstrainedTypeInput, SMOKE_IB, SMOKE_FP> = result;
         let expected = &[PSI_1_MARKER, PSI_2_MARKER, PSI_3_MARKER][..];
         assert_eq!(
             grounded.output_bytes(),
@@ -2496,6 +2521,7 @@ fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
             SmokeHostBounds,
             SmokeHasher,
             SMOKE_IB,
+            SMOKE_FP,
             CompleteResolvers<SmokeHasher>,
         >>::forward(ConstrainedTypeInput::default())
         .expect("k-invariants branch must resolve under CompleteResolvers");
@@ -2506,6 +2532,7 @@ fn adr042_inhabitance_certificate_view_exposes_kappa_witness_certified_type() {
             '_,
             ConstrainedTypeInput,
             SMOKE_IB,
+            SMOKE_FP,
             ConstrainedTypeInput,
         > = grounded.as_inhabitance_certificate();
 
@@ -2844,6 +2871,7 @@ fn adr048_cost_model_rejects_kappa_label_on_predicate_failure() {
             SmokeHostBounds,
             SmokeHasher,
             SMOKE_IB,
+            SMOKE_FP,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
         >>::forward(ConstrainedTypeInput::default());
@@ -2905,6 +2933,7 @@ fn adr048_cost_model_accepts_kappa_label_on_predicate_success() {
             SmokeHostBounds,
             SmokeHasher,
             SMOKE_IB,
+            SMOKE_FP,
             CompleteResolvers<SmokeHasher>,
             SingletonCommitment<AffineParity>,
         >>::forward(ConstrainedTypeInput::default())
@@ -2993,7 +3022,7 @@ fn adr049_typed_observables_expose_predicate_surface() {
 /// passes.
 #[test]
 fn adr049_cryptanalysis_battery_surfaces_test_outcomes() {
-    let report = cryptanalyze::<SmokeHasher>(1024);
+    let report = cryptanalyze::<SmokeHasher, SMOKE_FP>(1024);
     assert_eq!(report.samples, 1024);
     // The minimal-conformance form passes every test; this is the
     // wiring pin. Production implementations layer in the full
@@ -3090,15 +3119,18 @@ fn axis_macro_emits_axis_extension_blanket_impl() {
     // blanket so any axis impl is consumable through the foundation's
     // `dispatch_kernel` surface. Verify the blanket is in scope by
     // coercing the trait surface to AxisExtension at compile time.
-    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB>>() {}
+    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB, SMOKE_FP>>() {}
     _requires_axis_extension::<ProbeImpl>();
     // `AXIS_ADDRESS` and `MAX_OUTPUT_BYTES` flow through from the
     // trait's const items.
     assert_eq!(
-        <ProbeImpl as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
+        <ProbeImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SampleProbeAxis"
     );
-    assert_eq!(<ProbeImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES, 16);
+    assert_eq!(
+        <ProbeImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::MAX_OUTPUT_BYTES,
+        16
+    );
 }
 
 #[test]
@@ -3109,7 +3141,7 @@ fn axis_macro_dispatch_kernel_routes_by_id() {
     let mut out = [0u8; 32];
     // Route through KERNEL_PROBE_BIT — expect bit 0 of input.
     let bit_input = [0x01u8];
-    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(
         KERNEL_PROBE_BIT,
         &bit_input,
         &mut out,
@@ -3120,7 +3152,7 @@ fn axis_macro_dispatch_kernel_routes_by_id() {
 
     // Route through KERNEL_PROBE_BYTE — expect a byte copy.
     let byte_input = [0xa1u8, 0xb2, 0xc3];
-    let n = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+    let n = <ProbeImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(
         KERNEL_PROBE_BYTE,
         &byte_input,
         &mut out,
@@ -3136,7 +3168,8 @@ fn axis_macro_dispatch_kernel_rejects_unknown_kernel_id() {
     // surface as `ShapeViolation` with the canonical AxisExtensionShape
     // IRI per the macro's dispatch_kernel routing.
     let mut out = [0u8; 8];
-    let result = <ProbeImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(99, &[], &mut out);
+    let result =
+        <ProbeImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(99, &[], &mut out);
     let err = result.expect_err("unknown kernel_id must surface a ShapeViolation");
     assert_eq!(
         err.shape_iri,
@@ -3186,7 +3219,7 @@ fn axis_macro_handles_single_kernel_trait_correctly() {
     assert_eq!(KERNEL_ONLY_KERNEL, 0);
     // Dispatch routes correctly.
     let mut out = [0u8; 4];
-    let n = <SingleKernelImpl as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+    let n = <SingleKernelImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(
         KERNEL_ONLY_KERNEL,
         &[0x42, 0x43],
         &mut out,
@@ -3217,13 +3250,13 @@ fn axis_macro_blanket_impl_propagates_axis_address_and_max_bytes() {
     // and `AxisExtension::MAX_OUTPUT_BYTES` flow through from the
     // axis trait's const items. Foundation-bound static-dispatch
     // consumers (`Term::AxisInvocation` fold-rules in particular)
-    // read these constants from `<A as AxisExtension<SMOKE_IB>>::*`.
+    // read these constants from `<A as AxisExtension<SMOKE_IB, SMOKE_FP>>::*`.
     assert_eq!(
-        <SingleKernelImpl as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
+        <SingleKernelImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SingleKernelAxis"
     );
     assert_eq!(
-        <SingleKernelImpl as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES,
+        <SingleKernelImpl as AxisExtension<SMOKE_IB, SMOKE_FP>>::MAX_OUTPUT_BYTES,
         4
     );
 }
@@ -3268,15 +3301,15 @@ axis_extension_impl_for_sample_probe_axis!(@generic GenericProbeImpl<W>, [const 
 #[test]
 fn axis_macro_generic_form_emits_parametric_axis_extension_impl() {
     // ADR-052: GenericProbeImpl<W> satisfies AxisExtension for every W.
-    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB>>() {}
+    fn _requires_axis_extension<T: AxisExtension<SMOKE_IB, SMOKE_FP>>() {}
     _requires_axis_extension::<GenericProbeImpl<16>>();
     _requires_axis_extension::<GenericProbeImpl<32>>();
     assert_eq!(
-        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::AXIS_ADDRESS,
+        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB, SMOKE_FP>>::AXIS_ADDRESS,
         "https://uor.foundation/test/SampleProbeAxis"
     );
     assert_eq!(
-        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::MAX_OUTPUT_BYTES,
+        <GenericProbeImpl<16> as AxisExtension<SMOKE_IB, SMOKE_FP>>::MAX_OUTPUT_BYTES,
         16
     );
 }
@@ -3288,7 +3321,7 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
     // bytes through both kernels.
     let mut out = [0u8; 32];
     let bit_input = [0x01u8];
-    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(
         KERNEL_PROBE_BIT,
         &bit_input,
         &mut out,
@@ -3298,7 +3331,7 @@ fn axis_macro_generic_form_dispatch_routes_per_kernel_id() {
     assert_eq!(out[0], 0x01);
 
     let byte_input = [0xa1u8, 0xb2, 0xc3];
-    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB>>::dispatch_kernel(
+    let n = <GenericProbeImpl<16> as AxisExtension<SMOKE_IB, SMOKE_FP>>::dispatch_kernel(
         KERNEL_PROBE_BYTE,
         &byte_input,
         &mut out,

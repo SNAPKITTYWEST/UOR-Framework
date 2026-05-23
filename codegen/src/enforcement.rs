@@ -968,7 +968,7 @@ fn generate_witness_types(f: &mut RustFile) {
     f.doc_comment("verify path can re-derive the source certificate via");
     f.doc_comment("`Derivation::replay() -> Trace -> verify_trace`.");
     f.line("#[derive(Debug, Clone, PartialEq, Eq)]");
-    f.line("pub struct Derivation {");
+    f.line("pub struct Derivation<const FP_MAX: usize = 32> {");
     f.indented_doc_comment("Number of rewrite steps in this derivation.");
     f.line("    step_count: u32,");
     f.indented_doc_comment("v0.2.2 T5: Witt level the source grounding was minted at. Carried");
@@ -978,10 +978,10 @@ fn generate_witness_types(f: &mut RustFile) {
     f.indented_doc_comment("full state, computed at grounding time by the consumer-supplied");
     f.indented_doc_comment("`Hasher`. Carried through replay so the verifier can reproduce");
     f.indented_doc_comment("the source certificate via passthrough.");
-    f.line("    content_fingerprint: ContentFingerprint,");
+    f.line("    content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("}");
     f.blank();
-    f.line("impl Derivation {");
+    f.line("impl<const FP_MAX: usize> Derivation<FP_MAX> {");
     f.indented_doc_comment("Returns the number of rewrite steps.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
@@ -1000,7 +1000,7 @@ fn generate_witness_types(f: &mut RustFile) {
     f.indented_doc_comment("unit, computed at grounding time by the consumer-supplied `Hasher`.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint {");
+    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {");
     f.line("        self.content_fingerprint");
     f.line("    }");
     f.blank();
@@ -1011,7 +1011,7 @@ fn generate_witness_types(f: &mut RustFile) {
     f.line("    pub(crate) const fn new(");
     f.line("        step_count: u32,");
     f.line("        witt_level_bits: u16,");
-    f.line("        content_fingerprint: ContentFingerprint,");
+    f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        Self {");
     f.line("            step_count,");
@@ -4398,6 +4398,31 @@ fn verify_shim_coverage(label: &str, expected: &[String], shim_names: &[&str]) {
 // the `enforcement` module and the prelude re-exports the enforcement shims
 // preferentially. Real instances are produced by the reduction pipeline (or
 // by `uor_ground!` macro expansion) through the back-door minting API.
+/// ADR-018/060: the certificate kinds that carry a content fingerprint minted
+/// from the application's selected `Hasher`, hence parameterized over the
+/// fingerprint width `FP_MAX` (default 32). These are exactly the 12
+/// `minting_certs`; their `Sealed`/`OntologyTarget`/`Certificate`/
+/// `MintWithLevelFingerprint` impls are emitted FP_MAX-generic. Failure
+/// witnesses (Generic/Inhabitance Impossibility) and input shims carry no
+/// fingerprint and stay non-parametric.
+fn cert_carries_fp_max(name: &str) -> bool {
+    matches!(
+        name,
+        "GroundingCertificate"
+            | "LiftChainCertificate"
+            | "InhabitanceCertificate"
+            | "CompletenessCertificate"
+            | "MultiplicationCertificate"
+            | "PartitionCertificate"
+            | "TransformCertificate"
+            | "IsometryCertificate"
+            | "InvolutionCertificate"
+            | "GeodesicCertificate"
+            | "MeasurementCertificate"
+            | "BornRuleVerification"
+    )
+}
+
 fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     // v0.2.1 Phase 7b.4: the set of shim types is machine-verified against
     // the ontology's `resolver:CertifyMapping` individuals — every certificate
@@ -4505,16 +4530,20 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     for (name, doc) in certificate_shims {
         f.doc_comment(doc);
         f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
-        f.line(&format!("pub struct {name} {{"));
+        f.line(&format!("pub struct {name}<const FP_MAX: usize = 32> {{"));
         f.line("    witt_bits: u16,");
         f.indented_doc_comment("v0.2.2 T5: parametric content fingerprint computed at mint time");
         f.indented_doc_comment("by the consumer-supplied `Hasher`. Bit-equality on the full");
         f.indented_doc_comment("buffer + width tag, so two certs with different `OUTPUT_BYTES`");
-        f.indented_doc_comment("are never equal even when leading bytes coincide.");
-        f.line("    content_fingerprint: ContentFingerprint,");
+        f.indented_doc_comment("are never equal even when leading bytes coincide. `FP_MAX` is the");
+        f.indented_doc_comment(
+            "application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES` (ADR-018);",
+        );
+        f.indented_doc_comment("threaded, not pinned, so any `Hasher<FP_MAX>` width flows.");
+        f.line("    content_fingerprint: ContentFingerprint<FP_MAX>,");
         f.line("}");
         f.blank();
-        f.line(&format!("impl {name} {{"));
+        f.line(&format!("impl<const FP_MAX: usize> {name}<FP_MAX> {{"));
         f.indented_doc_comment("Returns the Witt level the certificate was issued for. Sourced");
         f.indented_doc_comment("from the pipeline's substrate hash output at minting time.");
         f.line("    #[inline]");
@@ -4530,7 +4559,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
         f.indented_doc_comment("`ContentFingerprint::Eq` compares the full buffer + width tag.");
         f.line("    #[inline]");
         f.line("    #[must_use]");
-        f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint {");
+        f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {");
         f.line("        self.content_fingerprint");
         f.line("    }");
         f.blank();
@@ -4543,7 +4572,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
         f.line("    #[allow(dead_code)]");
         f.line("    pub(crate) const fn with_level_and_fingerprint_const(");
         f.line("        witt_bits: u16,");
-        f.line("        content_fingerprint: ContentFingerprint,");
+        f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
         f.line("    ) -> Self {");
         f.line("        Self {");
         f.line("            witt_bits,");
@@ -4680,7 +4709,13 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.indented_doc_comment("Private supertrait. Not implementable outside this crate.");
     f.line("    pub trait Sealed {}");
     for (name, _) in &all_shims {
-        f.line(&format!("    impl Sealed for super::{name} {{}}"));
+        if cert_carries_fp_max(name) {
+            f.line(&format!(
+                "    impl<const FP_MAX: usize> Sealed for super::{name}<FP_MAX> {{}}"
+            ));
+        } else {
+            f.line(&format!("    impl Sealed for super::{name} {{}}"));
+        }
     }
     // Product/Coproduct Completion Amendment §2.3e.
     f.line("    impl Sealed for super::PartitionProductWitness {}");
@@ -4692,7 +4727,13 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("}");
     f.blank();
     for (name, _) in &all_shims {
-        f.line(&format!("impl OntologyTarget for {name} {{}}"));
+        if cert_carries_fp_max(name) {
+            f.line(&format!(
+                "impl<const FP_MAX: usize> OntologyTarget for {name}<FP_MAX> {{}}"
+            ));
+        } else {
+            f.line(&format!("impl OntologyTarget for {name} {{}}"));
+        }
     }
     // Product/Coproduct Completion Amendment §2.3e.
     f.line("impl OntologyTarget for PartitionProductWitness {}");
@@ -4766,13 +4807,13 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
         );
         f.doc_comment("constructor matches every other `cert:Certificate` subclass.");
         f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
-        f.line(&format!("pub struct {name} {{"));
+        f.line(&format!("pub struct {name}<const FP_MAX: usize = 32> {{"));
         f.line("    witt_bits: u16,");
-        f.line("    content_fingerprint: ContentFingerprint,");
+        f.line("    content_fingerprint: ContentFingerprint<FP_MAX>,");
         f.line("    _private: (),");
         f.line("}");
         f.blank();
-        f.line(&format!("impl {name} {{"));
+        f.line(&format!("impl<const FP_MAX: usize> {name}<FP_MAX> {{"));
         f.indented_doc_comment("Phase X.1: content-addressed constructor. Mints a certificate");
         f.indented_doc_comment("carrying the Witt level and substrate-hasher fingerprint of the");
         f.indented_doc_comment(
@@ -4783,7 +4824,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
         f.line("    #[allow(dead_code)]");
         f.line("    pub(crate) const fn with_level_and_fingerprint_const(");
         f.line("        witt_bits: u16,");
-        f.line("        content_fingerprint: ContentFingerprint,");
+        f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
         f.line("    ) -> Self {");
         f.line("        Self { witt_bits, content_fingerprint, _private: () }");
         f.line("    }");
@@ -4813,7 +4854,7 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
         f.indented_doc_comment("Phase X.1: the content fingerprint of the resolver decision.");
         f.line("    #[inline]");
         f.line("    #[must_use]");
-        f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint {");
+        f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {");
         f.line("        self.content_fingerprint");
         f.line("    }");
         f.line("}");
@@ -4888,7 +4929,13 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.indented_doc_comment("Private supertrait. Not implementable outside this crate.");
     f.line("    pub trait Sealed {}");
     for (rust_name, _, _) in all_certs {
-        f.line(&format!("    impl Sealed for super::{rust_name} {{}}"));
+        if cert_carries_fp_max(rust_name) {
+            f.line(&format!(
+                "    impl<const FP_MAX: usize> Sealed for super::{rust_name}<FP_MAX> {{}}"
+            ));
+        } else {
+            f.line(&format!("    impl Sealed for super::{rust_name} {{}}"));
+        }
     }
     // Product/Coproduct Completion Amendment §2.3e: the three new sealed
     // witness types are registered here so they can impl `Certificate` via
@@ -4902,7 +4949,13 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("}");
     f.blank();
     for (rust_name, ont_local, evidence) in all_certs {
-        f.line(&format!("impl Certificate for {rust_name} {{"));
+        if cert_carries_fp_max(rust_name) {
+            f.line(&format!(
+                "impl<const FP_MAX: usize> Certificate for {rust_name}<FP_MAX> {{"
+            ));
+        } else {
+            f.line(&format!("impl Certificate for {rust_name} {{"));
+        }
         f.line(&format!(
             "    const IRI: &'static str = \"https://uor.foundation/cert/{ont_local}\";"
         ));
@@ -4920,10 +4973,10 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     f.line("/// documentation alongside `Certificate`.");
     f.line("pub(crate) mod certify_const_mint {");
     f.line("    use super::{ContentFingerprint, Certificate};");
-    f.line("    pub trait MintWithLevelFingerprint: Certificate {");
+    f.line("    pub trait MintWithLevelFingerprint<const FP_MAX: usize>: Certificate {");
     f.line("        fn mint_with_level_fingerprint(");
     f.line("            witt_bits: u16,");
-    f.line("            content_fingerprint: ContentFingerprint,");
+    f.line("            content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("        ) -> Self;");
     f.line("    }");
     // Cert types that carry (witt_bits, content_fingerprint). Each has a
@@ -4945,12 +4998,12 @@ fn generate_ontology_target_trait(f: &mut RustFile, ontology: &Ontology) {
     ];
     for cert in minting_certs {
         f.line(&format!(
-            "    impl MintWithLevelFingerprint for super::{cert} {{"
+            "    impl<const FP_MAX: usize> MintWithLevelFingerprint<FP_MAX> for super::{cert}<FP_MAX> {{"
         ));
         f.line("        #[inline]");
         f.line("        fn mint_with_level_fingerprint(");
         f.line("            witt_bits: u16,");
-        f.line("            content_fingerprint: ContentFingerprint,");
+        f.line("            content_fingerprint: ContentFingerprint<FP_MAX>,");
         f.line("        ) -> Self {");
         f.line(&format!(
             "            super::{cert}::with_level_and_fingerprint_const(witt_bits, content_fingerprint)"
@@ -5645,9 +5698,9 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("through the wrapped Hasher and writes the first `OUTPUT_BYTES`");
     f.doc_comment("digest bytes to the caller-provided buffer.");
     f.line("#[derive(Debug, Clone, Copy)]");
-    f.line("pub struct HashAxis<H: Hasher>(core::marker::PhantomData<H>);");
+    f.line("pub struct HashAxis<H>(core::marker::PhantomData<H>);");
     f.blank();
-    f.line("impl<H: Hasher> HashAxis<H> {");
+    f.line("impl<H> HashAxis<H> {");
     f.indented_doc_comment("Canonical kernel id for the hash operation. The closure-body");
     f.indented_doc_comment("grammar G19 form `hash(input)` lowers to");
     f.indented_doc_comment(
@@ -5660,15 +5713,15 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     // byte-output-equivalent to `fold_bytes` ∘ `finalize` on the wrapped
     // Hasher; the empty arena signals the catamorphism to evaluate via
     // `dispatch_kernel` rather than recursively folding a body.
-    f.line("impl<H: Hasher> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}");
-    f.line("impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::SubstrateTermBody<INLINE_BYTES> for HashAxis<H> {");
+    f.line("impl<H> crate::pipeline::__sdk_seal::Sealed for HashAxis<H> {}");
+    f.line("impl<const INLINE_BYTES: usize, H> crate::pipeline::SubstrateTermBody<INLINE_BYTES> for HashAxis<H> {");
     f.line("    fn body_arena() -> &'static [Term<'static, INLINE_BYTES>] {");
     f.line("        &[]");
     f.line("    }");
     f.line("}");
-    f.line("impl<const INLINE_BYTES: usize, H: Hasher> crate::pipeline::AxisExtension<INLINE_BYTES> for HashAxis<H> {");
+    f.line("impl<const INLINE_BYTES: usize, const FP_MAX: usize, H: Hasher<FP_MAX>> crate::pipeline::AxisExtension<INLINE_BYTES, FP_MAX> for HashAxis<H> {");
     f.line("    const AXIS_ADDRESS: &'static str = \"https://uor.foundation/axis/HashAxis\";");
-    f.line("    const MAX_OUTPUT_BYTES: usize = <H as Hasher>::OUTPUT_BYTES;");
+    f.line("    const MAX_OUTPUT_BYTES: usize = <H as Hasher<FP_MAX>>::OUTPUT_BYTES;");
     f.line("    fn dispatch_kernel(");
     f.line("        kernel_id: u32,");
     f.line("        input: &[u8],");
@@ -5685,10 +5738,10 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("                kind: crate::ViolationKind::ValueCheck,");
     f.line("            });");
     f.line("        }");
-    f.line("        let mut hasher = <H as Hasher>::initial();");
+    f.line("        let mut hasher = <H as Hasher<FP_MAX>>::initial();");
     f.line("        hasher = hasher.fold_bytes(input);");
     f.line("        let digest = hasher.finalize();");
-    f.line("        let n = <H as Hasher>::OUTPUT_BYTES.min(out.len()).min(digest.len());");
+    f.line("        let n = <H as Hasher<FP_MAX>>::OUTPUT_BYTES.min(out.len()).min(digest.len());");
     f.line("        let mut i = 0;");
     f.line("        while i < n {");
     f.line("            out[i] = digest[i];");
@@ -5922,7 +5975,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Used by `pipeline::run`, `run_const`, and the four `certify_*` entry");
     f.doc_comment("points to fold a unit's constraint set into the substrate fingerprint.");
-    f.line("pub fn fold_constraint_ref<H: Hasher>(");
+    f.line("pub fn fold_constraint_ref<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    c: &crate::pipeline::ConstraintRef,");
     f.line(") -> H {");
@@ -6025,7 +6078,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("Locked at v0.2.2 by the `rust/trace_byte_layout_pinned` conformance");
     f.doc_comment("validator. Used by `pipeline::run`, `run_const`, and the four");
     f.doc_comment("`certify_*` entry points.");
-    f.line("pub fn fold_unit_digest<H: Hasher>(");
+    f.line("pub fn fold_unit_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    level_bits: u16,");
     f.line("    budget: u64,");
@@ -6052,7 +6105,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("");
     f.doc_comment("Layout: `site_count (8 BE) || iri bytes || 0x00 || decl_site_count (8 BE) ||");
     f.doc_comment("for each constraint: fold_constraint_ref || certificate_kind_discriminant`.");
-    f.line("pub fn fold_parallel_digest<H: Hasher>(");
+    f.line("pub fn fold_parallel_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    decl_site_count: u64,");
     f.line("    iri: &str,");
@@ -6074,7 +6127,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 T5: fold the canonical StreamDeclaration byte layout into a `Hasher`.");
-    f.line("pub fn fold_stream_digest<H: Hasher>(");
+    f.line("pub fn fold_stream_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    productivity_bound: u64,");
     f.line("    iri: &str,");
@@ -6096,7 +6149,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment(
         "v0.2.2 T5: fold the canonical InteractionDeclaration byte layout into a `Hasher`.",
     );
-    f.line("pub fn fold_interaction_digest<H: Hasher>(");
+    f.line("pub fn fold_interaction_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    convergence_seed: u64,");
     f.line("    iri: &str,");
@@ -6122,7 +6175,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
         "Layout: `productivity_remaining (8 BE) || rewrite_steps (8 BE) || seed (8 BE) ||",
     );
     f.doc_comment("iri bytes || 0x00 || certificate_kind_discriminant (1 byte trailing)`.");
-    f.line("pub fn fold_stream_step_digest<H: Hasher>(");
+    f.line("pub fn fold_stream_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    productivity_remaining: u64,");
     f.line("    rewrite_steps: u64,");
@@ -6148,7 +6201,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment(
         "seed (8 BE) || iri bytes || 0x00 || certificate_kind_discriminant (1 byte trailing)`.",
     );
-    f.line("pub fn fold_interaction_step_digest<H: Hasher>(");
+    f.line("pub fn fold_interaction_step_digest<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    commutator_acc: &[u64; 4],");
     f.line("    peer_step_count: u64,");
@@ -6327,9 +6380,9 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.doc_comment("`<https://uor.foundation/cert/witness>`,");
     f.doc_comment("`<https://uor.foundation/cert/searchTrace>`.");
     f.line("#[derive(Debug, Clone)]");
-    f.line("pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag = T> {");
+    f.line("pub struct Grounded<'a, T: GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize = 32, Tag = T> {");
     f.indented_doc_comment("The validated grounding certificate this wrapper carries.");
-    f.line("    validated: Validated<GroundingCertificate>,");
+    f.line("    validated: Validated<GroundingCertificate<FP_MAX>>,");
     f.indented_doc_comment("The compile-time-materialized bindings table.");
     f.line("    bindings: BindingsTable,");
     f.indented_doc_comment("The Witt level the grounded value was minted at.");
@@ -6367,8 +6420,12 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("full state, computed at grounding time by the consumer-supplied");
     f.indented_doc_comment("`Hasher`. Width is `ContentFingerprint::width_bytes()`, set by");
     f.indented_doc_comment("`H::OUTPUT_BYTES` at the call site. Read by `Grounded::derivation()`");
-    f.indented_doc_comment("so the verify path can re-derive the source certificate.");
-    f.line("    content_fingerprint: ContentFingerprint,");
+    f.indented_doc_comment("so the verify path can re-derive the source certificate. The buffer");
+    f.indented_doc_comment(
+        "width `FP_MAX` is the application's `<B as HostBounds>::FINGERPRINT_MAX_BYTES`",
+    );
+    f.indented_doc_comment("(threaded, not pinned) — any `Hasher<FP_MAX>` width flows.");
+    f.line("    content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.indented_doc_comment("Wiki ADR-028 (amended by ADR-060): output-value payload — the");
     f.indented_doc_comment("catamorphism's evaluation result populated by `pipeline::run_route`");
     f.indented_doc_comment("per ADR-029's per-variant fold rules, carried as a source-polymorphic");
@@ -6389,7 +6446,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.line(
-        "impl<'a, T: GroundedShape, const INLINE_BYTES: usize, Tag> Grounded<'a, T, INLINE_BYTES, Tag> {",
+        "impl<'a, T: GroundedShape, const INLINE_BYTES: usize, const FP_MAX: usize, Tag> Grounded<'a, T, INLINE_BYTES, FP_MAX, Tag> {",
     );
     f.indented_doc_comment("Returns the binding for the given query address, or `None` if not in");
     f.indented_doc_comment("the table. Resolves in O(log n) via binary search; for true `op:GS_5`");
@@ -6427,7 +6484,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("Returns the validated grounding certificate this wrapper carries.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn certificate(&self) -> &Validated<GroundingCertificate> {");
+    f.line("    pub const fn certificate(&self) -> &Validated<GroundingCertificate<FP_MAX>> {");
     f.line("        &self.validated");
     f.line("    }");
     f.blank();
@@ -6501,7 +6558,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("`verify_trace` then passes through to the re-derived certificate.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint {");
+    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {");
     f.line("        self.content_fingerprint");
     f.line("    }");
     f.blank();
@@ -6520,7 +6577,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("holds for every conforming substrate `Hasher`.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn derivation(&self) -> Derivation {");
+    f.line("    pub const fn derivation(&self) -> Derivation<FP_MAX> {");
     f.line("        Derivation::new(");
     f.line("            (self.jacobian_len as u32) + 1,");
     f.line("            self.witt_level_bits,");
@@ -6542,7 +6599,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.indented_doc_comment("foundation's contract is about ring soundness, not domain semantics.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, NewTag> {");
+    f.line("    pub fn tag<NewTag>(self) -> Grounded<'a, T, INLINE_BYTES, FP_MAX, NewTag> {");
     f.line("        Grounded {");
     f.line("            validated: self.validated,");
     f.line("            bindings: self.bindings,");
@@ -6664,11 +6721,11 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[inline]");
     f.line("    #[allow(dead_code)]");
     f.line("    pub(crate) const fn new_internal(");
-    f.line("        validated: Validated<GroundingCertificate>,");
+    f.line("        validated: Validated<GroundingCertificate<FP_MAX>>,");
     f.line("        bindings: BindingsTable,");
     f.line("        witt_level_bits: u16,");
     f.line("        unit_address: ContentAddress,");
-    f.line("        content_fingerprint: ContentFingerprint,");
+    f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        let bound_count = bindings.entries.len() as u32;");
     f.line("        let declared_sites = if witt_level_bits == 0 { 1u32 } else { witt_level_bits as u32 };");
@@ -6798,7 +6855,7 @@ fn generate_grounded_wrapper(f: &mut RustFile) {
     f.line("    #[inline]");
     f.line("    #[must_use]");
     f.line(
-        "    pub fn as_inhabitance_certificate(&self) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, Tag> {",
+        "    pub fn as_inhabitance_certificate(&self) -> crate::pipeline::InhabitanceCertificateView<'_, T, INLINE_BYTES, FP_MAX, Tag> {",
     );
     f.line("        crate::pipeline::InhabitanceCertificateView(self)");
     f.line("    }");
@@ -7070,15 +7127,15 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify<T, P, H>(");
+    f.line("        pub fn certify<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
-    f.line("        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            certify_at::<T, P, H>(input, WittLevel::W32)");
+    f.line("            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)");
     f.line("        }");
     f.blank();
     f.line("        /// Certify at an explicit Witt level.");
@@ -7086,16 +7143,18 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify_at<T, P, H>(");
+    f.line("        pub fn certify_at<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
     f.line("            level: WittLevel,");
-    f.line("        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            crate::pipeline::run_tower_completeness::<T, H>(input.inner(), level)");
+    f.line(
+        "            crate::pipeline::run_tower_completeness::<T, H, FP_MAX>(input.inner(), level)",
+    );
     f.line("                .map(|v| Certified::new(*v.inner()))");
     f.line("                .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))");
     f.line("        }");
@@ -7110,15 +7169,15 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify<T, P, H>(");
+    f.line("        pub fn certify<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
-    f.line("        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            certify_at::<T, P, H>(input, WittLevel::W32)");
+    f.line("            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)");
     f.line("        }");
     f.blank();
     f.line("        /// Certify at an explicit Witt level.");
@@ -7126,17 +7185,17 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify_at<T, P, H>(");
+    f.line("        pub fn certify_at<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
     f.line("            level: WittLevel,");
-    f.line("        ) -> Result<Certified<LiftChainCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<LiftChainCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
     f.line(
-        "            crate::pipeline::run_incremental_completeness::<T, H>(input.inner(), level)",
+        "            crate::pipeline::run_incremental_completeness::<T, H, FP_MAX>(input.inner(), level)",
     );
     f.line("                .map(|v| Certified::new(*v.inner()))");
     f.line("                .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))");
@@ -7152,14 +7211,14 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify<P, H, const INLINE_BYTES: usize>(");
+    f.line("        pub fn certify<P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
-    f.line("        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)");
+    f.line("            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)");
     f.line("        }");
     f.blank();
     f.line("        /// Certify at an explicit Witt level.");
@@ -7167,16 +7226,16 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify_at<P, H, const INLINE_BYTES: usize>(");
+    f.line("        pub fn certify_at<P, H, const INLINE_BYTES: usize, const FP_MAX: usize>(");
     f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
     f.line("            level: WittLevel,");
-    f.line("        ) -> Result<Certified<GroundingCertificate>, Certified<GenericImpossibilityWitness>>");
+    f.line("        ) -> Result<Certified<GroundingCertificate<FP_MAX>>, Certified<GenericImpossibilityWitness>>");
     f.line("        where");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
     f.line(
-        "            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H>(input.inner(), level)",
+        "            crate::pipeline::run_grounding_aware::<INLINE_BYTES, H, FP_MAX>(input.inner(), level)",
     );
     f.line("                .map(|v| Certified::new(*v.inner()))");
     f.line("                .map_err(|_| Certified::new(GenericImpossibilityWitness::default()))");
@@ -7192,18 +7251,18 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<InhabitanceImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify<T, P, H>(");
+    f.line("        pub fn certify<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
     f.line("        ) -> Result<");
-    f.line("            Certified<InhabitanceCertificate>,");
+    f.line("            Certified<InhabitanceCertificate<FP_MAX>>,");
     f.line("            Certified<InhabitanceImpossibilityWitness>,");
     f.line("        >");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            certify_at::<T, P, H>(input, WittLevel::W32)");
+    f.line("            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)");
     f.line("        }");
     f.blank();
     f.line("        /// Certify at an explicit Witt level.");
@@ -7211,21 +7270,21 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// # Errors");
     f.line("        ///");
     f.line("        /// Returns `Certified<InhabitanceImpossibilityWitness>` on failure.");
-    f.line("        pub fn certify_at<T, P, H>(");
+    f.line("        pub fn certify_at<T, P, H, const FP_MAX: usize>(");
     f.line("            input: &Validated<T, P>,");
     f.line("            level: WittLevel,");
     f.line("        ) -> Result<");
-    f.line("            Certified<InhabitanceCertificate>,");
+    f.line("            Certified<InhabitanceCertificate<FP_MAX>>,");
     f.line("            Certified<InhabitanceImpossibilityWitness>,");
     f.line("        >");
     f.line("        where");
     f.line("            T: crate::pipeline::ConstrainedTypeShape,");
     f.line("            P: crate::enforcement::ValidationPhase,");
-    f.line("            H: crate::enforcement::Hasher,");
+    f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
     f.line("        {");
-    f.line("            crate::pipeline::run_inhabitance::<T, H>(input.inner(), level)");
+    f.line("            crate::pipeline::run_inhabitance::<T, H, FP_MAX>(input.inner(), level)");
     f.line(
-        "                .map(|v: Validated<InhabitanceCertificate>| Certified::new(*v.inner()))",
+        "                .map(|v: Validated<InhabitanceCertificate<FP_MAX>>| Certified::new(*v.inner()))",
     );
     f.line(
         "                .map_err(|_| Certified::new(InhabitanceImpossibilityWitness::default()))",
@@ -7264,10 +7323,10 @@ fn generate_certify_trait(f: &mut RustFile, _ontology: &Ontology) {
     f.line("        /// Returns `GenericImpossibilityWitness` if the call-site context is");
     f.line("        /// inadmissible (`stack_budget_bytes == 0`). The resolver is otherwise");
     f.line("        /// total over admissible inputs.");
-    f.line("        pub fn certify<H: crate::enforcement::Hasher>(");
+    f.line("        pub fn certify<H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("            context: &MulContext,");
     f.line(
-        "        ) -> Result<Certified<MultiplicationCertificate>, GenericImpossibilityWitness> {",
+        "        ) -> Result<Certified<MultiplicationCertificate<FP_MAX>>, GenericImpossibilityWitness> {",
     );
     f.line("            if context.stack_budget_bytes == 0 {");
     f.line("                return Err(GenericImpossibilityWitness::default());");
@@ -7605,7 +7664,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 Phase J: fold the TerminalReduction triple into the hasher.");
-    f.line("pub(crate) fn fold_terminal_reduction<H: Hasher>(");
+    f.line("pub(crate) fn fold_terminal_reduction<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    witt_bits: u16,");
     f.line("    constraint_count: u32,");
@@ -8056,7 +8115,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 Phase J: fold the Betti tuple into the hasher.");
-    f.line("pub(crate) fn fold_betti_tuple<H: Hasher>(");
+    f.line("pub(crate) fn fold_betti_tuple<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    betti: &[u32; MAX_BETTI_DIMENSION],");
     f.line(") -> H {");
@@ -8134,7 +8193,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 Phase J: fold the dihedral `(orbit_size, representative)` pair.");
-    f.line("pub(crate) fn fold_dihedral_signature<H: Hasher>(");
+    f.line("pub(crate) fn fold_dihedral_signature<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    orbit_size: u32,");
     f.line("    representative: u32,");
@@ -8190,7 +8249,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 Phase J: fold the Jacobian profile into the hasher.");
-    f.line("pub(crate) fn fold_jacobian_profile<H: Hasher>(");
+    f.line("pub(crate) fn fold_jacobian_profile<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    jac: &[i32; JACOBIAN_MAX_SITES],");
     f.line(") -> H {");
@@ -8240,7 +8299,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.line("}");
     f.blank();
     f.doc_comment("v0.2.2 Phase J: fold the session-binding signature into the hasher.");
-    f.line("pub(crate) fn fold_session_signature<H: Hasher>(");
+    f.line("pub(crate) fn fold_session_signature<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    binding_count: u32,");
     f.line("    fold_address: u64,");
@@ -8310,7 +8369,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.doc_comment("v0.2.2 Phase J / Phase 9: fold the Born-rule outcome into the hasher.");
     f.doc_comment("`probability_bits` is the IEEE-754 bit pattern (call sites convert via");
     f.doc_comment("`<H::Decimal as DecimalTranscendental>::to_bits` if working in `H::Decimal`).");
-    f.line("pub(crate) fn fold_born_outcome<H: Hasher>(");
+    f.line("pub(crate) fn fold_born_outcome<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    outcome_index: u64,");
     f.line("    probability_bits: u64,");
@@ -8358,7 +8417,7 @@ fn emit_phase_j_primitives(f: &mut RustFile) {
     f.blank();
     f.doc_comment("v0.2.2 Phase J / Phase 9: fold the descent metrics into the hasher.");
     f.doc_comment("`entropy_bits` is the IEEE-754 bit pattern of the descent entropy.");
-    f.line("pub(crate) fn fold_descent_metrics<H: Hasher>(");
+    f.line("pub(crate) fn fold_descent_metrics<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    residual_count: u32,");
     f.line("    entropy_bits: u64,");
@@ -8390,21 +8449,21 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.doc_comment("dimension via a runtime field because generic-const-expression arithmetic");
     f.doc_comment("over `N + M` is unstable at the crate's MSRV (Rust 1.81).");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
-    f.line("pub struct CohomologyClass {");
+    f.line("pub struct CohomologyClass<const FP_MAX: usize = 32> {");
     f.line("    dimension: u32,");
-    f.line("    fingerprint: ContentFingerprint,");
+    f.line("    fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
 
-    f.line("impl CohomologyClass {");
+    f.line("impl<const FP_MAX: usize> CohomologyClass<FP_MAX> {");
     f.indented_doc_comment("Phase X.2: crate-sealed constructor. Public callers go through");
     f.indented_doc_comment("`mint_cohomology_class` so that construction always routes through a");
     f.indented_doc_comment("validating hash of the cochain representative.");
     f.line("    #[inline]");
     f.line("    pub(crate) const fn with_dimension_and_fingerprint(");
     f.line("        dimension: u32,");
-    f.line("        fingerprint: ContentFingerprint,");
+    f.line("        fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        Self { dimension, fingerprint, _sealed: () }");
     f.line("    }");
@@ -8417,7 +8476,9 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.indented_doc_comment("The content fingerprint of the underlying cochain representative.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn fingerprint(&self) -> ContentFingerprint { self.fingerprint }");
+    f.line(
+        "    pub const fn fingerprint(&self) -> ContentFingerprint<FP_MAX> { self.fingerprint }",
+    );
     f.blank();
     f.indented_doc_comment("Phase X.2: cup product `H^n × H^m → H^{n+m}`. The resulting class");
     f.indented_doc_comment("carries dimension `n + m` and a fingerprint folded from both");
@@ -8428,10 +8489,10 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.indented_doc_comment("# Errors");
     f.indented_doc_comment("Returns `CohomologyError::DimensionOverflow` when `n + m >");
     f.indented_doc_comment("MAX_COHOMOLOGY_DIMENSION`.");
-    f.line("    pub fn cup<H: Hasher>(");
+    f.line("    pub fn cup<H: Hasher<FP_MAX>>(");
     f.line("        self,");
-    f.line("        other: CohomologyClass,");
-    f.line("    ) -> Result<CohomologyClass, CohomologyError> {");
+    f.line("        other: CohomologyClass<FP_MAX>,");
+    f.line("    ) -> Result<CohomologyClass<FP_MAX>, CohomologyError> {");
     f.line("        let sum = self.dimension.saturating_add(other.dimension);");
     f.line("        if sum > MAX_COHOMOLOGY_DIMENSION {");
     f.line("            return Err(CohomologyError::DimensionOverflow {");
@@ -8480,20 +8541,20 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.doc_comment("`H_n(·)` at dimension `n` with a content fingerprint of its chain");
     f.doc_comment("representative. Shares the dimension-as-runtime-field discipline.");
     f.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
-    f.line("pub struct HomologyClass {");
+    f.line("pub struct HomologyClass<const FP_MAX: usize = 32> {");
     f.line("    dimension: u32,");
-    f.line("    fingerprint: ContentFingerprint,");
+    f.line("    fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
 
-    f.line("impl HomologyClass {");
+    f.line("impl<const FP_MAX: usize> HomologyClass<FP_MAX> {");
     f.indented_doc_comment("Phase X.2: crate-sealed constructor. Public callers go through");
     f.indented_doc_comment("`mint_homology_class`.");
     f.line("    #[inline]");
     f.line("    pub(crate) const fn with_dimension_and_fingerprint(");
     f.line("        dimension: u32,");
-    f.line("        fingerprint: ContentFingerprint,");
+    f.line("        fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        Self { dimension, fingerprint, _sealed: () }");
     f.line("    }");
@@ -8506,18 +8567,20 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.indented_doc_comment("The content fingerprint of the underlying chain representative.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn fingerprint(&self) -> ContentFingerprint { self.fingerprint }");
+    f.line(
+        "    pub const fn fingerprint(&self) -> ContentFingerprint<FP_MAX> { self.fingerprint }",
+    );
     f.line("}");
     f.blank();
 
     f.doc_comment("Phase X.2: fold the cup-product operand pair into the hasher. Ordered");
     f.doc_comment("(lhs dimension + fingerprint, then rhs dimension + fingerprint).");
-    f.line("pub fn fold_cup_product<H: Hasher>(");
+    f.line("pub fn fold_cup_product<const FP_MAX: usize, H: Hasher<FP_MAX>>(");
     f.line("    mut hasher: H,");
     f.line("    lhs_dim: u32,");
-    f.line("    lhs_fp: &ContentFingerprint,");
+    f.line("    lhs_fp: &ContentFingerprint<FP_MAX>,");
     f.line("    rhs_dim: u32,");
-    f.line("    rhs_fp: &ContentFingerprint,");
+    f.line("    rhs_fp: &ContentFingerprint<FP_MAX>,");
     f.line(") -> H {");
     f.line("    hasher = hasher.fold_bytes(&lhs_dim.to_be_bytes());");
     f.line("    hasher = hasher.fold_bytes(lhs_fp.as_bytes());");
@@ -8534,10 +8597,10 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("Returns `CohomologyError::DimensionOverflow` when `dimension >");
     f.doc_comment("MAX_COHOMOLOGY_DIMENSION`.");
-    f.line("pub fn mint_cohomology_class<H: Hasher>(");
+    f.line("pub fn mint_cohomology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("    dimension: u32,");
     f.line("    seed: &[u8],");
-    f.line(") -> Result<CohomologyClass, CohomologyError> {");
+    f.line(") -> Result<CohomologyClass<FP_MAX>, CohomologyError> {");
     f.line("    if dimension > MAX_COHOMOLOGY_DIMENSION {");
     f.line("        return Err(CohomologyError::DimensionOverflow {");
     f.line("            lhs: dimension,");
@@ -8559,10 +8622,10 @@ fn emit_phase_x2_cohomology_cup(f: &mut RustFile) {
     f.doc_comment("# Errors");
     f.doc_comment("Returns `CohomologyError::DimensionOverflow` when `dimension >");
     f.doc_comment("MAX_COHOMOLOGY_DIMENSION`.");
-    f.line("pub fn mint_homology_class<H: Hasher>(");
+    f.line("pub fn mint_homology_class<H: Hasher<FP_MAX>, const FP_MAX: usize>(");
     f.line("    dimension: u32,");
     f.line("    seed: &[u8],");
-    f.line(") -> Result<HomologyClass, CohomologyError> {");
+    f.line(") -> Result<HomologyClass<FP_MAX>, CohomologyError> {");
     f.line("    if dimension > MAX_COHOMOLOGY_DIMENSION {");
     f.line("        return Err(CohomologyError::DimensionOverflow {");
     f.line("            lhs: dimension,");
@@ -8685,7 +8748,11 @@ fn emit_resolver_kernel_trait_and_generics(f: &mut RustFile) {
     f.line("        const KIND: crate::enforcement::CertificateKind;");
     f.line("        /// Phase X.1: the ontology-declared certificate class produced by");
     f.line("        /// this resolver (per `resolver:CertifyMapping`).");
-    f.line("        type Cert: crate::enforcement::Certificate;");
+    f.line("        ///");
+    f.line("        /// ADR-018/060: parameterized over the application's fingerprint");
+    f.line("        /// width `FP_MAX` (GAT, stable since Rust 1.65) so a resolver minting");
+    f.line("        /// through an arbitrary-width `Hasher` carries the matching width.");
+    f.line("        type Cert<const FP_MAX: usize>: crate::enforcement::Certificate;");
     f.line("    }");
     f.blank();
     // v0.2.2 Phase J: `generic_certify_at_ct` / `generic_certify_at_cu` are
@@ -8740,7 +8807,7 @@ fn phase_d_emit_resolver_module(
     f.line("        pub struct Kernel;");
     f.line("        impl super::ResolverKernel for Kernel {");
     f.line(&format!(
-        "            type Cert = crate::enforcement::{cert_type};"
+        "            type Cert<const FP_MAX: usize> = crate::enforcement::{cert_type}<FP_MAX>;"
     ));
     f.line(&format!(
         "            const KIND: crate::enforcement::CertificateKind = crate::enforcement::{cert_discriminant};"
@@ -8757,13 +8824,14 @@ fn phase_d_emit_resolver_module(
             f.line("        pub fn certify<");
             f.line("            T: crate::pipeline::ConstrainedTypeShape,");
             f.line("            P: crate::enforcement::ValidationPhase,");
-            f.line("            H: crate::enforcement::Hasher,");
+            f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
+            f.line("            const FP_MAX: usize,");
             f.line("        >(");
             f.line("            input: &Validated<T, P>,");
             f.line(&format!(
-                "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"
+                "        ) -> Result<Certified<{cert_type}<FP_MAX>>, Certified<GenericImpossibilityWitness>> {{"
             ));
-            f.line("            certify_at::<T, P, H>(input, WittLevel::W32)");
+            f.line("            certify_at::<T, P, H, FP_MAX>(input, WittLevel::W32)");
             f.line("        }");
             f.blank();
             f.line("        /// Phase D (target §4.2): certify at an explicit Witt level.");
@@ -8774,12 +8842,13 @@ fn phase_d_emit_resolver_module(
             f.line("        pub fn certify_at<");
             f.line("            T: crate::pipeline::ConstrainedTypeShape,");
             f.line("            P: crate::enforcement::ValidationPhase,");
-            f.line("            H: crate::enforcement::Hasher,");
+            f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
+            f.line("            const FP_MAX: usize,");
             f.line("        >(");
             f.line("            input: &Validated<T, P>,");
             f.line("            level: WittLevel,");
             f.line(&format!(
-                "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"
+                "        ) -> Result<Certified<{cert_type}<FP_MAX>>, Certified<GenericImpossibilityWitness>> {{"
             ));
             emit_phase_d_ct_body(f, composition);
             f.line("        }");
@@ -8792,14 +8861,15 @@ fn phase_d_emit_resolver_module(
             f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
             f.line("        pub fn certify<");
             f.line("            P: crate::enforcement::ValidationPhase,");
-            f.line("            H: crate::enforcement::Hasher,");
+            f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
             f.line("            const INLINE_BYTES: usize,");
+            f.line("            const FP_MAX: usize,");
             f.line("        >(");
             f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
             f.line(&format!(
-                "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"
+                "        ) -> Result<Certified<{cert_type}<FP_MAX>>, Certified<GenericImpossibilityWitness>> {{"
             ));
-            f.line("            certify_at::<P, H, INLINE_BYTES>(input, WittLevel::W32)");
+            f.line("            certify_at::<P, H, INLINE_BYTES, FP_MAX>(input, WittLevel::W32)");
             f.line("        }");
             f.blank();
             f.line("        /// Phase D (target §4.2): certify at an explicit Witt level.");
@@ -8809,13 +8879,14 @@ fn phase_d_emit_resolver_module(
             f.line("        /// Returns `Certified<GenericImpossibilityWitness>` on failure.");
             f.line("        pub fn certify_at<");
             f.line("            P: crate::enforcement::ValidationPhase,");
-            f.line("            H: crate::enforcement::Hasher,");
+            f.line("            H: crate::enforcement::Hasher<FP_MAX>,");
             f.line("            const INLINE_BYTES: usize,");
+            f.line("            const FP_MAX: usize,");
             f.line("        >(");
             f.line("            input: &Validated<CompileUnit<'_, INLINE_BYTES>, P>,");
             f.line("            level: WittLevel,");
             f.line(&format!(
-                "        ) -> Result<Certified<{cert_type}>, Certified<GenericImpossibilityWitness>> {{"
+                "        ) -> Result<Certified<{cert_type}<FP_MAX>>, Certified<GenericImpossibilityWitness>> {{"
             ));
             emit_phase_d_cu_body(f, composition);
             f.line("        }");
@@ -8955,7 +9026,7 @@ fn emit_phase_d_ct_body(f: &mut RustFile, composition: PhaseDKernelComposition) 
     f.line("            );");
     f.line("            let buffer = hasher.finalize();");
     f.line("            let fp = crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);");
-    f.line("            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);");
+    f.line("            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);");
     f.line("            Ok(Certified::new(cert))");
 }
 
@@ -9020,7 +9091,7 @@ fn emit_phase_d_cu_body(f: &mut RustFile, composition: PhaseDKernelComposition) 
     f.line("            );");
     f.line("            let buffer = hasher.finalize();");
     f.line("            let fp = crate::enforcement::ContentFingerprint::from_buffer(buffer, H::OUTPUT_BYTES as u8);");
-    f.line("            let cert = <<Kernel as super::ResolverKernel>::Cert as crate::enforcement::certify_const_mint::MintWithLevelFingerprint>::mint_with_level_fingerprint(witt_bits, fp);");
+    f.line("            let cert = <<Kernel as super::ResolverKernel>::Cert<FP_MAX> as crate::enforcement::certify_const_mint::MintWithLevelFingerprint<FP_MAX>>::mint_with_level_fingerprint(witt_bits, fp);");
     f.line("            Ok(Certified::new(cert))");
 }
 
@@ -10080,7 +10151,7 @@ fn generate_multiplication_context(f: &mut RustFile) {
     f.line("    }");
     f.line("}");
     f.blank();
-    f.line("impl MultiplicationCertificate {");
+    f.line("impl<const FP_MAX: usize> MultiplicationCertificate<FP_MAX> {");
     f.indented_doc_comment("v0.2.2 T6.7: construct a `MultiplicationCertificate` with substrate-");
     f.indented_doc_comment(
         "computed evidence. Crate-internal only; downstream obtains certificates",
@@ -10092,7 +10163,7 @@ fn generate_multiplication_context(f: &mut RustFile) {
     f.line("        splitting_factor: u32,");
     f.line("        sub_multiplication_count: u32,");
     f.line("        landauer_cost_nats_bits: u64,");
-    f.line("        content_fingerprint: ContentFingerprint,");
+    f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        let _ = MultiplicationEvidence {");
     f.line("            splitting_factor,");
@@ -10654,7 +10725,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("can reconstruct the source `GroundingCertificate` via structural-");
     f.doc_comment("validation + fingerprint passthrough (no hash recomputation).");
     f.line("#[derive(Debug, Clone, Copy)]");
-    f.line("pub struct Trace<const TR_MAX: usize = 256> {");
+    f.line("pub struct Trace<const TR_MAX: usize = 256, const FP_MAX: usize = 32> {");
     f.line("    events: [Option<TraceEvent>; TR_MAX],");
     f.line("    len: u16,");
     f.indented_doc_comment("Witt level the source grounding was minted at, packed");
@@ -10667,11 +10738,11 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("unchanged. The fingerprint's `FP_MAX` follows the application's");
     f.indented_doc_comment("selected `<MyBounds as HostBounds>::FINGERPRINT_MAX_BYTES`; this");
     f.indented_doc_comment("field uses the default-bound `ContentFingerprint`.");
-    f.line("    content_fingerprint: ContentFingerprint,");
+    f.line("    content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    _sealed: (),");
     f.line("}");
     f.blank();
-    f.line("impl<const TR_MAX: usize> Trace<TR_MAX> {");
+    f.line("impl<const TR_MAX: usize, const FP_MAX: usize> Trace<TR_MAX, FP_MAX> {");
     f.indented_doc_comment("An empty Trace.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
@@ -10697,7 +10768,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("        events: [Option<TraceEvent>; TR_MAX],");
     f.line("        len: u16,");
     f.line("        witt_level_bits: u16,");
-    f.line("        content_fingerprint: ContentFingerprint,");
+    f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Self {");
     f.line("        Self {");
     f.line("            events,");
@@ -10739,7 +10810,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("certificate, upholding the round-trip property.");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint {");
+    f.line("    pub const fn content_fingerprint(&self) -> ContentFingerprint<FP_MAX> {");
     f.line("        self.content_fingerprint");
     f.line("    }");
     f.blank();
@@ -10759,7 +10830,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.line("    pub fn try_from_events(");
     f.line("        events: &[TraceEvent],");
     f.line("        witt_level_bits: u16,");
-    f.line("        content_fingerprint: ContentFingerprint,");
+    f.line("        content_fingerprint: ContentFingerprint<FP_MAX>,");
     f.line("    ) -> Result<Self, ReplayError> {");
     f.line("        if events.is_empty() {");
     f.line("            return Err(ReplayError::EmptyTrace);");
@@ -10809,7 +10880,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.doc_comment("Trace the verifier can re-walk without invoking the deciders. The trace");
     f.doc_comment("length matches the derivation's `step_count()`, and each event's");
     f.doc_comment("`step_index` reflects its position in the derivation.");
-    f.line("impl Derivation {");
+    f.line("impl<const FP_MAX: usize> Derivation<FP_MAX> {");
     f.indented_doc_comment(
         "Replay this derivation as a fixed-size `Trace<TR_MAX>` whose length matches",
     );
@@ -10858,8 +10929,10 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("    .thermodynamic_budget(1024).target_domains(&doms)");
     f.indented_doc_comment("    .result_type::<ConstrainedTypeInput>()");
     f.indented_doc_comment("    .validate().expect(\"unit well-formed\");");
-    f.indented_doc_comment("let grounded: Grounded<ConstrainedTypeInput, N> =");
-    f.indented_doc_comment("    run::<ConstrainedTypeInput, _, H, N>(unit).expect(\"grounds\");");
+    f.indented_doc_comment("let grounded: Grounded<ConstrainedTypeInput, N, 32> =");
+    f.indented_doc_comment(
+        "    run::<ConstrainedTypeInput, _, H, N, 32>(unit).expect(\"grounds\");",
+    );
     f.indented_doc_comment("");
     f.indented_doc_comment("// Replay → round-trip verification. The trace's event-count");
     f.indented_doc_comment("// capacity comes from the application's `HostBounds`; here the");
@@ -10873,7 +10946,7 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("```");
     f.line("    #[inline]");
     f.line("    #[must_use]");
-    f.line("    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX> {");
+    f.line("    pub fn replay<const TR_MAX: usize>(&self) -> Trace<TR_MAX, FP_MAX> {");
     f.line("        let steps = self.step_count() as usize;");
     f.line("        let len = if steps > TR_MAX { TR_MAX } else { steps };");
     f.line("        let mut events = [None; TR_MAX];");
@@ -11048,9 +11121,9 @@ fn generate_bridge_namespace_surface(f: &mut RustFile) {
     f.indented_doc_comment("  `ContentAddress::zero()`.");
     f.indented_doc_comment("- `ReplayError::NonContiguousSteps { declared, last_step }` if");
     f.indented_doc_comment("  the event step indices skip values.");
-    f.line("    pub fn certify_from_trace<const TR_MAX: usize>(");
-    f.line("        trace: &Trace<TR_MAX>,");
-    f.line("    ) -> Result<Certified<GroundingCertificate>, ReplayError> {");
+    f.line("    pub fn certify_from_trace<const TR_MAX: usize, const FP_MAX: usize>(");
+    f.line("        trace: &Trace<TR_MAX, FP_MAX>,");
+    f.line("    ) -> Result<Certified<GroundingCertificate<FP_MAX>>, ReplayError> {");
     f.line("        let len = trace.len() as usize;");
     f.line("        if len == 0 {");
     f.line("            return Err(ReplayError::EmptyTrace);");

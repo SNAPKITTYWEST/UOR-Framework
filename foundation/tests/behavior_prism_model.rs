@@ -36,7 +36,9 @@
 use uor_foundation::enforcement::{ConstrainedTypeInput, Grounded, Hasher};
 use uor_foundation::pipeline::{run_route, FoundationClosed, PrismModel};
 use uor_foundation::{DefaultHostTypes, HostBounds, HostTypes, PipelineFailure};
-use uor_foundation_test_helpers::{ReferenceHostBounds, REFERENCE_INLINE_BYTES as N};
+use uor_foundation_test_helpers::{
+    ReferenceHostBounds, REFERENCE_FP_MAX as FP, REFERENCE_INLINE_BYTES as N,
+};
 
 /// `ConstrainedTypeInput` is foundation's identity route: the default
 /// empty shape carrying no constraints. Foundation sanctions its
@@ -78,7 +80,9 @@ struct IdentityModel;
 
 impl uor_foundation::pipeline::__sdk_seal::Sealed for IdentityModel {}
 
-impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> for IdentityModel {
+impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N, FP>
+    for IdentityModel
+{
     type Input = ConstrainedTypeInput;
     type Output = ConstrainedTypeInput;
     type Route = ConstrainedTypeInput;
@@ -86,7 +90,7 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> fo
     /// Per wiki ADR-022 D5, `forward` delegates to `run_route` — that is
     /// the architecturally-committed body the `prism_model!` macro
     /// emits. This test impl writes it by hand to pin the contract.
-    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N>, PipelineFailure> {
+    fn forward(input: Self::Input) -> Result<Grounded<'a, Self::Output, N, FP>, PipelineFailure> {
         run_route::<
             DefaultHostTypes,
             ReferenceHostBounds,
@@ -95,6 +99,7 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> fo
             uor_foundation::pipeline::NullResolverTuple,
             uor_foundation::pipeline::EmptyCommitment,
             N,
+            FP,
         >(
             input,
             &uor_foundation::pipeline::NullResolverTuple,
@@ -105,16 +110,17 @@ impl<'a> PrismModel<'a, DefaultHostTypes, ReferenceHostBounds, TestHasher, N> fo
 
 #[test]
 fn prism_model_surface_resolves_at_crate_root() {
-    fn _accepts_prism_model<'a, H, B, A, M, const INLINE_BYTES: usize>()
+    fn _accepts_prism_model<'a, H, B, A, M, const INLINE_BYTES: usize, const FP_MAX: usize>()
     where
         H: HostTypes,
         B: HostBounds,
-        A: Hasher,
-        M: PrismModel<'a, H, B, A, INLINE_BYTES>,
+        A: Hasher<FP_MAX>,
+        M: PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX>,
     {
     }
     fn _accepts_foundation_closed<R: FoundationClosed<N>>() {}
-    _accepts_prism_model::<DefaultHostTypes, ReferenceHostBounds, TestHasher, IdentityModel, N>();
+    _accepts_prism_model::<DefaultHostTypes, ReferenceHostBounds, TestHasher, IdentityModel, N, FP>(
+    );
     _accepts_foundation_closed::<ConstrainedTypeInput>();
 
     // Pin the associated-type identity: a trivial model carries the
@@ -126,6 +132,7 @@ fn prism_model_surface_resolves_at_crate_root() {
             ReferenceHostBounds,
             TestHasher,
             N,
+            FP,
         >>::Input,
     >();
     let output_name = core::any::type_name::<
@@ -135,6 +142,7 @@ fn prism_model_surface_resolves_at_crate_root() {
             ReferenceHostBounds,
             TestHasher,
             N,
+            FP,
         >>::Output,
     >();
     let route_name = core::any::type_name::<
@@ -144,6 +152,7 @@ fn prism_model_surface_resolves_at_crate_root() {
             ReferenceHostBounds,
             TestHasher,
             N,
+            FP,
         >>::Route,
     >();
     assert!(input_name.ends_with("ConstrainedTypeInput"));
@@ -156,12 +165,12 @@ fn prism_model_route_bound_is_foundation_closed() {
     // Parametric assertion: any `M: PrismModel<H, B, A>` has its `Route`
     // type bound by `FoundationClosed`. This is what enforces wiki
     // ADR-020's closure-under-foundation-vocabulary check.
-    fn _route_is_foundation_closed<'a, H, B, A, M, const INLINE_BYTES: usize>()
+    fn _route_is_foundation_closed<'a, H, B, A, M, const INLINE_BYTES: usize, const FP_MAX: usize>()
     where
         H: HostTypes,
         B: HostBounds,
-        A: Hasher,
-        M: PrismModel<'a, H, B, A, INLINE_BYTES>,
+        A: Hasher<FP_MAX>,
+        M: PrismModel<'a, H, B, A, INLINE_BYTES, FP_MAX>,
     {
         fn _check<R: FoundationClosed<INLINE_BYTES>, const INLINE_BYTES: usize>() {}
         _check::<M::Route, INLINE_BYTES>();
@@ -172,6 +181,7 @@ fn prism_model_route_bound_is_foundation_closed() {
         TestHasher,
         IdentityModel,
         N,
+        FP,
     >();
 
     // Pin behaviorally: the witnessing impl exists, observable via
@@ -183,6 +193,7 @@ fn prism_model_route_bound_is_foundation_closed() {
             ReferenceHostBounds,
             TestHasher,
             N,
+            FP,
         >>::Route,
     >();
     assert_eq!(
@@ -208,8 +219,9 @@ fn prism_model_forward_returns_grounded_result() {
         ReferenceHostBounds,
         TestHasher,
         N,
+        FP,
     >>::forward(ConstrainedTypeInput::default());
-    let _: Result<Grounded<'static, ConstrainedTypeInput, N>, PipelineFailure> = result;
+    let _: Result<Grounded<'static, ConstrainedTypeInput, N, FP>, PipelineFailure> = result;
     // The identity route's preflight resolves to the `Result` shape the
     // wiki commits `forward` to. Either an Ok grounded value or any
     // PipelineFailure variant — both are valid; what matters is the
@@ -222,6 +234,7 @@ fn prism_model_forward_returns_grounded_result() {
         ReferenceHostBounds,
         TestHasher,
         N,
+        FP,
     >>::Route as FoundationClosed<N>>::arena_slice();
     assert_eq!(
         arena.len(),
@@ -243,7 +256,10 @@ fn prism_model_axes_express_h_indexed_family() {
     _accepts_axes::<DefaultHostTypes, ReferenceHostBounds, TestHasher>();
 
     // The reference-axis impl resolves at compile time.
-    fn _resolve<M: PrismModel<'static, DefaultHostTypes, ReferenceHostBounds, TestHasher, N>>() {}
+    fn _resolve<
+        M: PrismModel<'static, DefaultHostTypes, ReferenceHostBounds, TestHasher, N, FP>,
+    >() {
+    }
     _resolve::<IdentityModel>();
     // Sanity: this assertion reflects the test compiles as written.
     assert_eq!(
@@ -269,6 +285,7 @@ fn run_route_is_canonical_catamorphism_call_site() {
         uor_foundation::pipeline::NullResolverTuple,
         uor_foundation::pipeline::EmptyCommitment,
         N,
+        FP,
     >(
         ConstrainedTypeInput::default(),
         &uor_foundation::pipeline::NullResolverTuple,
@@ -277,7 +294,7 @@ fn run_route_is_canonical_catamorphism_call_site() {
     // Surface the categorical commitment: the call returns a
     // `Result<Grounded<'static, Output>, PipelineFailure>` — whichever variant
     // it lands on, the function is callable as the wiki specifies.
-    let _: Result<Grounded<'static, ConstrainedTypeInput, N>, PipelineFailure> = result;
+    let _: Result<Grounded<'static, ConstrainedTypeInput, N, FP>, PipelineFailure> = result;
     // Pin that the entry point exists and produced a Result of the
     // committed shape (specific failure variants depend on internal
     // CompileUnit construction details).
@@ -285,12 +302,14 @@ fn run_route_is_canonical_catamorphism_call_site() {
         core::any::type_name::<
             fn(
                 ConstrainedTypeInput,
-            ) -> Result<Grounded<'static, ConstrainedTypeInput, N>, PipelineFailure>,
+            )
+                -> Result<Grounded<'static, ConstrainedTypeInput, N, FP>, PipelineFailure>,
         >(),
         core::any::type_name::<
             fn(
                 ConstrainedTypeInput,
-            ) -> Result<Grounded<'static, ConstrainedTypeInput, N>, PipelineFailure>,
+            )
+                -> Result<Grounded<'static, ConstrainedTypeInput, N, FP>, PipelineFailure>,
         >(),
     );
 }

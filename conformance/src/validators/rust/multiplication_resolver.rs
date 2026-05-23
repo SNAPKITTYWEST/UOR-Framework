@@ -69,7 +69,7 @@ pub fn validate(workspace: &Path) -> Result<ConformanceReport> {
         ),
         (
             "resolver::multiplication::certify free function",
-            "pub fn certify<H: crate::enforcement::Hasher>(",
+            "pub fn certify<H: crate::enforcement::Hasher<FP_MAX>, const FP_MAX: usize>(",
         ),
     ];
 

@@ -89,12 +89,12 @@ fn phase_c4_multiplication_certificate_is_level_dependent() {
     use uor_foundation::enforcement::resolver::multiplication;
 
     let ctx_w8 = MulContext::new(16 * 1024, false, 1);
-    let cert_w8 = multiplication::certify::<Fnv1aHasher16>(&ctx_w8)
+    let cert_w8 = multiplication::certify::<Fnv1aHasher16, 32>(&ctx_w8)
         .expect("W8 multiplication certify succeeds");
 
     let limbs_w32 = (32usize).div_ceil(64).max(1);
     let ctx_w32 = MulContext::new(16 * 1024, false, limbs_w32);
-    let cert_w32 = multiplication::certify::<Fnv1aHasher16>(&ctx_w32)
+    let cert_w32 = multiplication::certify::<Fnv1aHasher16, 32>(&ctx_w32)
         .expect("W32 multiplication certify succeeds");
 
     assert_ne!(cert_w8.certificate().witt_bits(), 0);
@@ -121,11 +121,13 @@ fn phase_e_run_const_grounded_metrics_differ_by_witt_level() {
     assert_eq!(validated_w32.inner().thermodynamic_budget(), 200);
 
     let g_w8: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w8)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&validated_w8)
             .expect("w8 grounds");
     let g_w32: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated_w32)
-            .expect("w32 grounds");
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(
+            &validated_w32,
+        )
+        .expect("w32 grounds");
 
     // unit_address differs because run_const folds the full unit state.
     assert_ne!(g_w8.unit_address(), g_w32.unit_address());
@@ -168,10 +170,10 @@ fn phase_f_run_parallel_unit_address_depends_on_site_count() {
             ConstrainedTypeInput,
         >(PARTITION_7, WITNESS));
     let g_3: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_3)
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_3)
             .expect("3-site parallel walks");
     let g_7: Grounded<'static, ConstrainedTypeInput, N> =
-        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_7)
+        run_parallel::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_7)
             .expect("7-site parallel walks");
     assert_ne!(g_3.unit_address(), g_7.unit_address());
 }
@@ -180,7 +182,7 @@ fn phase_f_run_parallel_unit_address_depends_on_site_count() {
 fn phase_f_stream_driver_yields_distinct_grounded() {
     let unit: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(3));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> = run_stream(unit);
     let g1 = driver.next().expect("step 1").expect("step 1 ok");
     let g2 = driver.next().expect("step 2").expect("step 2 ok");
     let g3 = driver.next().expect("step 3").expect("step 3 ok");
@@ -202,7 +204,7 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
     let unit: Validated<InteractionDeclaration> = validated_runtime(InteractionDeclaration::new::<
         ConstrainedTypeInput,
     >(0xDEAD_BEEF));
-    let mut driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
+    let mut driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> =
         run_interactive(unit);
     assert_eq!(driver.peer_step_count(), 0);
     assert!(!driver.is_converged());
@@ -239,7 +241,7 @@ fn phase_f_interaction_driver_folds_peer_inputs() {
 fn phase_f_interaction_driver_finalize_rejects_unconverged() {
     let unit: Validated<InteractionDeclaration> =
         validated_runtime(InteractionDeclaration::new::<ConstrainedTypeInput>(0));
-    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> =
+    let driver: InteractionDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> =
         run_interactive(unit);
     assert!(!driver.is_converged());
     let result: Result<Grounded<'static, ConstrainedTypeInput, N>, _> = driver.finalize();
@@ -256,15 +258,15 @@ fn phase_g_certify_const_functions_carry_unit_level() {
     assert_eq!(validated.inner().witt_level(), WittLevel::W32);
 
     let cert: Validated<GroundingCertificate, CompileTime> =
-        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
+        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&validated);
     assert_eq!(cert.inner().witt_bits(), 32);
 
     let inhab: Validated<GroundingCertificate, CompileTime> =
-        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
+        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&validated);
     assert_eq!(inhab.inner().witt_bits(), 32);
 
     let mult: Validated<MultiplicationCertificate, CompileTime> =
-        certify_multiplication_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
+        certify_multiplication_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&validated);
     assert_eq!(mult.inner().witt_bits(), 32);
 }
 
@@ -309,9 +311,9 @@ fn t5_pipeline_run_threads_constraints_into_unit_address() {
     let unit_200: Validated<CompileUnit<'static, N>> =
         build_compile_unit(WittLevel::W8, 200).into();
     let g_100: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_100).expect("100 grounds");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_100).expect("100 grounds");
     let g_200: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit_200).expect("200 grounds");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit_200).expect("200 grounds");
     assert_ne!(
         g_100.unit_address(),
         g_200.unit_address(),
@@ -331,7 +333,7 @@ fn t5_grounded_derivation_replay_round_trips_via_verify_trace() {
     use uor_foundation::pipeline::run;
     let unit: Validated<CompileUnit<'static, N>> = build_compile_unit(WittLevel::W8, 100).into();
     let grounded: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("grounds");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit).expect("grounds");
     let trace: uor_foundation::Trace = grounded.derivation().replay();
     let reverified =
         uor_foundation::enforcement::replay::certify_from_trace(&trace).expect("re-verifies");
@@ -351,10 +353,10 @@ fn t5_distinct_widths_produce_distinct_fingerprints_for_same_unit() {
     use uor_foundation_test_helpers::Fnv1aHasher32;
     let validated = build_compile_unit(WittLevel::W8, 100);
     let g_16: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N>(&validated)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher16, N, 32>(&validated)
             .expect("16");
     let g_32: Grounded<'static, ConstrainedTypeInput, N> =
-        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher32, N>(&validated)
+        run_const::<ConstrainedTypeInput, IntegerGroundingMap, Fnv1aHasher32, N, 32>(&validated)
             .expect("32");
     assert_eq!(g_16.content_fingerprint().width_bytes(), 16);
     assert_eq!(g_32.content_fingerprint().width_bytes(), 32);
@@ -369,9 +371,9 @@ fn t5_distinct_widths_produce_distinct_fingerprints_for_same_unit() {
 fn t5_certify_distinguishes_certificate_kinds() {
     let validated = build_compile_unit(WittLevel::W32, 42);
     let c_tower: Validated<GroundingCertificate, CompileTime> =
-        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
+        certify_tower_completeness_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&validated);
     let c_inhab: Validated<GroundingCertificate, CompileTime> =
-        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N>(&validated);
+        certify_inhabitance_const::<ConstrainedTypeInput, Fnv1aHasher16, N, 32>(&validated);
     assert_ne!(
         c_tower.inner().content_fingerprint(),
         c_inhab.inner().content_fingerprint(),
@@ -383,7 +385,7 @@ fn t5_certify_distinguishes_certificate_kinds() {
 fn t5_stream_driver_is_terminated_observable_without_consumption() {
     let unit: Validated<StreamDeclaration<'_, N>> =
         validated_runtime(StreamDeclaration::new::<ConstrainedTypeInput>(2));
-    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N> = run_stream(unit);
+    let mut driver: StreamDriver<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32> = run_stream(unit);
     assert!(!driver.is_terminated());
     let _ = driver.next().expect("step 1");
     assert!(!driver.is_terminated());
@@ -475,7 +477,8 @@ fn t6_grounded_with_bindings_attaches_downstream_table() {
     use uor_foundation::enforcement::{BindingEntry, BindingsTable, ContentAddress};
     let unit = build_compile_unit(WittLevel::W8, 1024);
     let grounded =
-        uor_foundation::pipeline::run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).unwrap();
+        uor_foundation::pipeline::run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit)
+            .unwrap();
     let original_fp = grounded.content_fingerprint();
     static ENTRIES: &[BindingEntry] = &[
         BindingEntry {

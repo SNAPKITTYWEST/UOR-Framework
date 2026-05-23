@@ -2,7 +2,7 @@
 
 //! UOR Foundation — typed Rust traits for the complete ontology.
 //!
-//! Version: 0.5.1
+//! Version: 0.5.2
 //!
 //! This crate exports every ontology class as a trait, every property as a
 //! method, and every named individual as a constant. Implementations import

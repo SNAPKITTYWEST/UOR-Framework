@@ -30,7 +30,7 @@ fn main() {
         .result_type::<ConstrainedTypeInput>();
     let unit: Validated<_> = builder.validate().expect("unit well-formed");
     let grounded: Grounded<'static, ConstrainedTypeInput, N> =
-        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N>(unit).expect("pipeline admits");
+        run::<ConstrainedTypeInput, _, Fnv1aHasher16, N, 32>(unit).expect("pipeline admits");
 
     // Replay: extract a Trace from the grounded derivation. Type-annotate
     // so `replay::<TR_MAX>` infers `TR_MAX` from `Trace`'s default
